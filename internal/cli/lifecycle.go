@@ -58,7 +58,7 @@ func (a *app) statusCommand() *cobra.Command {
 
 func (a *app) destroyCommand() *cobra.Command {
 	var config, target string
-	var volumes, yes bool
+	var volumes, yes, dryRun bool
 	cmd := &cobra.Command{
 		Use:   "destroy",
 		Short: "Remove this spec's deployment from a target",
@@ -86,6 +86,19 @@ func (a *app) destroyCommand() *cobra.Command {
 				}
 				fmt.Fprintf(a.out, "  • %s\n", line)
 			}
+			if dryRun {
+				// Show what actually exists, when the target can say.
+				if reader, ok := d.adapter.(adapter.StatusReader); ok {
+					st, err := reader.Status(cmd.Context(), d.spec, d.env)
+					if err != nil {
+						return err
+					}
+					fmt.Fprintln(a.out)
+					printStatus(a.out, a.style, d.spec.Name, st)
+				}
+				fmt.Fprintln(a.out, a.style.dim("\nDry run: nothing was removed."))
+				return nil
+			}
 			if !yes {
 				var confirmed bool
 				if volumes {
@@ -106,13 +119,7 @@ func (a *app) destroyCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			for _, m := range result.Messages {
-				if result.OK {
-					fmt.Fprintln(a.out, a.style.green("✔ "+m))
-				} else {
-					fmt.Fprintln(a.out, a.style.red("✖ "+m))
-				}
-			}
+			printResult(a.out, a.style, result)
 			if !result.OK {
 				return errReported
 			}
@@ -123,6 +130,7 @@ func (a *app) destroyCommand() *cobra.Command {
 	addTargetFlag(cmd, &target)
 	cmd.Flags().BoolVar(&volumes, "volumes", false, "also delete volumes, secrets and deployment files")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation prompt")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be removed and what is running now, without removing anything")
 	return cmd
 }
 
