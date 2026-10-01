@@ -11,7 +11,7 @@ import (
 	"github.com/j75689/anyship/spec"
 )
 
-func project(t *testing.T, files map[string]string) string {
+func writeProject(t *testing.T, files map[string]string) string {
 	t.Helper()
 	dir := t.TempDir()
 	for name, contents := range files {
@@ -28,7 +28,7 @@ func project(t *testing.T, files map[string]string) string {
 
 func detect(t *testing.T, files map[string]string) *Detection {
 	t.Helper()
-	d, err := Project(project(t, files))
+	d, err := Project(writeProject(t, files))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,12 +131,9 @@ func TestDockerfileFallback(t *testing.T) {
 }
 
 func TestUnknownProjectIsReported(t *testing.T) {
-	d := detect(t, map[string]string{"go.mod": "module example.com/x\n"})
+	d := detect(t, map[string]string{"README.md": "# notes\n", "build.gradle": ""})
 	if !slices.Contains(codes(d.Findings), "DETECT_UNKNOWN") {
 		t.Errorf("findings = %v", codes(d.Findings))
-	}
-	if !slices.Contains(d.Evidence, "go.mod found → Go project") {
-		t.Errorf("evidence = %v", d.Evidence)
 	}
 	if reparse(t, d.Spec) == nil {
 		t.Error("an undetectable project should not produce a deployable spec")

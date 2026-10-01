@@ -6,7 +6,6 @@
 package detect
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -31,50 +30,81 @@ type Detection struct {
 	Evidence []string
 }
 
-type frameworkRule struct {
-	dep       string
-	framework string
-	kind      spec.ServiceKind
-	output    string
-	// edge marks frameworks known to run on edge runtimes such as Cloudflare Workers.
-	edge bool
+// Project inspects dir and drafts a spec for it.
+func Project(dir string) (*Detection, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s is not a directory", dir)
+	}
+
+	p := project{dir: dir}
+	d := &Detection{Spec: &spec.Spec{Version: spec.Version, Name: specName(filepath.Base(dir)), Resources: map[string]*spec.Resource{}}}
+	var svc *spec.Service
+	switch {
+	case p.has("package.json"):
+		svc, err = d.detectJavaScript(p)
+	case p.has("go.mod"):
+		svc = d.detectGo(p)
+	case p.has("Cargo.toml"):
+		svc = d.detectRust(p)
+	case p.has("pyproject.toml") || p.has("requirements.txt"):
+		svc = d.detectPython(p)
+	case p.has("Dockerfile"):
+		svc = d.detectDockerfile(p)
+	case p.has("index.html"):
+		d.Evidence = append(d.Evidence, "index.html without a manifest → static site served from the project root")
+		svc = &spec.Service{Kind: spec.KindStatic, Build: &spec.Build{Output: "."}}
+	default:
+		d.Findings = append(d.Findings, adapter.Finding{
+			Level:   adapter.Error,
+			Code:    "DETECT_UNKNOWN",
+			Message: "Could not work out how to build or start this project.",
+			Hint:    "Add a Dockerfile, or fill in services.web in anyship.json. Auto-detection covers JavaScript, Go, Python and Rust.",
+		})
+		svc = &spec.Service{Kind: spec.KindServer}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if svc.Kind != spec.KindStatic && p.has("Dockerfile") && svc.Dockerfile == "" {
+		d.Evidence = append(d.Evidence, `Dockerfile found; set services.web.dockerfile to "Dockerfile" to build with it on container targets`)
+	}
+	d.Spec.Services = map[string]*spec.Service{ServiceName: svc}
+	return d, nil
 }
 
-// First match wins, so meta-frameworks come before the libraries they build on.
-var frameworks = []frameworkRule{
-	{dep: "next", framework: "nextjs", kind: spec.KindServer},
-	{dep: "nuxt", framework: "nuxt", kind: spec.KindServer},
-	{dep: "@sveltejs/kit", framework: "sveltekit", kind: spec.KindServer},
-	{dep: "astro", framework: "astro", kind: spec.KindStatic, output: "dist"},
-	{dep: "hono", framework: "hono", kind: spec.KindServer, edge: true},
-	{dep: "@nestjs/core", framework: "nestjs", kind: spec.KindServer},
-	{dep: "fastify", framework: "fastify", kind: spec.KindServer},
-	{dep: "express", framework: "express", kind: spec.KindServer},
-	{dep: "react-scripts", framework: "create-react-app", kind: spec.KindStatic, output: "build"},
-	{dep: "vite", framework: "vite", kind: spec.KindStatic, output: "dist"},
+func (d *Detection) detectDockerfile(p project) *spec.Service {
+	d.Evidence = append(d.Evidence, "Dockerfile found → container service built from it")
+	svc := &spec.Service{Kind: spec.KindServer, Dockerfile: "Dockerfile"}
+	if m := exposeRe.FindStringSubmatch(p.read("Dockerfile")); m != nil {
+		port, _ := strconv.Atoi(m[1])
+		d.Evidence = append(d.Evidence, fmt.Sprintf("Dockerfile EXPOSE %d", port))
+		svc.Ports = []spec.Port{{Port: port}}
+	}
+	return svc
 }
 
-var lockfiles = []struct{ file, pm string }{
-	{"bun.lock", "bun"},
-	{"bun.lockb", "bun"},
-	{"pnpm-lock.yaml", "pnpm"},
-	{"yarn.lock", "yarn"},
-	{"package-lock.json", "npm"},
+var exposeRe = regexp.MustCompile(`(?im)^\s*EXPOSE\s+(\d+)`)
+
+// setName uses a manifest's project name for the spec when it yields a valid one.
+func (d *Detection) setName(raw string) {
+	if raw != "" {
+		d.Spec.Name = specName(raw)
+	}
 }
 
-var resourceDeps = []struct {
-	dep string
-	typ spec.ResourceType
-}{
-	{"pg", spec.ResourcePostgres},
-	{"postgres", spec.ResourcePostgres},
-	{"@neondatabase/serverless", spec.ResourcePostgres},
-	{"mysql2", spec.ResourceMySQL},
-	{"better-sqlite3", spec.ResourceSQLite},
-	{"@libsql/client", spec.ResourceSQLite},
-	{"ioredis", spec.ResourceRedis},
-	{"redis", spec.ResourceRedis},
-	{"@aws-sdk/client-s3", spec.ResourceBucket},
+// addResource records a resource the service binds to, once per name.
+func (d *Detection) addResource(svc *spec.Service, typ spec.ResourceType, because string) {
+	name := resourceNames[typ]
+	if d.Spec.Resources[name] != nil {
+		return
+	}
+	d.Spec.Resources[name] = &spec.Resource{Type: typ}
+	svc.Uses = append(svc.Uses, name)
+	d.Evidence = append(d.Evidence, fmt.Sprintf("%s → %s resource %q", because, typ, name))
 }
 
 var resourceNames = map[spec.ResourceType]string{
@@ -86,288 +116,99 @@ var resourceNames = map[spec.ResourceType]string{
 	spec.ResourceKV:       "kv",
 }
 
-var (
-	// Node built-ins that edge runtimes don't provide at all.
-	edgeBlockingModules = []string{"child_process", "cluster", "dgram", "worker_threads"}
-	// Node built-ins edge runtimes only partly emulate.
-	edgeLimitedModules = []string{"fs", "net"}
-	// Dependencies that ship native binaries.
-	nativeDeps = []string{"sharp", "bcrypt", "better-sqlite3", "sqlite3", "canvas", "argon2"}
+// listenAddress is a host:port a program binds to, found in its source.
+type listenAddress struct {
+	host string
+	port int
+	file string
+}
 
-	sourceExtensions = []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"}
-	skipDirs         = []string{"node_modules", "dist", "build", "coverage"}
-	entryCandidates  = []string{"src/index.ts", "src/index.js", "src/worker.ts", "src/worker.js", "index.ts", "index.js"}
-	otherLanguages   = []struct{ file, language string }{
-		{"go.mod", "Go"}, {"requirements.txt", "Python"}, {"pyproject.toml", "Python"}, {"Cargo.toml", "Rust"},
+// findListenAddress returns the first address matched by re (capture groups:
+// host, port) in the project's source files with the given extensions.
+func findListenAddress(p project, re *regexp.Regexp, exts ...string) (listenAddress, bool) {
+	for _, file := range p.sourceFiles(exts...) {
+		m := re.FindStringSubmatch(p.read(file))
+		if m == nil {
+			continue
+		}
+		port, err := strconv.Atoi(m[2])
+		if err != nil || port < 1 || port > 65535 {
+			continue
+		}
+		return listenAddress{host: m[1], port: port, file: file}, true
 	}
+	return listenAddress{}, false
+}
 
-	importRe = regexp.MustCompile(`(?:from\s+|require\(\s*|import\(\s*)["'](?:node:)?(` +
-		strings.Join(append(slices.Clone(edgeBlockingModules), edgeLimitedModules...), "|") +
-		`)(?:/[^"']*)?["']`)
-	portRe   = regexp.MustCompile(`(?:--port[= ]|-p[= ]|PORT=)(\d{2,5})\b`)
-	exposeRe = regexp.MustCompile(`(?im)^\s*EXPOSE\s+(\d+)`)
-)
+// usePort sets the service port from a source address, or assumes fallback.
+// Loopback binds get a warning: inside a container they're unreachable.
+func (d *Detection) usePort(svc *spec.Service, addr listenAddress, found bool, fallback int) {
+	if !found {
+		svc.Ports = []spec.Port{{Port: fallback}}
+		d.Findings = append(d.Findings, adapter.Finding{
+			Level: adapter.Info, Code: "DETECT_PORT_ASSUMED", Service: ServiceName,
+			Message: fmt.Sprintf("No listen port found; assumed %d.", fallback),
+		})
+		return
+	}
+	svc.Ports = []spec.Port{{Port: addr.port}}
+	d.Evidence = append(d.Evidence, fmt.Sprintf("port %d from %s", addr.port, addr.file))
+	if isLoopback(addr.host) {
+		d.Findings = append(d.Findings, adapter.Finding{
+			Level: adapter.Warning, Code: "DETECT_LOOPBACK_BIND", Service: ServiceName, File: addr.file,
+			Message: fmt.Sprintf("Listens on %s:%d, which is unreachable from outside a container.", addr.host, addr.port),
+			Hint:    "Listen on 0.0.0.0 (or read the host from an environment variable).",
+		})
+	}
+}
+
+func isLoopback(host string) bool {
+	return host == "localhost" || strings.HasPrefix(host, "127.") || host == "[::1]" || host == "::1"
+}
+
+// project gives detectors read-only access to a source tree.
+type project struct{ dir string }
+
+func (p project) has(name string) bool {
+	_, err := os.Stat(filepath.Join(p.dir, name))
+	return err == nil
+}
+
+// read returns a file's contents, or "" if it can't be read.
+func (p project) read(name string) string {
+	data, err := os.ReadFile(filepath.Join(p.dir, name))
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
 
 const maxScannedFiles = 2000
 
-type packageJSON struct {
-	Name            string            `json:"name"`
-	Main            string            `json:"main"`
-	Scripts         map[string]string `json:"scripts"`
-	Dependencies    map[string]string `json:"dependencies"`
-	DevDependencies map[string]string `json:"devDependencies"`
-}
-
-// Project inspects dir and drafts a spec for it.
-func Project(dir string) (*Detection, error) {
-	info, err := os.Stat(dir)
-	if err != nil {
-		return nil, err
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("%s is not a directory", dir)
-	}
-
-	d := &Detection{}
-	has := func(name string) bool { _, err := os.Stat(filepath.Join(dir, name)); return err == nil }
-
-	var pkg *packageJSON
-	if has("package.json") {
-		data, err := os.ReadFile(filepath.Join(dir, "package.json"))
-		if err != nil {
-			return nil, err
-		}
-		pkg = &packageJSON{}
-		if err := json.Unmarshal(data, pkg); err != nil {
-			return nil, fmt.Errorf("package.json: %w", err)
-		}
-	}
-
-	name := filepath.Base(dir)
-	if pkg != nil && pkg.Name != "" {
-		name = pkg.Name
-	}
-	d.Spec = &spec.Spec{Version: spec.Version, Name: specName(name)}
-
-	if pkg == nil {
-		d.Spec.Services = map[string]*spec.Service{ServiceName: d.detectWithoutPackageJSON(dir, has)}
-		return d, nil
-	}
-	d.detectJavaScript(dir, has, pkg)
-	return d, nil
-}
-
-func (d *Detection) detectWithoutPackageJSON(dir string, has func(string) bool) *spec.Service {
-	if has("Dockerfile") {
-		d.Evidence = append(d.Evidence, "Dockerfile found → container service built from it")
-		svc := &spec.Service{Kind: spec.KindServer, Dockerfile: "Dockerfile"}
-		if port := dockerfilePort(filepath.Join(dir, "Dockerfile")); port > 0 {
-			d.Evidence = append(d.Evidence, fmt.Sprintf("Dockerfile EXPOSE %d", port))
-			svc.Ports = []spec.Port{{Port: port}}
-		}
-		return svc
-	}
-	if has("index.html") {
-		d.Evidence = append(d.Evidence, "index.html without package.json → static site served from the project root")
-		return &spec.Service{Kind: spec.KindStatic, Build: &spec.Build{Output: "."}}
-	}
-	for _, l := range otherLanguages {
-		if has(l.file) {
-			d.Evidence = append(d.Evidence, fmt.Sprintf("%s found → %s project", l.file, l.language))
-		}
-	}
-	d.Findings = append(d.Findings, adapter.Finding{
-		Level:   adapter.Error,
-		Code:    "DETECT_UNKNOWN",
-		Message: "Could not work out how to build or start this project.",
-		Hint:    "Add a Dockerfile, or fill in services.web.start in anyship.json. Only JavaScript projects are auto-detected so far.",
-	})
-	return &spec.Service{Kind: spec.KindServer}
-}
-
-func (d *Detection) detectJavaScript(dir string, has func(string) bool, pkg *packageJSON) {
-	deps := map[string]bool{}
-	for dep := range pkg.Dependencies {
-		deps[dep] = true
-	}
-	for dep := range pkg.DevDependencies {
-		deps[dep] = true
-	}
-
-	pm := "npm"
-	for _, l := range lockfiles {
-		if has(l.file) {
-			pm = l.pm
-			break
-		}
-	}
-	d.Evidence = append(d.Evidence, "package manager: "+pm)
-
-	var rule *frameworkRule
-	for i := range frameworks {
-		if deps[frameworks[i].dep] {
-			rule = &frameworks[i]
-			d.Evidence = append(d.Evidence, fmt.Sprintf("dependency %q → %s (%s)", rule.dep, rule.framework, rule.kind))
-			break
-		}
-	}
-
-	svc := &spec.Service{Kind: spec.KindServer, Runtime: &spec.Runtime{Language: "javascript"}}
-	if rule != nil {
-		svc.Kind = rule.kind
-		svc.Runtime.Framework = rule.framework
-	}
-	if pkg.Scripts["build"] != "" {
-		svc.Build = &spec.Build{Command: pm + " run build"}
-	}
-
-	if svc.Kind == spec.KindStatic {
-		if svc.Build == nil {
-			svc.Build = &spec.Build{}
-		}
-		svc.Build.Output = cmp(rule.output, "dist")
-	} else {
-		d.detectServer(dir, has, pkg, pm, rule, svc)
-	}
-
-	d.Spec.Resources = map[string]*spec.Resource{}
-	for _, rd := range resourceDeps {
-		name := resourceNames[rd.typ]
-		if !deps[rd.dep] || d.Spec.Resources[name] != nil {
-			continue
-		}
-		d.Spec.Resources[name] = &spec.Resource{Type: rd.typ}
-		svc.Uses = append(svc.Uses, name)
-		d.Evidence = append(d.Evidence, fmt.Sprintf("dependency %q → %s resource %q", rd.dep, rd.typ, name))
-	}
-
-	if svc.Kind == spec.KindServer {
-		blockers := d.scanEdgeCompatibility(dir, deps)
-		switch {
-		case blockers > 0:
-			svc.Runtime.EdgeCompatible = ptr(false)
-		case rule != nil && rule.edge:
-			svc.Runtime.EdgeCompatible = ptr(true)
-		}
-	}
-
-	d.Spec.Services = map[string]*spec.Service{ServiceName: svc}
-}
-
-func (d *Detection) detectServer(dir string, has func(string) bool, pkg *packageJSON, pm string, rule *frameworkRule, svc *spec.Service) {
-	switch {
-	case pkg.Scripts["start"] != "":
-		svc.Start = pm + " run start"
-	case pkg.Main != "":
-		svc.Start = "node " + pkg.Main
-	}
-
-	if rule != nil && rule.edge {
-		for _, candidate := range entryCandidates {
-			if has(candidate) {
-				svc.Entry = candidate
-				d.Evidence = append(d.Evidence, "edge entry module: "+candidate)
-				break
-			}
-		}
-	}
-
-	port := 0
-	for _, script := range []string{"start", "dev", "serve", "preview"} {
-		if m := portRe.FindStringSubmatch(pkg.Scripts[script]); m != nil {
-			port, _ = strconv.Atoi(m[1])
-			break
-		}
-	}
-	switch {
-	case port > 0:
-		svc.Ports = []spec.Port{{Port: port}}
-		d.Evidence = append(d.Evidence, fmt.Sprintf("port %d from package.json scripts", port))
-	case svc.Start != "":
-		svc.Ports = []spec.Port{{Port: 3000}}
-		d.Findings = append(d.Findings, adapter.Finding{
-			Level: adapter.Info, Code: "DETECT_PORT_ASSUMED", Message: "No port found in scripts; assumed 3000.", Service: ServiceName,
-		})
-	}
-
-	if svc.Start == "" && svc.Entry == "" {
-		d.Findings = append(d.Findings, adapter.Finding{
-			Level:   adapter.Error,
-			Code:    "DETECT_NO_START",
-			Message: "No start script, main field or entry module found.",
-			Service: ServiceName,
-			Hint:    `Add a "start" script to package.json or set services.web.start in anyship.json.`,
-		})
-	}
-}
-
-// scanEdgeCompatibility records edge-runtime incompatibilities as findings and
-// returns how many are blocking.
-func (d *Detection) scanEdgeCompatibility(dir string, deps map[string]bool) int {
-	blockers := 0
-	for _, dep := range nativeDeps {
-		if !deps[dep] {
-			continue
-		}
-		blockers++
-		d.Findings = append(d.Findings, adapter.Finding{
-			Level:   adapter.Warning,
-			Code:    "EDGE_NATIVE_DEPENDENCY",
-			Message: fmt.Sprintf("%q ships native binaries, which edge runtimes cannot load.", dep),
-			Service: ServiceName,
-		})
-	}
-
-	for _, file := range sourceFiles(dir) {
-		data, err := os.ReadFile(file)
-		if err != nil {
-			continue
-		}
-		var modules []string
-		for _, m := range importRe.FindAllSubmatch(data, -1) {
-			if mod := string(m[1]); !slices.Contains(modules, mod) {
-				modules = append(modules, mod)
-			}
-		}
-		rel, _ := filepath.Rel(dir, file)
-		for _, mod := range modules {
-			f := adapter.Finding{
-				Level:   adapter.Info,
-				Code:    "EDGE_LIMITED_MODULE",
-				Message: fmt.Sprintf("imports node:%s, which edge runtimes only partly emulate.", mod),
-				Service: ServiceName,
-				File:    filepath.ToSlash(rel),
-			}
-			if slices.Contains(edgeBlockingModules, mod) {
-				blockers++
-				f.Level = adapter.Warning
-				f.Code = "EDGE_UNSUPPORTED_MODULE"
-				f.Message = fmt.Sprintf("imports node:%s, which edge runtimes do not provide.", mod)
-			}
-			d.Findings = append(d.Findings, f)
-		}
-	}
-	return blockers
-}
+var skipDirs = []string{"node_modules", "dist", "build", "coverage", "vendor", "target", "venv", "__pycache__", "site-packages"}
 
 var errScanLimit = errors.New("scan limit reached")
 
-// sourceFiles lists JavaScript/TypeScript sources under root in lexical order,
-// skipping dependencies, build output and hidden directories.
-func sourceFiles(root string) []string {
+// sourceFiles lists files with the given extensions in lexical order,
+// relative to the project root, skipping dependencies, build output and
+// hidden directories.
+func (p project) sourceFiles(exts ...string) []string {
 	var out []string
-	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(p.dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if entry.IsDir() {
-			if path != root && (strings.HasPrefix(entry.Name(), ".") || slices.Contains(skipDirs, entry.Name())) {
+			if path != p.dir && (strings.HasPrefix(entry.Name(), ".") || slices.Contains(skipDirs, entry.Name())) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if slices.Contains(sourceExtensions, filepath.Ext(path)) && !strings.HasSuffix(path, ".d.ts") {
-			out = append(out, path)
+		if slices.Contains(exts, filepath.Ext(path)) && !strings.HasSuffix(path, ".d.ts") {
+			rel, err := filepath.Rel(p.dir, path)
+			if err == nil {
+				out = append(out, filepath.ToSlash(rel))
+			}
 			if len(out) >= maxScannedFiles {
 				return errScanLimit
 			}
@@ -377,24 +218,12 @@ func sourceFiles(root string) []string {
 	return out
 }
 
-func dockerfilePort(file string) int {
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return 0
-	}
-	if m := exposeRe.FindSubmatch(data); m != nil {
-		port, _ := strconv.Atoi(string(m[1]))
-		return port
-	}
-	return 0
-}
-
 var (
 	scopeRe   = regexp.MustCompile(`^@[^/]+/`)
 	invalidRe = regexp.MustCompile(`[^a-z0-9-]+`)
 )
 
-// specName turns a package or directory name into a valid spec name.
+// specName turns a package, module or directory name into a valid spec name.
 func specName(raw string) string {
 	name := strings.ToLower(raw)
 	name = scopeRe.ReplaceAllString(name, "")
@@ -408,13 +237,6 @@ func specName(raw string) string {
 		return "app"
 	}
 	return name
-}
-
-func cmp(value, fallback string) string {
-	if value != "" {
-		return value
-	}
-	return fallback
 }
 
 func ptr[T any](v T) *T { return &v }
