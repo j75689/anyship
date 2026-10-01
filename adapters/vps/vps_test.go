@@ -92,10 +92,11 @@ func codes(p *adapter.Plan, level adapter.Level) []string {
 
 func composeOf(t *testing.T, p *adapter.Plan) composeFile {
 	t.Helper()
-	if len(p.Files) != 1 {
-		t.Fatalf("want 1 generated file, got %d (errors %v)", len(p.Files), codes(p, adapter.Error))
+	i := slices.IndexFunc(p.Files, func(f adapter.File) bool { return filepath.Base(f.Path) == "compose.yaml" })
+	if i < 0 {
+		t.Fatalf("plan has no compose.yaml (errors %v)", codes(p, adapter.Error))
 	}
-	_, body, _ := bytes.Cut(p.Files[0].Contents, []byte("\n"))
+	_, body, _ := bytes.Cut(p.Files[i].Contents, []byte("\n"))
 	var c composeFile
 	if err := json.Unmarshal(body, &c); err != nil {
 		t.Fatal(err)
@@ -170,7 +171,6 @@ func TestRequiresAValidHost(t *testing.T) {
 func TestRefusesWhatItCannotRunYet(t *testing.T) {
 	env, _ := newEnv(t, t.TempDir())
 	cases := map[string]string{
-		`"web": {"kind": "static", "build": {"output": "dist"}}`:                                                                         "VPS_STATIC_UNSUPPORTED",
 		`"web": {"kind": "server", "start": "node server.js"}`:                                                                           "VPS_NEEDS_IMAGE",
 		`"web": {"kind": "server", "image": "app", "start": "node a.js | tee log"}`:                                                      "VPS_BAD_START",
 		`"web": {"kind": "server", "image": "app", "cron": [{"schedule": "* * * * *"}]}`:                                                 "VPS_CRON_UNSUPPORTED",
@@ -415,5 +415,81 @@ func TestLogsExplainsFailures(t *testing.T) {
 	noTarget := parse(t, `{"version": 1, "name": "app", "services": {"web": {"kind": "server", "image": "nginx"}}}`)
 	if err := New().Logs(context.Background(), noTarget, env, adapter.LogOptions{}); err == nil || !strings.Contains(err.Error(), "host is required") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func writeFiles(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for name, contents := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestGeneratesADockerfileForSourceServices(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"go.mod": "module example.com/api\n", "main.go": "package main\n"})
+	s := parse(t, `{"version": 1, "name": "api",
+		"services": {"web": {"kind": "server", "build": {"command": "go build -o bin/api ."}, "start": "./bin/api", "ports": [{"port": 8080}], "runtime": {"language": "go"}}},
+		"targets": {"vps": {"host": "h"}}}`)
+	env, rec := newEnv(t, dir)
+
+	p := plan(t, s, env)
+	if build := composeOf(t, p).Services["web"].Build; build == nil || build.Context != "src/web" || build.Dockerfile != "Dockerfile.anyship" {
+		t.Fatalf("build = %+v", build)
+	}
+	if !slices.Contains(codes(p, adapter.Info), "VPS_GENERATED_DOCKERFILE") {
+		t.Errorf("findings = %v", codes(p, adapter.Info))
+	}
+	review := filepath.Join(env.OutDir, "web.Dockerfile")
+	if !slices.ContainsFunc(p.Files, func(f adapter.File) bool {
+		return f.Path == review && bytes.Contains(f.Contents, []byte("FROM golang:1 AS build"))
+	}) {
+		t.Errorf("plan should include %s for review", review)
+	}
+
+	if result, err := New().Apply(context.Background(), p, s, env); err != nil || !result.OK {
+		t.Fatalf("apply = %+v, %v", result, err)
+	}
+	files := untar(t, rec.calls[1].stdin)
+	for _, want := range []string{"src/web/main.go", "src/web/Dockerfile.anyship", "src/web/Dockerfile.anyship.dockerignore"} {
+		if _, ok := files[want]; !ok {
+			t.Errorf("bundle is missing %s; has %v", want, slices.Sorted(maps.Keys(files)))
+		}
+	}
+	if !strings.Contains(files["src/web/Dockerfile.anyship"], "COPY --from=build /src/bin/api ./bin/api") {
+		t.Errorf("generated Dockerfile:\n%s", files["src/web/Dockerfile.anyship"])
+	}
+}
+
+func TestServesStaticSitesWithNginx(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"site/index.html": "<p>hi"})
+	env, _ := newEnv(t, dir)
+
+	defaultPort := plan(t, parse(t, `{"version": 1, "name": "docs",
+		"services": {"site": {"kind": "static", "path": "site"}},
+		"targets": {"vps": {"host": "h"}}}`), env)
+	if got := composeOf(t, defaultPort).Services["site"].Ports; !slices.Equal(got, []string{"80:80"}) {
+		t.Errorf("ports = %v, want [80:80]", got)
+	}
+
+	custom := plan(t, parse(t, `{"version": 1, "name": "docs",
+		"services": {"site": {"kind": "static", "path": "site", "ports": [{"port": 8080}]}},
+		"targets": {"vps": {"host": "h"}}}`), env)
+	if got := composeOf(t, custom).Services["site"].Ports; !slices.Equal(got, []string{"8080:80"}) {
+		t.Errorf("ports = %v, want [8080:80]", got)
+	}
+
+	conflict := plan(t, parse(t, `{"version": 1, "name": "docs",
+		"services": {"site": {"kind": "static", "path": "site"}, "proxy": {"kind": "server", "image": "caddy", "ports": [{"port": 80}]}},
+		"targets": {"vps": {"host": "h"}}}`), env)
+	if !slices.Contains(codes(conflict, adapter.Error), "VPS_PORT_CONFLICT") {
+		t.Errorf("a static site on port 80 should conflict with another service on 80: %v", codes(conflict, adapter.Error))
 	}
 }

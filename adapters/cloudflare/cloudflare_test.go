@@ -262,3 +262,14 @@ func TestLogsRefusesHistoryOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestRefusesNonJavaScriptServices(t *testing.T) {
+	p := plan(t, parse(t, `{"version": 1, "name": "api",
+		"services": {"web": {"kind": "server", "build": {"command": "go build -o bin/api ."}, "start": "./bin/api", "runtime": {"language": "go"}}}}`), newEnv())
+	if got := codes(p); !slices.Equal(got, []string{"CF_LANGUAGE"}) {
+		t.Errorf("codes = %v", got)
+	}
+	if !strings.Contains(p.Findings[0].Message, "go service") || !strings.Contains(p.Findings[0].Hint, "vps") {
+		t.Errorf("finding = %+v", p.Findings[0])
+	}
+}
