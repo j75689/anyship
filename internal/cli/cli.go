@@ -63,7 +63,8 @@ func (a *app) rootCommand(version string) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(a.initCommand(), a.validateCommand(), a.planCommand(), a.applyCommand(), a.logsCommand(), a.targetsCommand(), a.schemaCommand())
+	root.AddCommand(a.initCommand(), a.validateCommand(), a.planCommand(), a.applyCommand(), a.logsCommand(),
+		a.statusCommand(), a.destroyCommand(), a.targetsCommand(), a.schemaCommand())
 	return root
 }
 
@@ -212,6 +213,7 @@ func (a *app) validateCommand() *cobra.Command {
 
 func (a *app) planCommand() *cobra.Command {
 	var config, target string
+	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "plan",
 		Short: "Show what a deploy to a target would do, without changing anything",
@@ -225,15 +227,20 @@ func (a *app) planCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printPlan(a.out, a.style, p, d.env.Dir)
-			if adapter.HasErrors(p.Findings) {
+			if asJSON {
+				err = printJSON(a.out, planJSON(p))
+			} else {
+				printPlan(a.out, a.style, p, d.env.Dir)
+			}
+			if err == nil && adapter.HasErrors(p.Findings) {
 				return errReported
 			}
-			return nil
+			return err
 		},
 	}
 	addConfigFlag(cmd, &config)
 	addTargetFlag(cmd, &target)
+	addJSONFlag(cmd, &asJSON)
 	return cmd
 }
 
@@ -293,16 +300,51 @@ func (a *app) applyCommand() *cobra.Command {
 }
 
 func (a *app) targetsCommand() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:   "targets",
 		Short: "List available deploy targets",
 		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, args []string) {
-			for _, ad := range a.registry.List() {
-				fmt.Fprintf(a.out, "  %s %s\n", a.style.bold(fmt.Sprintf("%-12s", ad.Name())), ad.Description())
+		RunE: func(cmd *cobra.Command, args []string) error {
+			type targetJSON struct {
+				Name         string   `json:"name"`
+				Description  string   `json:"description"`
+				Capabilities []string `json:"capabilities"`
 			}
+			var targets []targetJSON
+			for _, ad := range a.registry.List() {
+				targets = append(targets, targetJSON{ad.Name(), ad.Description(), capabilities(ad)})
+			}
+			if asJSON {
+				return printJSON(a.out, targets)
+			}
+			for _, t := range targets {
+				fmt.Fprintf(a.out, "  %s %s %s\n", a.style.bold(fmt.Sprintf("%-12s", t.Name)), t.Description, a.style.dim("("+strings.Join(t.Capabilities, ", ")+")"))
+			}
+			return nil
 		},
 	}
+	addJSONFlag(cmd, &asJSON)
+	return cmd
+}
+
+// capabilities lists the commands a target supports.
+func capabilities(ad adapter.Adapter) []string {
+	caps := []string{"plan", "apply"}
+	if _, ok := ad.(adapter.LogReader); ok {
+		caps = append(caps, "logs")
+	}
+	if _, ok := ad.(adapter.StatusReader); ok {
+		caps = append(caps, "status")
+	}
+	if _, ok := ad.(adapter.Destroyer); ok {
+		caps = append(caps, "destroy")
+	}
+	return caps
+}
+
+func addJSONFlag(cmd *cobra.Command, asJSON *bool) {
+	cmd.Flags().BoolVar(asJSON, "json", false, "print machine-readable JSON")
 }
 
 func (a *app) schemaCommand() *cobra.Command {
@@ -403,12 +445,15 @@ func run(ctx context.Context, opts adapter.ExecOptions, name string, args ...str
 	if opts.Stdin != nil {
 		cmd.Stdin = opts.Stdin
 	}
+	if opts.Stdout != nil {
+		cmd.Stdout = opts.Stdout
+	}
 	return cmd.Run()
 }
 
 func confirm(w io.Writer, question string) (bool, error) {
 	if !isTerminal(os.Stdin) {
-		return false, errors.New("refusing to deploy without confirmation in a non-interactive shell; pass --yes")
+		return false, errors.New("refusing to continue without confirmation in a non-interactive shell; pass --yes")
 	}
 	fmt.Fprintf(w, "%s [y/N] ", question)
 	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
