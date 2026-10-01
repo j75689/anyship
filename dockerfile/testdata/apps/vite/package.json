@@ -1,0 +1,6 @@
+{
+  "name": "vite-site",
+  "private": true,
+  "scripts": { "build": "vite build" },
+  "devDependencies": { "vite": "^7.0.0" }
+}
