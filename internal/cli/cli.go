@@ -279,13 +279,7 @@ func (a *app) applyCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			for _, m := range result.Messages {
-				if result.OK {
-					fmt.Fprintln(a.out, a.style.green("✔ "+m))
-				} else {
-					fmt.Fprintln(a.out, a.style.red("✖ "+m))
-				}
-			}
+			printResult(a.out, a.style, result)
 			if !result.OK {
 				return errReported
 			}

@@ -78,6 +78,22 @@ func printFindings(w io.Writer, s styler, findings []adapter.Finding) {
 	}
 }
 
+// printResult shows what an adapter found on the target, then its outcome.
+func printResult(w io.Writer, s styler, r *adapter.Result) {
+	if len(r.Findings) > 0 {
+		fmt.Fprintln(w, s.bold("\nChecks on the target:"))
+		printFindings(w, s, r.Findings)
+		fmt.Fprintln(w)
+	}
+	for _, m := range r.Messages {
+		if r.OK {
+			fmt.Fprintln(w, s.green("✔ "+m))
+		} else {
+			fmt.Fprintln(w, s.red("✖ "+m))
+		}
+	}
+}
+
 // printJSON writes v as indented JSON.
 func printJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
