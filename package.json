@@ -1,0 +1,26 @@
+{
+  "name": "anyship-workspace",
+  "private": true,
+  "description": "Deploy any app to any platform from one spec.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "anyship": "tsx packages/cli/src/bin.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p .",
+    "schema": "tsx packages/spec/scripts/write-json-schema.ts",
+    "check": "npm run typecheck && npm test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+    },
+    "services": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,62}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "static",
+              "server",
+              "worker"
+            ]
+          },
+          "path": {
+            "default": ".",
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "dockerfile": {
+            "type": "string"
+          },
+          "build": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "string"
+              },
+              "output": {
+                "type": "string"
+              }
+            }
+          },
+          "start": {
+            "type": "string"
+          },
+          "entry": {
+            "type": "string"
+          },
+          "ports": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "port": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "protocol": {
+                  "default": "http",
+                  "type": "string",
+                  "enum": [
+                    "http",
+                    "tcp",
+                    "udp",
+                    "tcp+udp"
+                  ]
+                },
+                "exposure": {
+                  "default": "public",
+                  "type": "string",
+                  "enum": [
+                    "public",
+                    "internal"
+                  ]
+                }
+              },
+              "required": [
+                "port"
+              ]
+            }
+          },
+          "volumes": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                },
+                "mountPath": {
+                  "type": "string",
+                  "format": "starts_with",
+                  "pattern": "^\\/.*"
+                },
+                "size": {
+                  "type": "string",
+                  "pattern": "^\\d+(GB|TB)$"
+                },
+                "class": {
+                  "default": "standard",
+                  "type": "string",
+                  "enum": [
+                    "standard",
+                    "nvme"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "mountPath",
+                "size"
+              ]
+            }
+          },
+          "replicas": {
+            "default": 1,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "env": {
+            "default": {},
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "secrets": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            }
+          },
+          "uses": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,62}$"
+            }
+          },
+          "cron": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "schedule": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "command": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "schedule"
+              ]
+            }
+          },
+          "runtime": {
+            "default": {},
+            "type": "object",
+            "properties": {
+              "language": {
+                "type": "string"
+              },
+              "framework": {
+                "type": "string"
+              },
+              "edgeCompatible": {
+                "type": "boolean"
+              }
+            }
+          },
+          "healthCheck": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "command": {
+                "type": "string"
+              }
+            }
+          },
+          "dependsOn": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,62}$"
+            }
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      }
+    },
+    "resources": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,62}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "postgres",
+              "mysql",
+              "sqlite",
+              "redis",
+              "bucket",
+              "kv"
+            ]
+          },
+          "external": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      }
+    },
+    "secrets": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "generate": {
+            "type": "string",
+            "enum": [
+              "hex32"
+            ]
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "targets": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {}
+      }
+    }
+  },
+  "required": [
+    "version",
+    "name",
+    "services"
+  ]
+}

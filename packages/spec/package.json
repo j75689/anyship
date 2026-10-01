@@ -1,0 +1,13 @@
+{
+  "name": "@anyship/spec",
+  "version": "0.1.0",
+  "description": "The platform-neutral anyship deploy spec (anyship.json): schema, types and loader.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}
