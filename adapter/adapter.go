@@ -3,6 +3,7 @@ package adapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -79,6 +80,17 @@ type ExecOptions struct {
 	Shell bool
 	// Stdin, when set, is streamed to the command instead of the terminal's stdin.
 	Stdin io.Reader
+	// Stdout, when set, captures the command's output instead of showing it.
+	Stdout io.Writer
+}
+
+// ExitCode returns the exit status carried by an error from Env.Exec.
+func ExitCode(err error) (int, bool) {
+	var exit interface{ ExitCode() int }
+	if errors.As(err, &exit) {
+		return exit.ExitCode(), true
+	}
+	return 0, false
 }
 
 // Env is what an adapter may use to touch the outside world.
@@ -122,6 +134,61 @@ type LogOptions struct {
 // cancelled while following. Options the platform can't honor are errors.
 type LogReader interface {
 	Logs(ctx context.Context, s *spec.Spec, env *Env, opts LogOptions) error
+}
+
+// Status is what is currently running for a spec on a target.
+type Status struct {
+	Target string `json:"target"`
+	// Location says where the deployment lives, e.g. "deploy@host:anyship/app".
+	Location string          `json:"location"`
+	Deployed bool            `json:"deployed"`
+	Services []ServiceStatus `json:"services"`
+}
+
+type ServiceStatus struct {
+	Name string `json:"name"`
+	// State is "running" when every instance runs, "missing" when none
+	// exist, or the platform's state of the first instance that doesn't run
+	// (such as "exited" or "restarting").
+	State string `json:"state"`
+	// Health is "healthy", "unhealthy" or "starting"; empty without a health check.
+	Health  string   `json:"health,omitempty"`
+	Running int      `json:"running"`
+	Desired int      `json:"desired"`
+	Ports   []string `json:"ports,omitempty"`
+	// Detail is the platform's own description, e.g. "Up 2 hours".
+	Detail string `json:"detail,omitempty"`
+}
+
+// Healthy reports whether every service runs as desired and none is unhealthy.
+func (s *Status) Healthy() bool {
+	if !s.Deployed {
+		return false
+	}
+	for _, svc := range s.Services {
+		if svc.Running < svc.Desired || svc.Health == "unhealthy" {
+			return false
+		}
+	}
+	return true
+}
+
+// StatusReader is implemented by adapters that can report what is running.
+type StatusReader interface {
+	Status(ctx context.Context, s *spec.Spec, env *Env) (*Status, error)
+}
+
+type DestroyOptions struct {
+	// Volumes also deletes persistent data: volumes, secrets and deployment files.
+	Volumes bool
+}
+
+// Destroyer is implemented by adapters that can remove a deployment.
+type Destroyer interface {
+	// DestroySummary describes what Destroy would remove, for confirmation.
+	// It must not touch the target.
+	DestroySummary(s *spec.Spec, opts DestroyOptions) ([]string, error)
+	Destroy(ctx context.Context, s *spec.Spec, env *Env, opts DestroyOptions) (*Result, error)
 }
 
 // Registry holds the adapters available to the CLI.
