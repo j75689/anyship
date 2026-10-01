@@ -56,4 +56,30 @@ The spec is the contract between detection and every adapter, so changes need ca
 
 ## Commit style
 
-Short imperative subject lines, e.g. `cloudflare: support queue consumers`.
+Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+- **Types:** `feat` (new feature), `fix` (bug fix), plus `docs`, `test`, `refactor`, `perf`, `build`,
+  `ci`, `chore` and `style`.
+- **Scopes** name the area touched: `spec`, `detect`, `cli`, `adapter`, `cloudflare` (or another
+  adapter's name), `ci`.
+- **Breaking changes** (for example, an incompatible change to `anyship.json`) add `!` after the
+  type/scope and a `BREAKING CHANGE:` footer explaining the migration.
+
+Examples:
+
+```
+feat(cloudflare): support queue consumers
+fix(cli): refuse to deploy when stdin is not a terminal
+docs: explain how to write an adapter
+feat(spec)!: rename services.<name>.uses to bindings
+
+BREAKING CHANGE: rename "uses" to "bindings" in anyship.json.
+```
