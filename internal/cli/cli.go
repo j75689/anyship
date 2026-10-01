@@ -326,7 +326,8 @@ func addConfigFlag(cmd *cobra.Command, config *string) {
 }
 
 func addTargetFlag(cmd *cobra.Command, target *string) {
-	cmd.Flags().StringVarP(target, "target", "t", "", "deploy target (see `anyship targets`)")
+	// No backticks: pflag would show the quoted text as the flag's value name.
+	cmd.Flags().StringVarP(target, "target", "t", "", `deploy target; "anyship targets" lists them`)
 	_ = cmd.MarkFlagRequired("target")
 }
 
