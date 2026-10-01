@@ -32,5 +32,8 @@
       "generate": "hex32",
       "description": "Engine API secret shared by the execution and consensus clients"
     }
+  },
+  "targets": {
+    "vps": { "host": "deploy@203.0.113.10" }
   }
 }
