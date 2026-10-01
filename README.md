@@ -41,6 +41,23 @@ and its own limits. anyship splits deployment into three layers:
 AI never sits on the deploy path. It can help you write the spec or diagnose a failed deploy, but what
 ships is always the reviewed file.
 
+## What `init` detects
+
+| Language | Detects | Start command |
+|---|---|---|
+| JavaScript / TypeScript | Next.js, Nuxt, SvelteKit, Astro, Hono, NestJS, Fastify, Express, Vite, CRA; npm, pnpm, yarn, bun | `start` script or `main` |
+| Go | main package at the root or under `cmd/`; gin, fiber, echo, chi | `go build -o bin/<name>` → `./bin/<name>` |
+| Python | Django, FastAPI, Flask, plain scripts; `requirements.txt` or `pyproject.toml` | gunicorn / uvicorn when listed, else the dev server (with a warning) |
+| Rust | `[package]` / `[[bin]]`; actix-web, axum, rocket, warp, poem | `cargo build --release` → `./target/release/<bin>` |
+| Anything else | a `Dockerfile`, or `index.html` for static sites | |
+
+It also finds the listen port, database/cache/storage dependencies, and Node-only APIs that keep code off
+edge runtimes, and warns when an app listens on `127.0.0.1` (unreachable from outside a container).
+
+Container targets don't need you to write a Dockerfile: when a service has neither `image` nor
+`dockerfile`, anyship generates one (multi-stage for Go and Rust, nginx for static sites) and shows it
+in the plan. Commit your own Dockerfile whenever you want to take over.
+
 ## Quick start
 
 anyship is a single Go binary with no runtime dependencies. Release binaries aren't published yet, so
@@ -123,8 +140,11 @@ using a resource that isn't declared, and rejects unknown fields so typos don't 
 ```
 
 - The spec becomes a Docker Compose project (`.anyship/vps/compose.yaml`, kept locally for review).
-  `apply` uploads it with each Dockerfile service's build context over `ssh`, then runs
-  `docker compose up -d --build` on the host. The host needs Docker with the Compose plugin.
+  `apply` uploads it with the build context of every service that builds from source over `ssh`,
+  then runs `docker compose up -d --build` on the host. The host needs Docker with the Compose plugin.
+- Services without `image` or `dockerfile` are built from a generated Dockerfile
+  (`.anyship/vps/<service>.Dockerfile`). Static sites are served by nginx on their public ports, or
+  on port 80.
 - anyship uses your system `ssh`, so `~/.ssh/config`, the agent, jump hosts and known_hosts checks
   all apply. It runs in batch mode: an unknown host key or a password prompt fails instead of
   hanging, so connect once with `ssh` first.
@@ -136,8 +156,9 @@ using a resource that isn't declared, and rejects unknown fields so typos don't 
   on first deploy and kept; others come from the same-named environment variable at `apply` time,
   or stay as set by a previous deploy.
 - `apply --dry-run` only checks that the host is reachable and has Docker Compose.
-- Not yet: static-only services, services without an image or Dockerfile, cron, provisioning
-  databases (declare them as services instead), domains and HTTPS. `plan` explains each refusal.
+- Not yet: cron, provisioning databases (declare them as services instead), domains and HTTPS, and
+  generated Dockerfiles for languages other than JavaScript, Go, Python and Rust. `plan` explains
+  each refusal.
 
 ## Logs
 
@@ -178,7 +199,8 @@ spec/                  anyship.json types, validation, JSON Schema
 adapter/               adapter contract and registry
 adapters/cloudflare/   Cloudflare Workers adapter
 adapters/vps/          Docker Compose over SSH adapter
-detect/                rule-based project detection
+detect/                rule-based project detection (one file per language)
+dockerfile/            Dockerfile generation for services that have none
 internal/cli/          the `anyship` command (cobra)
 examples/              sample specs
 schema/                generated JSON Schema
