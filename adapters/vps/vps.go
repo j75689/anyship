@@ -190,7 +190,9 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 	return plan, nil
 }
 
-func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, env *adapter.Env) (*adapter.Result, error) {
+// Apply runs the preflight checks, then uploads and starts the project.
+// With env.DryRun it stops after the checks.
+func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, s *spec.Spec, env *adapter.Env) (*adapter.Result, error) {
 	if adapter.HasErrors(plan.Findings) {
 		return failed("The plan has errors; fix them and plan again."), nil
 	}
@@ -217,15 +219,21 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		return env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir, Stdin: stdin}, "ssh", args...)
 	}
 
-	check := docker + " compose version"
-	env.Logf("$ ssh %s %s", host, check)
-	if err := ssh(nil, check); err != nil {
-		return failed(fmt.Sprintf(
-			"Cannot run Docker Compose on %s (%v). Check that `ssh %s` works without a password prompt and that Docker with the Compose plugin is installed there.",
-			host, err, host)), nil
+	env.Logf("$ ssh %s (preflight checks)", host)
+	var report bytes.Buffer
+	preflightOpts := adapter.ExecOptions{Dir: env.Dir, Stdin: bytes.NewReader(data.compose), Stdout: &report}
+	if err := env.Exec(ctx, preflightOpts, "ssh", append(sshArgs(data.opts), preflightScript(data, docker))...); err != nil {
+		return failed(fmt.Sprintf("Cannot run the preflight checks on %s (%v). Check that `ssh %s` works without a password prompt.", host, err, host)), nil
+	}
+	checks := parsePreflight(report.Bytes()).findings(s, host)
+	result := func(ok bool, message string) *adapter.Result {
+		return &adapter.Result{OK: ok, Findings: checks, Messages: []string{message}}
+	}
+	if adapter.HasErrors(checks) {
+		return result(false, "Preflight checks failed; nothing was uploaded or started."), nil
 	}
 	if env.DryRun {
-		return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Dry run: reached %s and found Docker Compose; nothing was uploaded or started.", host)}}, nil
+		return result(true, fmt.Sprintf("Dry run: preflight checks passed on %s; nothing was uploaded or started.", host)), nil
 	}
 
 	b := &bundle{compose: data.compose, contexts: data.contexts, extra: data.extra, secrets: map[string]string{}}
@@ -242,14 +250,14 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		if errors.As(err, &packErr) {
 			return nil, packErr.err
 		}
-		return failed(fmt.Sprintf("Upload to %s failed: %v", host, err)), nil
+		return result(false, fmt.Sprintf("Upload to %s failed: %v", host, err)), nil
 	}
 
 	env.Logf("$ ssh %s %s compose up -d --build", host, docker)
 	if err := ssh(nil, deployScript(data, docker)); err != nil {
-		return failed(fmt.Sprintf("docker compose up failed on %s: %v", host, err)), nil
+		return result(false, fmt.Sprintf("docker compose up failed on %s: %v", host, err)), nil
 	}
-	return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Deployed %s to %s:%s.", data.project, host, data.dir)}}, nil
+	return result(true, fmt.Sprintf("Deployed %s to %s:%s.", data.project, host, data.dir)), nil
 }
 
 // defaultLogTail keeps `anyship logs` from dumping a long-running service's
