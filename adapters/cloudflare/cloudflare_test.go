@@ -273,3 +273,30 @@ func TestRefusesNonJavaScriptServices(t *testing.T) {
 		t.Errorf("finding = %+v", p.Findings[0])
 	}
 }
+
+func TestDestroyDeletesTheWorker(t *testing.T) {
+	s := parse(t, `{"version": 1, "name": "api", "services": {"web": {"kind": "server", "entry": "a.ts"}}}`)
+	env := newEnv()
+	env.OutDir = t.TempDir()
+	var got []string
+	env.Exec = func(_ context.Context, _ adapter.ExecOptions, name string, args ...string) error {
+		got = append([]string{name}, args...)
+		return nil
+	}
+
+	summary, err := New().DestroySummary(s, adapter.DestroyOptions{})
+	if err != nil || len(summary) != 2 || !strings.Contains(summary[0], `"api"`) {
+		t.Errorf("summary = %q, %v", summary, err)
+	}
+	result, err := New().Destroy(context.Background(), s, env, adapter.DestroyOptions{})
+	if err != nil || !result.OK {
+		t.Fatalf("result = %+v, %v", result, err)
+	}
+	if want := []string{"npx", "wrangler", "delete", "--name", "api"}; !slices.Equal(got, want) {
+		t.Errorf("exec = %q, want %q", got, want)
+	}
+
+	if _, err := New().DestroySummary(s, adapter.DestroyOptions{Volumes: true}); err == nil {
+		t.Error("--volumes should be refused on cloudflare")
+	}
+}

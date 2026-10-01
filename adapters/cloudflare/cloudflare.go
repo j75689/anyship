@@ -356,6 +356,46 @@ func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts
 	return nil
 }
 
+var _ adapter.Destroyer = (*Adapter)(nil)
+
+func (a *Adapter) DestroySummary(s *spec.Spec, opts adapter.DestroyOptions) ([]string, error) {
+	if opts.Volumes {
+		return nil, errors.New("--volumes doesn't apply to the cloudflare target, which has no volumes; anyship never deletes D1, KV, R2 or Hyperdrive resources")
+	}
+	o, err := decodeOptions(s.Targets["cloudflare"])
+	if err != nil {
+		return nil, fmt.Errorf("targets.cloudflare: %w", err)
+	}
+	return []string{
+		fmt.Sprintf("Delete the Worker %q from Cloudflare.", cmp(o.Name, s.Name)),
+		"Keep the D1, KV, R2 and Hyperdrive resources it is bound to.",
+	}, nil
+}
+
+// Destroy deletes the Worker with `wrangler delete`, which may ask for its
+// own confirmation.
+func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, opts adapter.DestroyOptions) (*adapter.Result, error) {
+	if _, err := a.DestroySummary(s, opts); err != nil {
+		return nil, err
+	}
+	o, err := decodeOptions(s.Targets["cloudflare"])
+	if err != nil {
+		return nil, fmt.Errorf("targets.cloudflare: %w", err)
+	}
+	name := cmp(o.Name, s.Name)
+	args := []string{"wrangler", "delete"}
+	if configPath := filepath.Join(env.OutDir, "wrangler.jsonc"); fileExists(configPath) {
+		args = append(args, "--config", configPath)
+	} else {
+		args = append(args, "--name", name)
+	}
+	env.Logf("$ npx %s", strings.Join(args, " "))
+	if err := env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir}, "npx", args...); err != nil {
+		return &adapter.Result{Messages: []string{"wrangler delete failed: " + err.Error()}}, nil
+	}
+	return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Deleted the Worker %q; bound resources were kept.", name)}}, nil
+}
+
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular()
