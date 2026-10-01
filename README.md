@@ -155,7 +155,12 @@ using a resource that isn't declared, and rejects unknown fields so typos don't 
 - Secrets are mounted at `/run/secrets/<NAME>`. `generate: "hex32"` secrets are created on the host
   on first deploy and kept; others come from the same-named environment variable at `apply` time,
   or stay as set by a previous deploy.
-- `apply --dry-run` only checks that the host is reachable and has Docker Compose.
+- Every `apply` first runs preflight checks over ssh, and `apply --dry-run` stops after them:
+  Docker Compose on the host must accept the generated `compose.yaml` (validated in a temporary
+  directory that is removed afterwards), the host's architecture is reported (with a warning on
+  arm64 for image-based services), free disk space is compared with the declared volume sizes, and
+  published ports must be free unless the project is already running there. Nothing is uploaded or
+  started until the checks pass.
 - Not yet: cron, provisioning databases (declare them as services instead), domains and HTTPS, and
   generated Dockerfiles for languages other than JavaScript, Go, Python and Rust. `plan` explains
   each refusal.
@@ -187,6 +192,7 @@ All services are running.
 
 $ anyship destroy -t vps             # stop and remove containers; keep volumes and secrets
 $ anyship destroy -t vps --volumes   # also delete data (asks you to type the project name)
+$ anyship destroy -t vps --dry-run   # show what would go and what runs now; remove nothing
 ```
 
 `status` exits 1 when the spec isn't deployed or a service isn't fully running, so it works as a
