@@ -20,3 +20,16 @@ jobs:
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.12
+
+  # Builds and runs an image for every app under dockerfile/testdata/apps:
+  # detect → generate Dockerfile → docker build → docker run → HTTP 200.
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./dockerfile -run TestGeneratedImagesServeHTTP -v -timeout 30m
+        env:
+          ANYSHIP_DOCKER_TESTS: "1"
