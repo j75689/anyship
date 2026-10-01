@@ -175,6 +175,26 @@ On `vps` this runs `docker compose logs` on the host over ssh. On `cloudflare` i
 with `wrangler tail`; Workers keep no history that wrangler can read, so `--tail` and `--since` are
 refused there (turn on Workers Logs in the Cloudflare dashboard for history).
 
+## Status and destroy
+
+```console
+$ anyship status -t vps
+eth-mainnet on vps (deploy@203.0.113.10:anyship/eth-mainnet)
+  SERVICE     STATE    HEALTH   RUNNING  PORTS                 DETAIL
+  lighthouse  running  -        1/1      9000/tcp, 9000/udp    Up 2 hours
+  reth        running  healthy  1/1      30303/tcp, 30303/udp  Up 2 hours (healthy)
+All services are running.
+
+$ anyship destroy -t vps             # stop and remove containers; keep volumes and secrets
+$ anyship destroy -t vps --volumes   # also delete data (asks you to type the project name)
+```
+
+`status` exits 1 when the spec isn't deployed or a service isn't fully running, so it works as a
+health check in scripts. It isn't available on `cloudflare` yet. `destroy` on `cloudflare` deletes the
+Worker with `wrangler delete` and never touches bound D1, KV, R2 or Hyperdrive resources.
+
+`plan`, `status` and `targets` take `--json` for scripts and agents; progress messages go to stderr.
+
 ## Examples
 
 - [`examples/hono-worker`](examples/hono-worker): a Hono app that deploys to Cloudflare Workers.
