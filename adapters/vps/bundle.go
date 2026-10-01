@@ -21,6 +21,9 @@ type bundle struct {
 	secrets map[string]string
 	// contexts maps a service name to its local build context directory.
 	contexts map[string]string
+	// extra maps archive paths to generated files, written after the contexts
+	// so they take precedence.
+	extra map[string][]byte
 }
 
 // write streams the bundle as a tar archive, in a stable entry order.
@@ -45,6 +48,11 @@ func (b *bundle) write(w io.Writer) error {
 	}
 	for _, service := range sortedKeys(b.contexts) {
 		if err := writeDir(tw, b.contexts[service], contextDir(service)); err != nil {
+			return err
+		}
+	}
+	for _, name := range sortedKeys(b.extra) {
+		if err := writeFile(tw, name, b.extra[name], 0o644, epoch); err != nil {
 			return err
 		}
 	}

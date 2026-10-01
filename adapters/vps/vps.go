@@ -14,12 +14,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/j75689/anyship/adapter"
+	"github.com/j75689/anyship/dockerfile"
 	"github.com/j75689/anyship/internal/shellwords"
 	"github.com/j75689/anyship/spec"
 )
@@ -63,6 +65,8 @@ type planData struct {
 	dir      string
 	compose  []byte
 	contexts map[string]string
+	// extra holds generated files to upload, keyed by archive path.
+	extra map[string][]byte
 	// generated secrets are created on the host when missing; required ones
 	// must come from the deployer's environment or a previous deploy.
 	generated []string
@@ -101,30 +105,42 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 
 	compose := composeFile{Name: s.Name, Services: map[string]composeService{}}
 	contexts := map[string]string{}
+	extra := map[string][]byte{}
+	var reviewFiles []adapter.File
 	published := map[string]string{} // "8080/tcp" → service publishing it
 	usedSecrets := map[string]bool{}
 	for _, name := range s.ServiceNames() {
 		svc := s.Services[name]
-		findings, argv := checkService(name, svc, s, env.Dir)
-		plan.Findings = append(plan.Findings, findings...)
+		c := checkService(name, svc, s, env.Dir)
+		plan.Findings = append(plan.Findings, c.findings...)
 
-		for _, key := range publishedPorts(svc) {
-			if other, taken := published[key]; taken {
+		for _, m := range portMappings(svc) {
+			if other, taken := published[m.key()]; taken {
 				plan.Findings = append(plan.Findings, adapter.Finding{
 					Level:   adapter.Error,
 					Code:    "VPS_PORT_CONFLICT",
 					Service: name,
-					Message: fmt.Sprintf("Services %q and %q both publish host port %s.", other, name, key),
+					Message: fmt.Sprintf("Services %q and %q both publish host port %s.", other, name, m.key()),
 				})
 				continue
 			}
-			published[key] = name
+			published[m.key()] = name
 		}
 
-		compose.Services[name] = renderService(name, svc, argv)
-		if svc.Dockerfile != "" {
+		var build *composeBuild
+		switch {
+		case svc.Dockerfile != "":
+			build = &composeBuild{Context: contextDir(name), Dockerfile: svc.Dockerfile}
+		case c.generated != nil:
+			build = &composeBuild{Context: contextDir(name), Dockerfile: dockerfile.Filename}
+			extra[path.Join(contextDir(name), dockerfile.Filename)] = c.generated.Dockerfile
+			extra[path.Join(contextDir(name), dockerfile.IgnoreFilename)] = c.generated.Ignore
+			reviewFiles = append(reviewFiles, adapter.File{Path: filepath.Join(env.OutDir, name+".Dockerfile"), Contents: c.generated.Dockerfile})
+		}
+		if build != nil {
 			contexts[name] = filepath.Join(env.Dir, svc.Path)
 		}
+		compose.Services[name] = renderService(svc, c.argv, build)
 		for _, v := range svc.Volumes {
 			if compose.Volumes == nil {
 				compose.Volumes = map[string]struct{}{}
@@ -139,7 +155,7 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 		return plan, nil
 	}
 
-	data := &planData{opts: *opts, project: s.Name, dir: dir, contexts: contexts}
+	data := &planData{opts: *opts, project: s.Name, dir: dir, contexts: contexts, extra: extra}
 	for _, secret := range sortedKeys(usedSecrets) {
 		if compose.Secrets == nil {
 			compose.Secrets = map[string]composeSecret{}
@@ -169,6 +185,7 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 		adapter.Action{Op: adapter.OpDeploy, Kind: "compose", Name: s.Name, Detail: "docker compose up -d --build on " + opts.Host},
 	)
 	plan.Files = append(plan.Files, adapter.File{Path: filepath.Join(env.OutDir, "compose.yaml"), Contents: data.compose})
+	plan.Files = append(plan.Files, reviewFiles...)
 	plan.Data = data
 	return plan, nil
 }
@@ -211,7 +228,7 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Dry run: reached %s and found Docker Compose; nothing was uploaded or started.", host)}}, nil
 	}
 
-	b := &bundle{compose: data.compose, contexts: data.contexts, secrets: map[string]string{}}
+	b := &bundle{compose: data.compose, contexts: data.contexts, extra: data.extra, secrets: map[string]string{}}
 	for _, name := range slices.Concat(data.generated, data.required) {
 		if value, ok := env.LookupEnv(name); ok && value != "" {
 			b.secrets[name] = value
@@ -333,21 +350,33 @@ func sshArgs(o Options) []string {
 	return append(args, "--", o.Host)
 }
 
-func checkService(name string, svc *spec.Service, s *spec.Spec, dir string) ([]adapter.Finding, []string) {
-	var findings []adapter.Finding
+// checked is what checkService learned about one service.
+type checked struct {
+	findings []adapter.Finding
+	// argv is the split start command, nil to keep the image's own.
+	argv []string
+	// generated is set when anyship wrote the service's Dockerfile.
+	generated *dockerfile.Result
+}
+
+func checkService(name string, svc *spec.Service, s *spec.Spec, dir string) checked {
+	var c checked
 	add := func(level adapter.Level, code, message, hint string) {
-		findings = append(findings, adapter.Finding{Level: level, Code: code, Service: name, Message: message, Hint: hint})
+		c.findings = append(c.findings, adapter.Finding{Level: level, Code: code, Service: name, Message: message, Hint: hint})
 	}
 
-	switch {
-	case svc.Kind == spec.KindStatic:
-		add(adapter.Error, "VPS_STATIC_UNSUPPORTED",
-			"Static sites need a web server container on a VPS.",
-			`Add a Dockerfile that serves the build output (e.g. FROM nginx:alpine) and set kind "server", or deploy the site to the cloudflare target.`)
-	case svc.Image == "" && svc.Dockerfile == "":
-		add(adapter.Error, "VPS_NEEDS_IMAGE",
-			"Services run as containers on a VPS, but this one has no image or dockerfile.",
-			"Add a Dockerfile and set services.<name>.dockerfile. Building images from a start command is planned.")
+	if svc.Image == "" && svc.Dockerfile == "" {
+		generated, err := dockerfile.Generate(svc, filepath.Join(dir, svc.Path))
+		if err != nil {
+			add(adapter.Error, "VPS_NEEDS_IMAGE",
+				"Services run as containers on a VPS. This one has no image or Dockerfile, and anyship can't generate one: "+err.Error()+".",
+				"Add a Dockerfile and set services.<name>.dockerfile.")
+		} else {
+			c.generated = generated
+			add(adapter.Info, "VPS_GENERATED_DOCKERFILE",
+				"No Dockerfile, so anyship generated one; review it in the generated files below.",
+				"To customize the build, commit your own Dockerfile and set services.<name>.dockerfile.")
+		}
 	}
 	if svc.Dockerfile != "" {
 		if _, err := os.Stat(filepath.Join(dir, svc.Path, svc.Dockerfile)); err != nil {
@@ -355,10 +384,9 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, dir string) ([]a
 		}
 	}
 
-	var argv []string
 	if svc.Start != "" {
 		var err error
-		if argv, err = shellwords.Split(svc.Start); err != nil {
+		if c.argv, err = shellwords.Split(svc.Start); err != nil {
 			add(adapter.Error, "VPS_BAD_START", "start "+err.Error()+".", "")
 		}
 	} else if svc.Entry != "" {
@@ -382,7 +410,8 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, dir string) ([]a
 			`Add it as a service (e.g. image "postgres:17" with a volume), or mark the resource external.`)
 	}
 
-	if svc.Replicas > 1 && len(publishedPorts(svc)) > 0 {
+	mappings := portMappings(svc)
+	if svc.Replicas > 1 && len(mappings) > 0 {
 		add(adapter.Error, "VPS_REPLICAS_WITH_PORTS",
 			fmt.Sprintf("%d replicas cannot all publish the same host ports.", svc.Replicas),
 			"Use one replica, or keep these ports internal behind a load balancer service.")
@@ -400,30 +429,13 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, dir string) ([]a
 		add(adapter.Info, "VPS_VOLUME_SIZE",
 			"Docker volumes don't enforce size or disk class; make sure the host has room for: "+strings.Join(sizes, ", ")+".", "")
 	}
-	for _, p := range svc.Ports {
-		if p.Exposure == spec.ExposurePublic && p.Protocol == spec.ProtocolHTTP {
+	for _, m := range mappings {
+		if m.http {
 			add(adapter.Info, "VPS_NO_TLS",
-				fmt.Sprintf("Port %d is served directly over plain HTTP; domains and HTTPS are planned.", p.Port), "")
+				fmt.Sprintf("Port %d is served directly over plain HTTP; domains and HTTPS are planned.", m.host), "")
 		}
 	}
-	return findings, argv
-}
-
-// publishedPorts lists the host ports a service publishes, as "port/proto".
-func publishedPorts(svc *spec.Service) []string {
-	var out []string
-	for _, p := range svc.Ports {
-		if p.Exposure != spec.ExposurePublic {
-			continue
-		}
-		if p.Protocol != spec.ProtocolUDP {
-			out = append(out, fmt.Sprintf("%d/tcp", p.Port))
-		}
-		if p.Protocol == spec.ProtocolUDP || p.Protocol == spec.ProtocolTCPUDP {
-			out = append(out, fmt.Sprintf("%d/udp", p.Port))
-		}
-	}
-	return out
+	return c
 }
 
 // decodeOptions reads targets.vps strictly, so typos surface as findings.

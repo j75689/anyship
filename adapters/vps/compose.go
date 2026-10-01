@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/j75689/anyship/dockerfile"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -57,11 +58,67 @@ func contextDir(service string) string {
 	return path.Join("src", service)
 }
 
-// composeService renders one spec service. argv is the already-split start
-// command, or nil to keep the image's own entrypoint and command.
-func renderService(name string, svc *spec.Service, argv []string) composeService {
+// portMapping is a host port published to a container port.
+type portMapping struct {
+	host, container int
+	udp             bool
+	// http marks plain-HTTP ports, which are served without TLS for now.
+	http bool
+}
+
+func (m portMapping) String() string {
+	if m.udp {
+		return fmt.Sprintf("%d:%d/udp", m.host, m.container)
+	}
+	return fmt.Sprintf("%d:%d", m.host, m.container)
+}
+
+// key identifies the host port for conflict checks, e.g. "8080/tcp".
+func (m portMapping) key() string {
+	if m.udp {
+		return fmt.Sprintf("%d/udp", m.host)
+	}
+	return fmt.Sprintf("%d/tcp", m.host)
+}
+
+// portMappings lists the host ports a service publishes. Internal ports are
+// left out: other services reach them by name on the project network. Static
+// sites are served by nginx on dockerfile.StaticPort, published on their
+// public ports or on port 80.
+func portMappings(svc *spec.Service) []portMapping {
+	var out []portMapping
+	if svc.Kind == spec.KindStatic {
+		for _, p := range svc.Ports {
+			if p.Exposure == spec.ExposurePublic && p.Protocol != spec.ProtocolUDP {
+				out = append(out, portMapping{host: p.Port, container: dockerfile.StaticPort, http: true})
+			}
+		}
+		if len(out) == 0 {
+			out = append(out, portMapping{host: dockerfile.StaticPort, container: dockerfile.StaticPort, http: true})
+		}
+		return out
+	}
+	for _, p := range svc.Ports {
+		if p.Exposure != spec.ExposurePublic {
+			continue
+		}
+		if p.Protocol != spec.ProtocolUDP {
+			out = append(out, portMapping{host: p.Port, container: p.Port, http: p.Protocol == spec.ProtocolHTTP})
+		}
+		if p.Protocol == spec.ProtocolUDP || p.Protocol == spec.ProtocolTCPUDP {
+			out = append(out, portMapping{host: p.Port, container: p.Port, udp: true})
+		}
+	}
+	return out
+}
+
+// renderService renders one spec service. argv is the already-split start
+// command, or nil to keep the image's own entrypoint and command; build is
+// set for services built on the host.
+func renderService(svc *spec.Service, argv []string, build *composeBuild) composeService {
 	out := composeService{
 		Image:       svc.Image,
+		Build:       build,
 		Environment: svc.Env,
 		Secrets:     svc.Secrets,
 		DependsOn:   svc.DependsOn,
@@ -70,25 +127,14 @@ func renderService(name string, svc *spec.Service, argv []string) composeService
 	if len(out.Environment) == 0 {
 		out.Environment = nil
 	}
-	if svc.Dockerfile != "" {
-		out.Build = &composeBuild{Context: contextDir(name), Dockerfile: svc.Dockerfile}
-	}
 	if len(argv) > 0 {
 		// Overriding the entrypoint also clears the image's default command,
 		// so the spec's start command runs exactly as written.
 		out.Entrypoint = argv[:1]
 		out.Command = argv[1:]
 	}
-	for _, p := range svc.Ports {
-		if p.Exposure != spec.ExposurePublic {
-			continue // reachable from other services by name on the project network
-		}
-		if p.Protocol != spec.ProtocolUDP {
-			out.Ports = append(out.Ports, fmt.Sprintf("%d:%d", p.Port, p.Port))
-		}
-		if p.Protocol == spec.ProtocolUDP || p.Protocol == spec.ProtocolTCPUDP {
-			out.Ports = append(out.Ports, fmt.Sprintf("%d:%d/udp", p.Port, p.Port))
-		}
+	for _, m := range portMappings(svc) {
+		out.Ports = append(out.Ports, m.String())
 	}
 	for _, v := range svc.Volumes {
 		out.Volumes = append(out.Volumes, v.Name+":"+v.MountPath)

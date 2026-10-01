@@ -393,7 +393,15 @@ func checkService(name string, svc *spec.Service, s *spec.Spec) []adapter.Findin
 		}
 	}
 	if svc.Kind == spec.KindServer && !containerized {
+		lang := ""
+		if svc.Runtime != nil {
+			lang = svc.Runtime.Language
+		}
 		switch {
+		case lang != "" && lang != "javascript" && lang != "typescript":
+			addError("CF_LANGUAGE",
+				fmt.Sprintf("Workers run JavaScript, TypeScript or WebAssembly, but this is a %s service.", lang),
+				"Deploy it to the vps target instead.")
 		case svc.Framework() == "nextjs":
 			addError("CF_FRAMEWORK_ADAPTER",
 				"Next.js needs the OpenNext Cloudflare adapter, which anyship does not drive yet.",
