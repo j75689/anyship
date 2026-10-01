@@ -70,7 +70,9 @@ type Plan struct {
 }
 
 type Result struct {
-	OK       bool
+	OK bool
+	// Findings are what Apply learned on the target, such as preflight checks.
+	Findings []Finding
 	Messages []string
 }
 
