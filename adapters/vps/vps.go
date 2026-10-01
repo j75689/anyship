@@ -460,8 +460,25 @@ func decodeOptions(raw json.RawMessage) (*Options, error) {
 		return nil, errors.New(`dir must not start with "~"; relative paths are already under the login user's home`)
 	case strings.ContainsAny(opts.Dir, "\r\n\x00"):
 		return nil, errors.New("dir must be a single-line path")
+	case opts.Dir != "" && !ownDir(opts.Dir):
+		// destroy --volumes removes this directory, so it must be one anyship owns.
+		return nil, fmt.Errorf("dir %q must be a subdirectory, not the home directory, / or a parent", opts.Dir)
 	}
 	return opts, nil
+}
+
+// ownDir reports whether dir is safe to delete as a whole: a directory below
+// the login user's home, or an absolute path at least two levels deep (so
+// "/srv/app", never "/" or "/srv").
+func ownDir(dir string) bool {
+	clean := path.Clean(dir)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+		return false
+	}
+	if path.IsAbs(clean) {
+		return strings.Count(clean, "/") >= 2
+	}
+	return true
 }
 
 func failed(message string) *adapter.Result {
