@@ -288,11 +288,12 @@ func (a *app) prepare(config, target string, dryRun bool) (*deployment, error) {
 		spec:    s,
 		adapter: ad,
 		env: &adapter.Env{
-			Dir:    dir,
-			OutDir: filepath.Join(dir, ".anyship", ad.Name()),
-			DryRun: dryRun,
-			Logf:   func(format string, args ...any) { fmt.Fprintln(a.out, a.style.dim(fmt.Sprintf(format, args...))) },
-			Exec:   run,
+			Dir:       dir,
+			OutDir:    filepath.Join(dir, ".anyship", ad.Name()),
+			DryRun:    dryRun,
+			Logf:      func(format string, args ...any) { fmt.Fprintln(a.out, a.style.dim(fmt.Sprintf(format, args...))) },
+			Exec:      run,
+			LookupEnv: os.LookupEnv,
 		},
 	}, nil
 }
@@ -316,7 +317,7 @@ func problemsOf(err error) []string {
 	return nil
 }
 
-// run executes a command with inherited stdio.
+// run executes a command with inherited stdio, or opts.Stdin when set.
 func run(ctx context.Context, opts adapter.ExecOptions, name string, args ...string) error {
 	var cmd *exec.Cmd
 	switch {
@@ -332,6 +333,9 @@ func run(ctx context.Context, opts adapter.ExecOptions, name string, args ...str
 	}
 	cmd.Dir = opts.Dir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if opts.Stdin != nil {
+		cmd.Stdin = opts.Stdin
+	}
 	return cmd.Run()
 }
 

@@ -4,6 +4,7 @@ package adapter
 import (
 	"context"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 
@@ -76,6 +77,8 @@ type ExecOptions struct {
 	Dir string
 	// Shell runs the command through the system shell (for user-supplied build commands).
 	Shell bool
+	// Stdin, when set, is streamed to the command instead of the terminal's stdin.
+	Stdin io.Reader
 }
 
 // Env is what an adapter may use to touch the outside world.
@@ -86,8 +89,11 @@ type Env struct {
 	OutDir string
 	DryRun bool
 	Logf   func(format string, args ...any)
-	// Exec runs a command with inherited stdio and returns an error if it fails.
+	// Exec runs a command with inherited stdio (unless opts.Stdin is set) and
+	// returns an error if it fails.
 	Exec func(ctx context.Context, opts ExecOptions, name string, args ...string) error
+	// LookupEnv reads the deployer's environment, e.g. for secret values.
+	LookupEnv func(key string) (string, bool)
 }
 
 // Adapter is a deploy target. Plan must be side-effect free: it only inspects
