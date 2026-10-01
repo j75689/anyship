@@ -139,6 +139,21 @@ using a resource that isn't declared, and rejects unknown fields so typos don't 
 - Not yet: static-only services, services without an image or Dockerfile, cron, provisioning
   databases (declare them as services instead), domains and HTTPS. `plan` explains each refusal.
 
+## Logs
+
+`anyship logs` reads runtime logs from where a spec is deployed, using the same target settings:
+
+```console
+$ anyship logs -t vps                          # last 100 lines of every service
+$ anyship logs -t vps reth -f                  # follow one service
+$ anyship logs -t vps lighthouse --since 10m -n 500 --timestamps
+$ anyship logs -t cloudflare                   # live Worker logs via wrangler tail
+```
+
+On `vps` this runs `docker compose logs` on the host over ssh. On `cloudflare` it streams live logs
+with `wrangler tail`; Workers keep no history that wrangler can read, so `--tail` and `--since` are
+refused there (turn on Workers Logs in the Cloudflare dashboard for history).
+
 ## Examples
 
 - [`examples/hono-worker`](examples/hono-worker): a Hono app that deploys to Cloudflare Workers.

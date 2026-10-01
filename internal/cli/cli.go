@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -62,8 +63,72 @@ func (a *app) rootCommand(version string) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(a.initCommand(), a.validateCommand(), a.planCommand(), a.applyCommand(), a.targetsCommand(), a.schemaCommand())
+	root.AddCommand(a.initCommand(), a.validateCommand(), a.planCommand(), a.applyCommand(), a.logsCommand(), a.targetsCommand(), a.schemaCommand())
 	return root
+}
+
+func (a *app) logsCommand() *cobra.Command {
+	var config, target, since string
+	var follow, timestamps bool
+	var tail int
+	cmd := &cobra.Command{
+		Use:   "logs [service]",
+		Short: "Show runtime logs from a deployed target",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			d, err := a.prepare(config, target, false)
+			if err != nil {
+				return err
+			}
+			reader, ok := d.adapter.(adapter.LogReader)
+			if !ok {
+				return fmt.Errorf("the %s target does not provide logs", d.adapter.Name())
+			}
+
+			opts := adapter.LogOptions{Follow: follow, Since: since, Timestamps: timestamps}
+			if cmd.Flags().Changed("tail") {
+				if tail < 1 {
+					return errors.New("--tail must be at least 1")
+				}
+				opts.Tail = tail
+			}
+			if since != "" && !validSince(since) {
+				return fmt.Errorf(`--since %q is not a duration like "10m" or a timestamp like "2026-10-01T12:00:00Z"`, since)
+			}
+			if len(args) == 1 {
+				if _, ok := d.spec.Services[args[0]]; !ok {
+					return fmt.Errorf("unknown service %q; services: %s", args[0], strings.Join(d.spec.ServiceNames(), ", "))
+				}
+				opts.Service = args[0]
+			}
+
+			err = reader.Logs(cmd.Context(), d.spec, d.env, opts)
+			if err != nil && cmd.Context().Err() != nil {
+				return nil // interrupted while following: a normal way to stop
+			}
+			return err
+		},
+	}
+	addConfigFlag(cmd, &config)
+	addTargetFlag(cmd, &target)
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "keep streaming new log lines")
+	cmd.Flags().IntVarP(&tail, "tail", "n", 0, "number of recent lines per service (default depends on the target)")
+	cmd.Flags().StringVar(&since, "since", "", `only show logs newer than a duration ("10m") or timestamp`)
+	cmd.Flags().BoolVar(&timestamps, "timestamps", false, "prefix each line with its timestamp")
+	return cmd
+}
+
+// validSince accepts what both docker and anyship can interpret unambiguously.
+func validSince(s string) bool {
+	if d, err := time.ParseDuration(s); err == nil {
+		return d > 0
+	}
+	for _, layout := range []string{time.RFC3339, time.DateOnly} {
+		if _, err := time.Parse(layout, s); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *app) initCommand() *cobra.Command {

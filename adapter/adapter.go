@@ -105,6 +105,25 @@ type Adapter interface {
 	Apply(ctx context.Context, p *Plan, s *spec.Spec, env *Env) (*Result, error)
 }
 
+// LogOptions selects which runtime logs to show.
+type LogOptions struct {
+	// Service limits output to one service; empty means all of them.
+	Service string
+	Follow  bool
+	// Tail is the number of recent lines per service; 0 means the adapter's default.
+	Tail int
+	// Since is a duration such as "10m" or an RFC 3339 / YYYY-MM-DD timestamp.
+	Since      string
+	Timestamps bool
+}
+
+// LogReader is implemented by adapters that can show a deployment's runtime
+// logs. Logs streams to the terminal and returns when done, or when ctx is
+// cancelled while following. Options the platform can't honor are errors.
+type LogReader interface {
+	Logs(ctx context.Context, s *spec.Spec, env *Env, opts LogOptions) error
+}
+
 // Registry holds the adapters available to the CLI.
 type Registry struct {
 	adapters map[string]Adapter

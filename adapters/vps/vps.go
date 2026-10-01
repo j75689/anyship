@@ -39,6 +39,22 @@ type Options struct {
 	Sudo bool `json:"sudo,omitempty"`
 }
 
+// deployDir is the deployment directory on the host for a project.
+func (o Options) deployDir(project string) string {
+	if o.Dir != "" {
+		return o.Dir
+	}
+	return "anyship/" + project
+}
+
+// docker is the docker command prefix on the host.
+func (o Options) docker() string {
+	if o.Sudo {
+		return "sudo -n docker"
+	}
+	return "docker"
+}
+
 // planData is handed from Plan to Apply.
 type planData struct {
 	opts     Options
@@ -53,6 +69,11 @@ type planData struct {
 }
 
 type Adapter struct{}
+
+var (
+	_ adapter.Adapter   = (*Adapter)(nil)
+	_ adapter.LogReader = (*Adapter)(nil)
+)
 
 func New() *Adapter { return &Adapter{} }
 
@@ -75,10 +96,7 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 		})
 		return plan, nil
 	}
-	dir := opts.Dir
-	if dir == "" {
-		dir = "anyship/" + s.Name
-	}
+	dir := opts.deployDir(s.Name)
 
 	compose := composeFile{Name: s.Name, Services: map[string]composeService{}}
 	contexts := map[string]string{}
@@ -175,10 +193,7 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 	}
 
 	host := data.opts.Host
-	docker := "docker"
-	if data.opts.Sudo {
-		docker = "sudo -n docker"
-	}
+	docker := data.opts.docker()
 	ssh := func(stdin io.Reader, remote string) error {
 		args := append(sshArgs(data.opts), remote)
 		return env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir, Stdin: stdin}, "ssh", args...)
@@ -217,6 +232,44 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		return failed(fmt.Sprintf("docker compose up failed on %s: %v", host, err)), nil
 	}
 	return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Deployed %s to %s:%s.", data.project, host, data.dir)}}, nil
+}
+
+// defaultLogTail keeps `anyship logs` from dumping a long-running service's
+// entire history.
+const defaultLogTail = 100
+
+// Logs runs `docker compose logs` for the deployed project on the host.
+func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts adapter.LogOptions) error {
+	o, err := decodeOptions(s.Targets[Name])
+	if err != nil {
+		return fmt.Errorf("targets.vps: %w", err)
+	}
+	dir := o.deployDir(s.Name)
+
+	tail := opts.Tail
+	if tail == 0 {
+		tail = defaultLogTail
+	}
+	remote := fmt.Sprintf("cd %s && %s compose -p %s -f compose.yaml logs --tail %d", shellQuote(dir), o.docker(), s.Name, tail)
+	if opts.Since != "" {
+		remote += " --since " + shellQuote(opts.Since)
+	}
+	if opts.Timestamps {
+		remote += " --timestamps"
+	}
+	if opts.Follow {
+		remote += " --follow"
+	}
+	if opts.Service != "" {
+		remote += " " + shellQuote(opts.Service)
+	}
+
+	env.Logf("$ ssh %s %s", o.Host, remote)
+	args := append(sshArgs(*o), remote)
+	if err := env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir}, "ssh", args...); err != nil {
+		return fmt.Errorf("reading logs from %s failed (%w); has %s been deployed there with `anyship apply -t vps`?", o.Host, err, s.Name)
+	}
+	return nil
 }
 
 type packError struct{ err error }

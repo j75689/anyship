@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -122,6 +123,11 @@ type planData struct {
 }
 
 type Adapter struct{}
+
+var (
+	_ adapter.Adapter   = (*Adapter)(nil)
+	_ adapter.LogReader = (*Adapter)(nil)
+)
 
 func New() *Adapter { return &Adapter{} }
 
@@ -317,6 +323,42 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		return &adapter.Result{OK: true, Messages: []string{"Dry run finished; nothing was deployed."}}, nil
 	}
 	return &adapter.Result{OK: true, Messages: []string{"Deployed to Cloudflare."}}, nil
+}
+
+// Logs streams live Worker logs with `wrangler tail`. Workers keep no log
+// history that wrangler can read, so --tail and --since are refused.
+func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts adapter.LogOptions) error {
+	if opts.Tail > 0 || opts.Since != "" {
+		return errors.New("the cloudflare target only streams live logs (wrangler tail), so --tail and --since are not supported; enable Workers Logs in the Cloudflare dashboard for history")
+	}
+	if n := len(s.Services); n != 1 {
+		return fmt.Errorf("the cloudflare target deploys one Worker, but this spec has %d services", n)
+	}
+	o, err := decodeOptions(s.Targets["cloudflare"])
+	if err != nil {
+		return fmt.Errorf("targets.cloudflare: %w", err)
+	}
+
+	args := []string{"wrangler", "tail"}
+	// The config written by apply carries the account id; without it, wrangler
+	// finds the Worker by name in the logged-in account.
+	if configPath := filepath.Join(env.OutDir, "wrangler.jsonc"); fileExists(configPath) {
+		args = append(args, "--config", configPath)
+	} else {
+		args = append(args, cmp(o.Name, s.Name))
+	}
+	args = append(args, "--format", "pretty")
+
+	env.Logf("$ npx %s", strings.Join(args, " "))
+	if err := env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir}, "npx", args...); err != nil {
+		return fmt.Errorf("wrangler tail failed (%w); is the Worker deployed and are you logged in (`npx wrangler login`)?", err)
+	}
+	return nil
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 func checkService(name string, svc *spec.Service, s *spec.Spec) []adapter.Finding {

@@ -222,3 +222,43 @@ func TestApplyRefusesPlanWithErrors(t *testing.T) {
 		t.Error("apply should refuse a plan with errors")
 	}
 }
+
+func TestLogsTailsTheWorker(t *testing.T) {
+	s := parse(t, `{"version": 1, "name": "api", "services": {"web": {"kind": "server", "entry": "src/index.ts"}},
+		"targets": {"cloudflare": {"name": "api-prod"}}}`)
+	env := newEnv()
+	env.OutDir = t.TempDir()
+	var got []string
+	env.Exec = func(_ context.Context, _ adapter.ExecOptions, name string, args ...string) error {
+		got = append([]string{name}, args...)
+		return nil
+	}
+
+	if err := New().Logs(context.Background(), s, env, adapter.LogOptions{Follow: true}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"npx", "wrangler", "tail", "api-prod", "--format", "pretty"}; !slices.Equal(got, want) {
+		t.Errorf("without a generated config: %q, want %q", got, want)
+	}
+
+	configPath := filepath.Join(env.OutDir, "wrangler.jsonc")
+	if err := os.WriteFile(configPath, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := New().Logs(context.Background(), s, env, adapter.LogOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"npx", "wrangler", "tail", "--config", configPath, "--format", "pretty"}; !slices.Equal(got, want) {
+		t.Errorf("with a generated config: %q, want %q", got, want)
+	}
+}
+
+func TestLogsRefusesHistoryOptions(t *testing.T) {
+	s := parse(t, `{"version": 1, "name": "api", "services": {"web": {"kind": "server", "entry": "a.ts"}}}`)
+	for _, opts := range []adapter.LogOptions{{Tail: 50}, {Since: "10m"}} {
+		err := New().Logs(context.Background(), s, newEnv(), opts)
+		if err == nil || !strings.Contains(err.Error(), "only streams live logs") {
+			t.Errorf("opts %+v: err = %v", opts, err)
+		}
+	}
+}

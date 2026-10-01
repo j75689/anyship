@@ -369,3 +369,51 @@ func untar(t *testing.T, data []byte) map[string]string {
 		files[h.Name] = string(body)
 	}
 }
+
+func TestLogsRunsComposeLogsOverSSH(t *testing.T) {
+	s := loadExample(t, "ethereum-node")
+	for _, tc := range []struct {
+		opts adapter.LogOptions
+		want string
+	}{
+		{adapter.LogOptions{}, "cd anyship/eth-mainnet && docker compose -p eth-mainnet -f compose.yaml logs --tail 100"},
+		{
+			adapter.LogOptions{Service: "reth", Follow: true, Tail: 500, Since: "10m", Timestamps: true},
+			"cd anyship/eth-mainnet && docker compose -p eth-mainnet -f compose.yaml logs --tail 500 --since 10m --timestamps --follow reth",
+		},
+	} {
+		env, rec := newEnv(t, t.TempDir())
+		if err := New().Logs(context.Background(), s, env, tc.opts); err != nil {
+			t.Fatal(err)
+		}
+		if len(rec.calls) != 1 || rec.calls[0].name != "ssh" || rec.calls[0].remote() != tc.want {
+			t.Errorf("opts %+v: calls = %+v\nwant remote %q", tc.opts, rec.calls, tc.want)
+		}
+	}
+}
+
+func TestLogsHonorsDirAndSudo(t *testing.T) {
+	s := parse(t, `{"version": 1, "name": "app", "services": {"web": {"kind": "server", "image": "nginx"}},
+		"targets": {"vps": {"host": "h", "dir": "/srv/my app", "sudo": true}}}`)
+	env, rec := newEnv(t, t.TempDir())
+	if err := New().Logs(context.Background(), s, env, adapter.LogOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := rec.calls[0].remote(), "cd '/srv/my app' && sudo -n docker compose -p app -f compose.yaml logs --tail 100"; got != want {
+		t.Errorf("remote = %q, want %q", got, want)
+	}
+}
+
+func TestLogsExplainsFailures(t *testing.T) {
+	env, rec := newEnv(t, t.TempDir())
+	rec.fail = 0
+	err := New().Logs(context.Background(), loadExample(t, "ethereum-node"), env, adapter.LogOptions{})
+	if err == nil || !strings.Contains(err.Error(), "anyship apply -t vps") {
+		t.Errorf("err = %v", err)
+	}
+
+	noTarget := parse(t, `{"version": 1, "name": "app", "services": {"web": {"kind": "server", "image": "nginx"}}}`)
+	if err := New().Logs(context.Background(), noTarget, env, adapter.LogOptions{}); err == nil || !strings.Contains(err.Error(), "host is required") {
+		t.Errorf("err = %v", err)
+	}
+}
