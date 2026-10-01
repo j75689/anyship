@@ -1,4 +1,5 @@
-package vps
+// Package shellwords splits and quotes POSIX shell words.
+package shellwords
 
 import (
 	"errors"
@@ -6,12 +7,11 @@ import (
 	"strings"
 )
 
-// splitCommand splits a spec start command into argv, honoring plain words,
-// single and double quotes, and backslash escapes like a POSIX shell. The
-// command is then exec'd directly, so shell syntax that needs a real shell
-// (pipes, redirects, variables, ...) is rejected rather than passed through
-// as literal arguments.
-func splitCommand(command string) ([]string, error) {
+// Split splits a command into argv, honoring plain words, single and double
+// quotes, and backslash escapes like a POSIX shell. Callers exec the result
+// directly, so shell syntax that needs a real shell (pipes, redirects,
+// variables, ...) is rejected rather than passed through as literal arguments.
+func Split(command string) ([]string, error) {
 	var (
 		args    []string
 		current strings.Builder
@@ -80,8 +80,8 @@ func shellSyntaxError(r rune) error {
 	return fmt.Errorf("uses shell syntax %q, which needs a shell; wrap it as: sh -c '...'", r)
 }
 
-// shellQuote quotes s for a POSIX shell.
-func shellQuote(s string) string {
+// Quote quotes s for a POSIX shell.
+func Quote(s string) string {
 	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./=:@,+%") == "" {
 		return s
 	}

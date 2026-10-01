@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/j75689/anyship/adapter"
+	"github.com/j75689/anyship/internal/shellwords"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -216,7 +217,7 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 			b.secrets[name] = value
 		}
 	}
-	q := shellQuote(data.dir)
+	q := shellwords.Quote(data.dir)
 	upload := fmt.Sprintf("mkdir -p %s && rm -rf %s/src && tar -xf - -C %s", q, q, q)
 	env.Logf("$ ssh %s %s", host, upload)
 	if err := streamTo(func(r io.Reader) error { return ssh(r, upload) }, b.write); err != nil {
@@ -250,9 +251,9 @@ func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts
 	if tail == 0 {
 		tail = defaultLogTail
 	}
-	remote := fmt.Sprintf("cd %s && %s compose -p %s -f compose.yaml logs --tail %d", shellQuote(dir), o.docker(), s.Name, tail)
+	remote := fmt.Sprintf("cd %s && %s compose -p %s -f compose.yaml logs --tail %d", shellwords.Quote(dir), o.docker(), s.Name, tail)
 	if opts.Since != "" {
-		remote += " --since " + shellQuote(opts.Since)
+		remote += " --since " + shellwords.Quote(opts.Since)
 	}
 	if opts.Timestamps {
 		remote += " --timestamps"
@@ -261,7 +262,7 @@ func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts
 		remote += " --follow"
 	}
 	if opts.Service != "" {
-		remote += " " + shellQuote(opts.Service)
+		remote += " " + shellwords.Quote(opts.Service)
 	}
 
 	env.Logf("$ ssh %s %s", o.Host, remote)
@@ -303,7 +304,7 @@ func streamTo(consume func(io.Reader) error, produce func(io.Writer) error) erro
 // the spec, so only the directory needs quoting.
 func deployScript(d *planData, docker string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "set -eu\ncd %s\n", shellQuote(d.dir))
+	fmt.Fprintf(&b, "set -eu\ncd %s\n", shellwords.Quote(d.dir))
 	if len(d.generated)+len(d.required) > 0 {
 		b.WriteString("mkdir -p secrets\nchmod 700 secrets\n")
 	}
@@ -357,7 +358,7 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, dir string) ([]a
 	var argv []string
 	if svc.Start != "" {
 		var err error
-		if argv, err = splitCommand(svc.Start); err != nil {
+		if argv, err = shellwords.Split(svc.Start); err != nil {
 			add(adapter.Error, "VPS_BAD_START", "start "+err.Error()+".", "")
 		}
 	} else if svc.Entry != "" {
