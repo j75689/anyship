@@ -1,4 +1,4 @@
-package vps
+package shellwords
 
 import (
 	"slices"
@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestSplitCommand(t *testing.T) {
+func TestSplit(t *testing.T) {
 	for command, want := range map[string][]string{
 		"reth node --chain mainnet":                   {"reth", "node", "--chain", "mainnet"},
 		"  node   server.js  ":                        {"node", "server.js"},
@@ -16,14 +16,14 @@ func TestSplitCommand(t *testing.T) {
 		`--flag=''`:                                   {"--flag="},
 		`--http.api eth,net,web3 --http.addr 0.0.0.0`: {"--http.api", "eth,net,web3", "--http.addr", "0.0.0.0"},
 	} {
-		got, err := splitCommand(command)
+		got, err := Split(command)
 		if err != nil || !slices.Equal(got, want) {
-			t.Errorf("splitCommand(%q) = %q, %v; want %q", command, got, err, want)
+			t.Errorf("Split(%q) = %q, %v; want %q", command, got, err, want)
 		}
 	}
 }
 
-func TestSplitCommandRejectsShellSyntax(t *testing.T) {
+func TestSplitRejectsShellSyntax(t *testing.T) {
 	for command, wantErr := range map[string]string{
 		"node a.js | tee log":  "shell syntax '|'",
 		"node a.js > out":      "shell syntax '>'",
@@ -35,14 +35,14 @@ func TestSplitCommandRejectsShellSyntax(t *testing.T) {
 		"echo trailing\\":      "trailing backslash",
 		"   ":                  "command is empty",
 	} {
-		_, err := splitCommand(command)
+		_, err := Split(command)
 		if err == nil || !strings.Contains(err.Error(), wantErr) {
-			t.Errorf("splitCommand(%q) error = %v, want it to mention %q", command, err, wantErr)
+			t.Errorf("Split(%q) error = %v, want it to mention %q", command, err, wantErr)
 		}
 	}
 }
 
-func TestShellQuote(t *testing.T) {
+func TestQuote(t *testing.T) {
 	for in, want := range map[string]string{
 		"anyship/eth-mainnet": "anyship/eth-mainnet",
 		"my dir":              "'my dir'",
@@ -50,8 +50,8 @@ func TestShellQuote(t *testing.T) {
 		"":                    "''",
 		"$(rm -rf /)":         "'$(rm -rf /)'",
 	} {
-		if got := shellQuote(in); got != want {
-			t.Errorf("shellQuote(%q) = %s, want %s", in, got, want)
+		if got := Quote(in); got != want {
+			t.Errorf("Quote(%q) = %s, want %s", in, got, want)
 		}
 	}
 }
