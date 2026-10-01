@@ -6,8 +6,8 @@ anyship reads your project, drafts a platform-neutral deploy spec (`anyship.json
 spec into a deployment on whichever platform you pick. Each platform adapter either satisfies every
 need in the spec or tells you exactly which need it can't meet and why. It never quietly drops one.
 
-> **Status: early (v0.1).** The spec, rule-based detection, the CLI and a Cloudflare Workers adapter
-> work today. More targets and the AI assistant layer are on the [roadmap](#roadmap).
+> **Status: early (v0.2).** The spec, rule-based detection, the CLI, a Cloudflare Workers adapter and a
+> VPS (Docker over SSH) adapter work today. More targets and the AI assistant layer are on the [roadmap](#roadmap).
 
 ```console
 $ anyship init
@@ -93,7 +93,7 @@ using a resource that isn't declared, and rejects unknown fields so typos don't 
 | Target | Status | Runs |
 |---|---|---|
 | `cloudflare` | ✅ v0.1 | Workers (edge handlers) and static assets; D1, KV, R2, Hyperdrive bindings; cron triggers; custom domains |
-| `vps` (Docker over SSH) | planned | containers, volumes, TCP/UDP ports, multi-service |
+| `vps` | ✅ v0.2 | any Linux server with Docker, over SSH: images or Dockerfiles, multi-service, volumes, TCP/UDP ports, secrets |
 | `fly` | planned | containers, volumes, Postgres |
 | `vercel` | planned | static and serverless |
 | Cloudflare Containers | planned | container images on Cloudflare |
@@ -108,16 +108,48 @@ using a resource that isn't declared, and rejects unknown fields so typos don't 
   to run and where to put the id. R2 buckets are addressed by name.
 - Next.js needs `@opennextjs/cloudflare`; anyship doesn't drive it yet.
 
+### VPS notes
+
+```jsonc
+"targets": {
+  "vps": {
+    "host": "deploy@203.0.113.10", // ssh destination or ~/.ssh/config alias
+    "port": 22,                     // optional
+    "identityFile": "~/.ssh/id_ed25519", // optional
+    "dir": "anyship/my-app",        // optional; relative to the login user's home
+    "sudo": false                   // run docker via `sudo -n`
+  }
+}
+```
+
+- The spec becomes a Docker Compose project (`.anyship/vps/compose.yaml`, kept locally for review).
+  `apply` uploads it with each Dockerfile service's build context over `ssh`, then runs
+  `docker compose up -d --build` on the host. The host needs Docker with the Compose plugin.
+- anyship uses your system `ssh`, so `~/.ssh/config`, the agent, jump hosts and known_hosts checks
+  all apply. It runs in batch mode: an unknown host key or a password prompt fails instead of
+  hanging, so connect once with `ssh` first.
+- `public` ports are published on the host (`tcp+udp` publishes both); `internal` ports are only
+  reachable by other services, by service name.
+- `start` runs as the container's command, exactly as written and without a shell; wrap it in
+  `sh -c '...'` if you need pipes or variables.
+- Secrets are mounted at `/run/secrets/<NAME>`. `generate: "hex32"` secrets are created on the host
+  on first deploy and kept; others come from the same-named environment variable at `apply` time,
+  or stay as set by a previous deploy.
+- `apply --dry-run` only checks that the host is reachable and has Docker Compose.
+- Not yet: static-only services, services without an image or Dockerfile, cron, provisioning
+  databases (declare them as services instead), domains and HTTPS. `plan` explains each refusal.
+
 ## Examples
 
 - [`examples/hono-worker`](examples/hono-worker): a Hono app that deploys to Cloudflare Workers.
 - [`examples/ethereum-node`](examples/ethereum-node): a Reth + Lighthouse Ethereum node, used to
-  stress the spec (2 TB NVMe volumes, P2P TCP/UDP ports, shared JWT secret). The Cloudflare adapter
-  correctly refuses it; the planned `vps` adapter is its real target.
+  stress the spec (2 TB NVMe volumes, P2P TCP/UDP ports, shared JWT secret). The `vps` target deploys
+  it; the Cloudflare target refuses it and says why.
 
 ## Roadmap
 
-- **v0.2** `vps` adapter (Docker over SSH), Fly.io adapter, MCP server so coding agents can drive anyship.
+- **v0.2** ✅ `vps` adapter. Next: domains and HTTPS on `vps`, Fly.io adapter, MCP server so coding
+  agents can drive anyship.
 - **v0.3** AI layer (bring your own model and key): draft specs for unrecognized stacks, Workers
   compatibility review, failed-deploy diagnosis that proposes spec diffs.
 - **v0.4** Cloudflare Containers, resource creation during `apply`, Vercel adapter.
@@ -130,6 +162,7 @@ cmd/anyship/           main package
 spec/                  anyship.json types, validation, JSON Schema
 adapter/               adapter contract and registry
 adapters/cloudflare/   Cloudflare Workers adapter
+adapters/vps/          Docker Compose over SSH adapter
 detect/                rule-based project detection
 internal/cli/          the `anyship` command (cobra)
 examples/              sample specs
