@@ -201,6 +201,31 @@ Worker with `wrangler delete` and never touches bound D1, KV, R2 or Hyperdrive r
 
 `plan`, `status` and `targets` take `--json` for scripts and agents; progress messages go to stderr.
 
+## Use it from AI agents (MCP)
+
+`anyship mcp` serves anyship over the [Model Context Protocol](https://modelcontextprotocol.io) on
+stdio, so coding agents can detect, plan, deploy and debug for you. With Claude Code:
+
+```bash
+claude mcp add anyship -- anyship mcp                  # plan, dry runs, status, logs
+claude mcp add anyship -- anyship mcp --allow-deploy   # also real deploys and destroys
+```
+
+| Tool | Does | Changes anything |
+|---|---|---|
+| `targets` | list targets and what each supports | no |
+| `detect` | draft an `anyship.json` for a directory (returned, not written) | no |
+| `validate` | check `anyship.json` | no |
+| `plan` | what a deploy would do, and every unmet need | no |
+| `status`, `logs` | what runs on the target, and its recent logs | no |
+| `apply` | deploy; `dry_run` only runs the target's checks | only with `--allow-deploy` |
+| `destroy` | remove a deployment; `volumes` also deletes data | only with `--allow-deploy` |
+
+Safety is built into the server, not left to the agent: without `--allow-deploy` only dry runs are
+possible, and deleting data needs `confirm_project` set to the spec's name. Tools carry read-only and
+destructive hints so hosts can ask you before risky calls. Output from ssh, wrangler and builds is
+returned in the tool result; nothing else touches the protocol's stdin and stdout.
+
 ## Examples
 
 - [`examples/hono-worker`](examples/hono-worker): a Hono app that deploys to Cloudflare Workers.
@@ -210,8 +235,8 @@ Worker with `wrangler delete` and never touches bound D1, KV, R2 or Hyperdrive r
 
 ## Roadmap
 
-- **v0.2** ✅ `vps` adapter. Next: domains and HTTPS on `vps`, Fly.io adapter, MCP server so coding
-  agents can drive anyship.
+- **v0.2** ✅ `vps` adapter, ✅ MCP server. Next: domains and HTTPS on `vps`, release binaries,
+  Fly.io adapter.
 - **v0.3** AI layer (bring your own model and key): draft specs for unrecognized stacks, Workers
   compatibility review, failed-deploy diagnosis that proposes spec diffs.
 - **v0.4** Cloudflare Containers, resource creation during `apply`, Vercel adapter.
