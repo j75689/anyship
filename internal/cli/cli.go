@@ -64,7 +64,7 @@ func (a *app) rootCommand(version string) *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.AddCommand(a.initCommand(), a.validateCommand(), a.planCommand(), a.applyCommand(), a.logsCommand(),
-		a.statusCommand(), a.destroyCommand(), a.targetsCommand(), a.schemaCommand())
+		a.statusCommand(), a.destroyCommand(), a.targetsCommand(), a.schemaCommand(), a.mcpCommand(version))
 	return root
 }
 
@@ -420,8 +420,18 @@ func problemsOf(err error) []string {
 	return nil
 }
 
-// run executes a command with inherited stdio, or opts.Stdin when set.
+// run executes a command with inherited stdio, or opts.Stdin/opts.Stdout when set.
 func run(ctx context.Context, opts adapter.ExecOptions, name string, args ...string) error {
+	return runWith(ctx, opts, stdio{in: os.Stdin, out: os.Stdout, err: os.Stderr}, name, args...)
+}
+
+// stdio is where a command's streams go unless ExecOptions overrides them.
+type stdio struct {
+	in       io.Reader
+	out, err io.Writer
+}
+
+func runWith(ctx context.Context, opts adapter.ExecOptions, std stdio, name string, args ...string) error {
 	var cmd *exec.Cmd
 	switch {
 	case opts.Shell && runtime.GOOS == "windows":
@@ -435,7 +445,7 @@ func run(ctx context.Context, opts adapter.ExecOptions, name string, args ...str
 		cmd = exec.CommandContext(ctx, name, args...)
 	}
 	cmd.Dir = opts.Dir
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = std.in, std.out, std.err
 	if opts.Stdin != nil {
 		cmd.Stdin = opts.Stdin
 	}
