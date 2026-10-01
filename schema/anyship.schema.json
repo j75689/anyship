@@ -1,297 +1,309 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
+  "$id": "https://raw.githubusercontent.com/j75689/anyship/main/schema/anyship.schema.json",
+  "$defs": {
+    "Build": {
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string",
+          "description": "Build output directory, relative to the service path."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Cron": {
+      "properties": {
+        "schedule": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "schedule"
+      ]
+    },
+    "HealthCheck": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Port": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 1
+        },
+        "protocol": {
+          "type": "string",
+          "enum": [
+            "http",
+            "tcp",
+            "udp",
+            "tcp+udp"
+          ]
+        },
+        "exposure": {
+          "type": "string",
+          "enum": [
+            "public",
+            "internal"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "port"
+      ]
+    },
+    "Resource": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "postgres",
+            "mysql",
+            "sqlite",
+            "redis",
+            "bucket",
+            "kv"
+          ]
+        },
+        "external": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "Runtime": {
+      "properties": {
+        "language": {
+          "type": "string"
+        },
+        "framework": {
+          "type": "string"
+        },
+        "edgeCompatible": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Secret": {
+      "properties": {
+        "generate": {
+          "type": "string",
+          "enum": [
+            "hex32"
+          ]
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Service": {
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "static",
+            "server",
+            "worker"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "description": "Source directory, relative to the spec file. Defaults to \".\"."
+        },
+        "image": {
+          "type": "string"
+        },
+        "dockerfile": {
+          "type": "string"
+        },
+        "build": {
+          "$ref": "#/$defs/Build"
+        },
+        "start": {
+          "type": "string",
+          "description": "Command that starts the process."
+        },
+        "entry": {
+          "type": "string",
+          "description": "Module exporting a fetch handler, for edge runtimes. Relative to path."
+        },
+        "ports": {
+          "items": {
+            "$ref": "#/$defs/Port"
+          },
+          "type": "array"
+        },
+        "volumes": {
+          "items": {
+            "$ref": "#/$defs/Volume"
+          },
+          "type": "array"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "secrets": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Names of top-level secrets this service receives."
+        },
+        "uses": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Names of top-level resources this service binds to."
+        },
+        "cron": {
+          "items": {
+            "$ref": "#/$defs/Cron"
+          },
+          "type": "array"
+        },
+        "runtime": {
+          "$ref": "#/$defs/Runtime"
+        },
+        "healthCheck": {
+          "$ref": "#/$defs/HealthCheck"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind"
+      ]
+    },
+    "Volume": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+        },
+        "mountPath": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "size": {
+          "type": "string",
+          "pattern": "^\\d+(GB|TB)$",
+          "description": "Size like \"20GB\" or \"2TB\"."
+        },
+        "class": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "nvme"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "mountPath",
+        "size"
+      ]
+    }
+  },
   "properties": {
     "$schema": {
       "type": "string"
     },
     "version": {
-      "type": "number",
+      "type": "integer",
       "const": 1
     },
     "name": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+      "pattern": "^[a-z][a-z0-9-]{0,62}$",
+      "description": "Lowercase letters, digits and dashes, starting with a letter."
     },
     "services": {
-      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Service"
+      },
       "propertyNames": {
-        "type": "string",
         "pattern": "^[a-z][a-z0-9-]{0,62}$"
       },
-      "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "static",
-              "server",
-              "worker"
-            ]
-          },
-          "path": {
-            "default": ".",
-            "type": "string"
-          },
-          "image": {
-            "type": "string"
-          },
-          "dockerfile": {
-            "type": "string"
-          },
-          "build": {
-            "type": "object",
-            "properties": {
-              "command": {
-                "type": "string"
-              },
-              "output": {
-                "type": "string"
-              }
-            }
-          },
-          "start": {
-            "type": "string"
-          },
-          "entry": {
-            "type": "string"
-          },
-          "ports": {
-            "default": [],
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "type": "string"
-                },
-                "port": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 65535
-                },
-                "protocol": {
-                  "default": "http",
-                  "type": "string",
-                  "enum": [
-                    "http",
-                    "tcp",
-                    "udp",
-                    "tcp+udp"
-                  ]
-                },
-                "exposure": {
-                  "default": "public",
-                  "type": "string",
-                  "enum": [
-                    "public",
-                    "internal"
-                  ]
-                }
-              },
-              "required": [
-                "port"
-              ]
-            }
-          },
-          "volumes": {
-            "default": [],
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "pattern": "^[a-z][a-z0-9-]{0,62}$"
-                },
-                "mountPath": {
-                  "type": "string",
-                  "format": "starts_with",
-                  "pattern": "^\\/.*"
-                },
-                "size": {
-                  "type": "string",
-                  "pattern": "^\\d+(GB|TB)$"
-                },
-                "class": {
-                  "default": "standard",
-                  "type": "string",
-                  "enum": [
-                    "standard",
-                    "nvme"
-                  ]
-                }
-              },
-              "required": [
-                "name",
-                "mountPath",
-                "size"
-              ]
-            }
-          },
-          "replicas": {
-            "default": 1,
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 9007199254740991
-          },
-          "env": {
-            "default": {},
-            "type": "object",
-            "propertyNames": {
-              "type": "string"
-            },
-            "additionalProperties": {
-              "type": "string"
-            }
-          },
-          "secrets": {
-            "default": [],
-            "type": "array",
-            "items": {
-              "type": "string",
-              "pattern": "^[A-Z][A-Z0-9_]*$"
-            }
-          },
-          "uses": {
-            "default": [],
-            "type": "array",
-            "items": {
-              "type": "string",
-              "pattern": "^[a-z][a-z0-9-]{0,62}$"
-            }
-          },
-          "cron": {
-            "default": [],
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "schedule": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "command": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "schedule"
-              ]
-            }
-          },
-          "runtime": {
-            "default": {},
-            "type": "object",
-            "properties": {
-              "language": {
-                "type": "string"
-              },
-              "framework": {
-                "type": "string"
-              },
-              "edgeCompatible": {
-                "type": "boolean"
-              }
-            }
-          },
-          "healthCheck": {
-            "type": "object",
-            "properties": {
-              "path": {
-                "type": "string"
-              },
-              "command": {
-                "type": "string"
-              }
-            }
-          },
-          "dependsOn": {
-            "default": [],
-            "type": "array",
-            "items": {
-              "type": "string",
-              "pattern": "^[a-z][a-z0-9-]{0,62}$"
-            }
-          }
-        },
-        "required": [
-          "kind"
-        ]
-      }
+      "type": "object"
     },
     "resources": {
-      "default": {},
-      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Resource"
+      },
       "propertyNames": {
-        "type": "string",
         "pattern": "^[a-z][a-z0-9-]{0,62}$"
       },
-      "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "postgres",
-              "mysql",
-              "sqlite",
-              "redis",
-              "bucket",
-              "kv"
-            ]
-          },
-          "external": {
-            "default": false,
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "type"
-        ]
-      }
+      "type": "object"
     },
     "secrets": {
-      "default": {},
-      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Secret"
+      },
       "propertyNames": {
-        "type": "string",
         "pattern": "^[A-Z][A-Z0-9_]*$"
       },
-      "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "generate": {
-            "type": "string",
-            "enum": [
-              "hex32"
-            ]
-          },
-          "description": {
-            "type": "string"
-          }
-        }
-      }
+      "type": "object"
     },
     "targets": {
-      "default": {},
+      "additionalProperties": true,
       "type": "object",
-      "propertyNames": {
-        "type": "string"
-      },
-      "additionalProperties": {
-        "type": "object",
-        "propertyNames": {
-          "type": "string"
-        },
-        "additionalProperties": {}
-      }
+      "description": "Per-platform overrides keyed by adapter name."
     }
   },
+  "additionalProperties": false,
+  "type": "object",
   "required": [
     "version",
     "name",
     "services"
-  ]
+  ],
+  "title": "anyship deploy spec"
 }

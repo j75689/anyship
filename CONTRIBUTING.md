@@ -4,45 +4,46 @@ Thanks for helping! Issues and pull requests are welcome.
 
 ## Setup
 
-```bash
-npm install
-npm run check        # typecheck + tests
-npm run anyship -- --help
-```
+Go 1.26+ is required.
 
-Node.js 22+ is required. Packages export TypeScript sources directly and run through `tsx`/`vitest`,
-so there is no build step during development.
+```bash
+go test ./...
+go run ./cmd/anyship --help
+golangci-lint run ./...   # optional locally; CI runs it
+```
 
 ## Writing an adapter
 
-An adapter implements `Adapter` from `@anyship/core`:
+An adapter implements `adapter.Adapter`:
 
-```ts
-interface Adapter {
-  name: string;
-  description: string;
-  plan(spec: DeploySpec, ctx: AdapterContext): Promise<Plan>;
-  apply(plan: Plan, spec: DeploySpec, ctx: AdapterContext): Promise<ApplyResult>;
+```go
+type Adapter interface {
+	Name() string
+	Description() string
+	Plan(ctx context.Context, s *spec.Spec, env *adapter.Env) (*adapter.Plan, error)
+	Apply(ctx context.Context, p *adapter.Plan, s *spec.Spec, env *adapter.Env) (*adapter.Result, error)
 }
 ```
 
-Rules every adapter follows (see `packages/adapter-cloudflare` for a reference):
+Rules every adapter follows (see `adapters/cloudflare` for a reference):
 
-1. **`plan()` has no side effects.** It reads the spec and returns findings, actions and generated
+1. **`Plan` has no side effects.** It reads the spec and returns findings, actions and generated
    files. Nothing is written or deployed.
 2. **Never silently drop a need.** If the platform can't provide something the spec asks for (a
-   volume, a TCP port, a resource type), emit an `error` finding with a stable `code` (prefix it, e.g.
-   `FLY_`) and a `hint` that suggests an alternative.
-3. **`apply()` refuses a plan with errors**, and runs platform tools through `ctx.exec` so tests can
+   volume, a TCP port, a resource type), emit an `adapter.Error` finding with a stable `Code` (prefix
+   it, e.g. `FLY_`) and a `Hint` that suggests an alternative. Return a Go `error` only for real
+   failures, not for unmet needs.
+3. **`Apply` refuses a plan with errors**, and runs platform tools through `env.Exec` so tests can
    stub them.
-4. **Validate your `targets.<name>` block** with a strict schema so typos surface as findings.
-5. **Rendering is deterministic.** The same spec always produces the same config. Don't embed
-   timestamps or today's date.
+4. **Decode your `targets.<name>` block strictly** (`DisallowUnknownFields`) so typos surface as
+   findings.
+5. **Rendering is deterministic.** The same spec always produces the same config: iterate maps in
+   sorted order and don't embed timestamps or today's date.
 6. **Credentials stay local.** Read them from the platform's own CLI login or environment variables;
    never send them anywhere else.
 
-Add tests covering rendered config, every refusal code, and `apply()` with a stubbed `exec`. Then
-register the adapter in `packages/cli/src/program.ts`.
+Add tests covering rendered config, every refusal code, and `Apply` with a stubbed `Exec`. Then
+register the adapter in `internal/cli/cli.go`.
 
 ## Changing the spec
 
@@ -50,7 +51,8 @@ The spec is the contract between detection and every adapter, so changes need ca
 
 - Prefer adding optional fields over changing existing ones.
 - Describe *needs*, not platform features (`volumes`, not `ebs`).
-- Run `npm run schema` and commit the regenerated `schema/anyship.schema.json`.
+- Regenerate the JSON Schema: `go run ./cmd/anyship schema > schema/anyship.schema.json`. A test fails
+  if you forget.
 
 ## Commit style
 

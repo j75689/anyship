@@ -43,18 +43,21 @@ ships is always the reviewed file.
 
 ## Quick start
 
-Requires Node.js 22+. Packages aren't published to npm yet, so run from source:
+anyship is a single Go binary with no runtime dependencies. Release binaries aren't published yet, so
+install from source (Go 1.26+):
 
 ```bash
-git clone <this repo> anyship && cd anyship
-npm install
-npm run anyship -- init path/to/your/app
-npm run anyship -- plan  --target cloudflare -c path/to/your/app/anyship.json
-npm run anyship -- apply --target cloudflare -c path/to/your/app/anyship.json --dry-run
+go install github.com/j75689/anyship/cmd/anyship@latest
+
+cd path/to/your/app
+anyship init
+anyship plan  --target cloudflare
+anyship apply --target cloudflare --dry-run
 ```
 
-`apply` runs `npx wrangler deploy`, so log in once with `npx wrangler login` (or set
-`CLOUDFLARE_API_TOKEN`). Credentials stay on your machine; anyship has no server.
+The Cloudflare target runs `npx wrangler deploy`, so it needs Node.js, which any project you deploy
+to Workers already has. Log in once with `npx wrangler login` (or set `CLOUDFLARE_API_TOKEN`).
+Credentials stay on your machine; anyship has no server.
 
 ## The spec
 
@@ -82,8 +85,8 @@ npm run anyship -- apply --target cloudflare -c path/to/your/app/anyship.json --
 ```
 
 Editors can validate and autocomplete against [`schema/anyship.schema.json`](schema/anyship.schema.json)
-(regenerate with `npm run schema`). `anyship validate` also checks cross-references, such as a service
-using a resource that isn't declared.
+(`anyship schema` prints it). `anyship validate` also checks cross-references, such as a service
+using a resource that isn't declared, and rejects unknown fields so typos don't go unnoticed.
 
 ## Targets
 
@@ -123,11 +126,12 @@ using a resource that isn't declared.
 ## Project layout
 
 ```
-packages/
-  spec/                anyship.json schema (zod), types, loader
-  core/                adapter contract, registry, rule-based detection
-  adapter-cloudflare/  Cloudflare Workers adapter
-  cli/                 `anyship` command
+cmd/anyship/           main package
+spec/                  anyship.json types, validation, JSON Schema
+adapter/               adapter contract and registry
+adapters/cloudflare/   Cloudflare Workers adapter
+detect/                rule-based project detection
+internal/cli/          the `anyship` command (cobra)
 examples/              sample specs
 schema/                generated JSON Schema
 ```
