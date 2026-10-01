@@ -32,7 +32,20 @@ type recorder struct {
 	calls []call
 	// fail makes the n-th call (0-based) fail; -1 never fails.
 	fail int
+	// stdout is written to captured output, keyed by call index.
+	stdout map[int]string
 }
+
+// healthyHost is what the preflight script prints on a ready amd64 host
+// with plenty of disk and nothing listening on the spec's ports.
+const healthyHost = `ANYSHIP version 2.29.1
+ANYSHIP compose ok
+ANYSHIP arch x86_64
+ANYSHIP disk /var/lib/docker 5000000000
+ANYSHIP running 0
+ANYSHIP listen tcp 0.0.0.0:22
+ANYSHIP listen udp 127.0.0.53%lo:53
+`
 
 func (r *recorder) exec(_ context.Context, opts adapter.ExecOptions, name string, args ...string) error {
 	c := call{name: name, args: args}
@@ -43,6 +56,9 @@ func (r *recorder) exec(_ context.Context, opts adapter.ExecOptions, name string
 		}
 		c.stdin = data
 	}
+	if opts.Stdout != nil {
+		_, _ = io.WriteString(opts.Stdout, r.stdout[len(r.calls)])
+	}
 	r.calls = append(r.calls, c)
 	if len(r.calls)-1 == r.fail {
 		return errors.New("exit status 255")
@@ -52,7 +68,7 @@ func (r *recorder) exec(_ context.Context, opts adapter.ExecOptions, name string
 
 func newEnv(t *testing.T, dir string) (*adapter.Env, *recorder) {
 	t.Helper()
-	rec := &recorder{fail: -1}
+	rec := &recorder{fail: -1, stdout: map[int]string{0: healthyHost}}
 	return &adapter.Env{
 		Dir:       dir,
 		OutDir:    filepath.Join(dir, ".anyship", Name),
@@ -247,8 +263,8 @@ func TestDockerfileServicesUploadTheirContext(t *testing.T) {
 			t.Errorf("ssh args = %q, want %q followed by the remote command", c.args, wantPrefix)
 		}
 	}
-	if got := rec.calls[0].remote(); got != "sudo -n docker compose version" {
-		t.Errorf("preflight = %q", got)
+	if got := rec.calls[0].remote(); !strings.Contains(got, "sudo -n docker compose -p shop -f \"$tmp/compose.yaml\" config --quiet") {
+		t.Errorf("preflight should validate the compose file with sudo:\n%s", got)
 	}
 	if got := rec.calls[1].remote(); got != "mkdir -p apps/shop && rm -rf apps/shop/src && tar -xf - -C apps/shop" {
 		t.Errorf("upload = %q", got)
@@ -291,9 +307,23 @@ func TestApplyDryRunOnlyChecksTheHost(t *testing.T) {
 	if err != nil || !result.OK {
 		t.Fatalf("apply = %+v, %v", result, err)
 	}
-	if len(rec.calls) != 1 || rec.calls[0].remote() != "docker compose version" {
-		t.Errorf("dry run calls = %+v", rec.calls)
+	if len(rec.calls) != 1 || !strings.HasPrefix(rec.calls[0].remote(), "tmp=$(mktemp -d)") {
+		t.Errorf("a dry run should only run the preflight checks, got %d calls", len(rec.calls))
 	}
+	if !bytes.Equal(rec.calls[0].stdin, plan(t, s, env).Files[0].Contents) {
+		t.Error("the preflight checks should receive compose.yaml on stdin")
+	}
+	if !slices.Contains(codesOf(result.Findings), "VPS_PREFLIGHT_COMPOSE_OK") {
+		t.Errorf("findings = %v", codesOf(result.Findings))
+	}
+}
+
+func codesOf(findings []adapter.Finding) []string {
+	var out []string
+	for _, f := range findings {
+		out = append(out, f.Code)
+	}
+	return out
 }
 
 func TestApplyStopsWhenTheHostIsUnreachable(t *testing.T) {
@@ -304,7 +334,7 @@ func TestApplyStopsWhenTheHostIsUnreachable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.OK || len(rec.calls) != 1 || !strings.Contains(result.Messages[0], "Cannot run Docker Compose") {
+	if result.OK || len(rec.calls) != 1 || !strings.Contains(result.Messages[0], "Cannot run the preflight checks") {
 		t.Errorf("result = %+v, calls = %d", result, len(rec.calls))
 	}
 }
