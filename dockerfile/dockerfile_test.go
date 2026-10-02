@@ -160,6 +160,24 @@ func TestStatic(t *testing.T) {
 	)
 }
 
+// TestStaticOutputIsASlashPathEverywhere covers a build.output written with
+// Windows separators. The COPY line runs inside a Linux image, so the generated
+// Dockerfile must come out the same whatever the deployer runs. filepath.ToSlash
+// used to do this job, and it does nothing at all on Linux.
+func TestStaticOutputIsASlashPathEverywhere(t *testing.T) {
+	// Through a spec, which normalizes separators for every adapter.
+	wantLines(t, generate(t, `{"kind": "static", "build": {"output": "dist\\assets"}}`, nil),
+		"COPY dist/assets/ /usr/share/nginx/html/")
+
+	// And through Generate on its own, which any caller may reach.
+	r, err := Generate(&spec.Service{Kind: spec.KindStatic, Build: &spec.Build{Output: `dist\assets`}}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantLines(t, string(r.Dockerfile), "COPY dist/assets/ /usr/share/nginx/html/")
+	refuseLines(t, string(r.Dockerfile), `\`)
+}
+
 func TestPortsAndShellFallback(t *testing.T) {
 	got := generate(t,
 		`{"kind": "server", "start": "node a.js | tee log", "ports": [{"port": 9000, "protocol": "udp"}, {"port": 30303, "protocol": "tcp+udp"}], "runtime": {"language": "javascript"}}`,
@@ -187,12 +205,16 @@ func TestIgnoreFileKeepsProjectRules(t *testing.T) {
 
 func TestUnsupported(t *testing.T) {
 	for svc, reason := range map[string]string{
-		`{"kind": "server", "start": "java -jar app.jar", "runtime": {"language": "java"}}`:                 "java isn't supported",
-		`{"kind": "server", "start": "./app"}`:                                                              "couldn't tell which language",
-		`{"kind": "worker", "image": "x"}`:                                                                  "no start command",
-		`{"kind": "server", "start": "./bin/x", "runtime": {"language": "go"}}`:                             "no build.command",
-		`{"kind": "static", "build": {"command": "make site"}}`:                                             "only supported for JavaScript",
-		`{"kind": "static", "build": {"output": "../outside"}}`:                                             "must stay inside",
+		`{"kind": "server", "start": "java -jar app.jar", "runtime": {"language": "java"}}`: "java isn't supported",
+		`{"kind": "server", "start": "./app"}`:                                              "couldn't tell which language",
+		`{"kind": "worker", "image": "x"}`:                                                  "no start command",
+		`{"kind": "server", "start": "./bin/x", "runtime": {"language": "go"}}`:             "no build.command",
+		`{"kind": "static", "build": {"command": "make site"}}`:                             "only supported for JavaScript",
+		`{"kind": "static", "build": {"output": "../outside"}}`:                             "must stay inside",
+		// A Windows drive is outside the service directory too, and path.IsAbs
+		// sees neither of these as absolute.
+		`{"kind": "static", "build": {"output": "C:\\dist"}}`:                                               "must stay inside",
+		`{"kind": "static", "build": {"output": "d:dist"}}`:                                                 "must stay inside",
 		`{"kind": "server", "start": "x", "build": {"command": "a\nb"}, "runtime": {"language": "python"}}`: "single line",
 	} {
 		_, err := Generate(service(t, svc), t.TempDir())

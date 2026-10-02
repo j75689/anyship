@@ -132,6 +132,32 @@ func TestMarshalRoundTrips(t *testing.T) {
 	}
 }
 
+// A spec written on Windows may use backslashes. Normalize rewrites them, so
+// every adapter sees one slash-separated form and the spec means the same thing
+// on every machine. The result must not depend on the local separator, which is
+// why this test runs everywhere, not only on Windows.
+func TestParseNormalizesWindowsSeparators(t *testing.T) {
+	s := mustParse(t, app("app", `
+  services:
+    site:
+      kind: static
+      path: apps\site
+      build: {command: npm run build, output: dist\assets}
+    api:
+      kind: server
+      path: services\api
+      dockerfile: docker\Dockerfile
+      entry: src\index.ts
+`))
+	site, api := s.Services["site"], s.Services["api"]
+	if site.Path != "apps/site" || site.Build.Output != "dist/assets" {
+		t.Errorf("path = %q, output = %q", site.Path, site.Build.Output)
+	}
+	if api.Path != "services/api" || api.Dockerfile != "docker/Dockerfile" || api.Entry != "src/index.ts" {
+		t.Errorf("path = %q, dockerfile = %q, entry = %q", api.Path, api.Dockerfile, api.Entry)
+	}
+}
+
 func TestLoadPointsAtTheOldJSONFile(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "anyship.json"), []byte("{}"), 0o644); err != nil {
