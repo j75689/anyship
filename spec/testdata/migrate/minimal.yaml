@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/j75689/anyship/main/schema/anyship.schema.json
+apiVersion: anyship/v1alpha1
+kind: App
+metadata:
+  name: minimal
+spec:
+  services:
+    web:
+      kind: server
+      start: node dist/server.js
+      ports:
+        - port: 3000

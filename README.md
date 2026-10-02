@@ -142,8 +142,18 @@ comment, which `anyship init` writes (`anyship schema` prints the schema). `anys
 using a resource that isn't declared, and rejects unknown fields so typos don't go unnoticed.
 
 Coming from v0.2, where the spec was `anyship.json`? Only the envelope changed; everything under
-`services`, `resources`, `secrets` and `targets` is the same. [docs/MIGRATION.md](docs/MIGRATION.md)
-has the field-by-field mapping and complete before/after examples.
+`services`, `resources`, `secrets` and `targets` is the same, so `anyship migrate` converts the file
+for you:
+
+```bash
+anyship migrate            # anyship.json -> anyship.yaml
+anyship migrate --dry-run  # print it instead of writing it
+```
+
+It writes the envelope, keeps the rest as it is, validates the result, and refuses — with the field's
+path and a suggestion — anything it doesn't recognize rather than dropping it. Your `anyship.json`
+stays where it is until you delete it. [docs/MIGRATION.md](docs/MIGRATION.md) has the field-by-field
+mapping and complete before/after examples.
 
 ## Targets
 
