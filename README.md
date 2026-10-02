@@ -271,6 +271,10 @@ spec:
   stay. `destroy --volumes` also deletes the secrets without a recovery window.
 - Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports and resources anyship
   would have to provision.
+- This target has not been run against a real AWS account yet. Express Mode provisions a load
+  balancer that bills whether or not it serves traffic, so read
+  [docs/verified/aws.md](docs/verified/aws.md) — the runbook and residual-resource checklist — before
+  you point it at an account you pay for.
 
 ## Logs
 
