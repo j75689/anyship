@@ -303,8 +303,10 @@ $ /tmp/anyship apply -t gcp -y
 ```
 
 Expect, in order: the preflight `is ready` line, `docker login us-central1-docker.pkg.dev`, a buildx
-build and push, `gcloud run deploy anyship-hello-web`, then a printed URL of the shape
-`https://anyship-hello-web-<hash>-uc.a.run.app`. The final line should be
+build and push, `gcloud run deploy anyship-hello-web`, then a printed `*.run.app` URL. Google has
+used more than one URL format over time (`anyship-hello-web-<hash>-uc.a.run.app` and
+`anyship-hello-web-<project number>.us-central1.run.app`), so record the one you actually get rather
+than matching a pattern. The final line should be
 `Deployed anyship-hello to Cloud Run in anyship-verify-ope13/us-central1.` followed by `web: <url>`.
 
 Then prove the container really serves, with the env var it was given:
