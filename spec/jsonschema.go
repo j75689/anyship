@@ -46,6 +46,12 @@ func (Spec) JSONSchemaExtend(s *jsonschema.Schema) {
 	}
 }
 
+func (Service) JSONSchemaExtend(s *jsonschema.Schema) {
+	if domains, ok := s.Properties.Get("domains"); ok && domains.Items != nil {
+		domains.Items.Pattern = DomainPattern
+	}
+}
+
 func (Volume) JSONSchemaExtend(s *jsonschema.Schema) {
 	if name, ok := s.Properties.Get("name"); ok {
 		name.Pattern = NamePattern

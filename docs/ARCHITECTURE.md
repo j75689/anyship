@@ -47,10 +47,17 @@ and anyship handles no cloud credentials.
 | image or Dockerfile | refused | built on the host | built locally, pushed to Artifact Registry | built locally, pushed to ECR |
 | `static` site | Worker assets | nginx container | refused (use cloudflare) | refused (use cloudflare) |
 | volumes, TCP/UDP ports | refused | Docker volumes, published ports | refused (use vps) | refused (use vps) |
+| `domains` | custom-domain routes | refused (no HTTP router yet) | refused (map them yourself) | refused (CNAME the `on.aws` URL) |
 | `replicas` | automatic | Compose replicas | min instances | min tasks |
 | `secrets` | `wrangler secret` | files on the host | Secret Manager, by name | Secrets Manager, by name |
 | databases | D1, KV, R2, Hyperdrive by id | external only | external only | external only |
 | status, logs, destroy | logs, destroy | all three | all three | all three |
+
+`services.<name>.domains` is the platform-neutral place to name the hosts a service answers on. Per
+"applications, not infrastructure", anyship attaches them to the platform's HTTP router where it can
+and issues no certificates and creates no DNS records. A target's own block may override the field:
+`targets.cloudflare.domains` replaces it rather than adding to it, so a Cloudflare deploy can use
+different hosts than the rest of the spec, and `plan` notes the substitution (`CF_DOMAIN_OVERRIDE`).
 
 ## Flows
 

@@ -208,6 +208,11 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	if len(svc.Cron) > 0 {
 		add(adapter.Error, "GCP_CRON", "Cron schedules aren't supported on the gcp target yet.", "")
 	}
+	if len(svc.Domains) > 0 {
+		add(adapter.Error, "GCP_DOMAIN_UNSUPPORTED",
+			fmt.Sprintf("anyship doesn't attach custom domains on Cloud Run (domains: %s); the service answers on its run.app URL.", strings.Join(svc.Domains, ", ")),
+			"Map them yourself (gcloud beta run domain-mappings create) or put a load balancer in front, then drop domains from the spec.")
+	}
 
 	var http []spec.Port
 	for _, p := range svc.Ports {

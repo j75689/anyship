@@ -3,6 +3,7 @@ package spec
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -91,6 +92,80 @@ func TestParseRejectsBadNamesAndDuplicatePorts(t *testing.T) {
 	}
 	if !slices.Contains(got, "spec.services.web.ports.1.port: port 80 is listed twice") {
 		t.Errorf("want a duplicate port problem, got %q", got)
+	}
+}
+
+// withDomains is a one-service spec whose public http port can host domains.
+func withDomains(domains string) []byte {
+	return app("app", "  services:\n    web: {kind: server, start: x, ports: [{port: 8080}], domains: "+domains+"}\n")
+}
+
+func TestParseNormalizesDomains(t *testing.T) {
+	s := mustParse(t, withDomains(`["App.Example.COM", "shop.example.com.", " api.example.com "]`))
+	want := []string{"app.example.com", "shop.example.com", "api.example.com"}
+	if !slices.Equal(s.Services["web"].Domains, want) {
+		t.Errorf("domains = %q, want %q", s.Services["web"].Domains, want)
+	}
+}
+
+func TestParseRejectsBadDomains(t *testing.T) {
+	for _, tc := range []struct{ name, domains, want string }{
+		{"wildcard", `["*.example.com"]`, `wildcard domains are not supported; name each host, e.g. "app.example.com"`},
+		{"no dot", `[example]`, `invalid domain "example": ` + domainHint},
+		{"underscore", `[under_score.example.com]`, `invalid domain "under_score.example.com": ` + domainHint},
+		{"with scheme", `["https://example.com"]`, `invalid domain "https://example.com": ` + domainHint},
+		{"with port", `["example.com:8080"]`, `invalid domain "example.com:8080": ` + domainHint},
+		{"with path", `["example.com/app"]`, `invalid domain "example.com/app": ` + domainHint},
+		{"empty", `[""]`, `invalid domain "": ` + domainHint},
+		{"numeric tld", `[example.123]`, `invalid domain "example.123": ` + domainHint},
+		{"too long", `["` + strings.Repeat("label.", 45) + `example.com"]`, "is longer than 253 characters"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := problemsOf(t, withDomains(tc.domains))
+			if want := "spec.services.web.domains.0: " + tc.want; !slices.Contains(got, want) {
+				t.Errorf("problems:\n got  %q\n want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestParseRejectsDuplicateDomains(t *testing.T) {
+	got := problemsOf(t, app("app", `
+  services:
+    api:
+      kind: server
+      start: x
+      ports: [{port: 8080}]
+      domains: [shop.example.com, SHOP.example.com]
+    web:
+      kind: server
+      start: x
+      ports: [{port: 8080}]
+      domains: [shop.example.com]
+`))
+	want := []string{
+		`spec.services.api.domains.1: domain "shop.example.com" is listed twice`,
+		`spec.services.web.domains.0: domain "shop.example.com" is already claimed by service "api"`,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("problems:\n got  %q\n want %q", got, want)
+	}
+}
+
+func TestParseRequiresAPublicHTTPPortForDomains(t *testing.T) {
+	const want = `spec.services.%s.domains: needs a port with protocol "http" and exposure "public" to route to`
+	for name, body := range map[string]string{
+		"no-ports": "{kind: server, start: x, domains: [a.example.com]}",
+		"internal": "{kind: server, start: x, ports: [{port: 8080, exposure: internal}], domains: [b.example.com]}",
+		"tcp":      "{kind: server, start: x, ports: [{port: 8080, protocol: tcp}], domains: [c.example.com]}",
+		"worker":   "{kind: worker, start: x, domains: [d.example.com]}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := problemsOf(t, app("app", "  services:\n    "+name+": "+body+"\n"))
+			if w := fmt.Sprintf(want, name); !slices.Contains(got, w) {
+				t.Errorf("problems:\n got  %q\n want %q", got, w)
+			}
+		})
 	}
 }
 

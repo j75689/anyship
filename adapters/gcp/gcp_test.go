@@ -186,11 +186,12 @@ func TestPlanRefusesUnsupported(t *testing.T) {
 			"job": {"kind": "worker", "image": "busybox"},
 			"db": {"kind": "server", "image": "postgres:16", "ports": [{"port": 5432, "protocol": "tcp"}],
 				"volumes": [{"name": "data", "mountPath": "/var/lib/postgresql/data", "size": "10GB"}]},
-			"api": {"kind": "server", "image": "api", "ports": [{"port": 80}, {"port": 81}], "uses": ["cache"]}},
+			"api": {"kind": "server", "image": "api", "ports": [{"port": 80}, {"port": 81}], "uses": ["cache"]},
+			"www": {"kind": "server", "image": "www", "ports": [{"port": 80}], "domains": ["shop.example.com"]}},
 		"resources": {"cache": {"type": "redis"}}, `+target+`}`)
 	env, _ := newEnv(t, t.TempDir(), nil)
 	errs := codes(plan(t, s, env), adapter.Error)
-	for _, want := range []string{"GCP_STATIC", "GCP_WORKER", "GCP_VOLUMES", "GCP_NON_HTTP_PORT", "GCP_MULTIPLE_PORTS", "GCP_RESOURCE"} {
+	for _, want := range []string{"GCP_STATIC", "GCP_WORKER", "GCP_VOLUMES", "GCP_NON_HTTP_PORT", "GCP_MULTIPLE_PORTS", "GCP_RESOURCE", "GCP_DOMAIN_UNSUPPORTED"} {
 		if !slices.Contains(errs, want) {
 			t.Errorf("missing error %s in %v", want, errs)
 		}
