@@ -174,6 +174,38 @@ func (s *Spec) ServiceNames() []string {
 	return slices.Sorted(maps.Keys(s.Services))
 }
 
+// DeployOrder lists services so each comes after the services it depends on.
+// Services in a dependency cycle come last, in name order.
+func (s *Spec) DeployOrder() []string {
+	var order []string
+	placed := map[string]bool{}
+	for len(order) < len(s.Services) {
+		progressed := false
+		for _, name := range s.ServiceNames() {
+			if placed[name] {
+				continue
+			}
+			ready := true
+			for _, dep := range s.Services[name].DependsOn {
+				if !placed[dep] {
+					ready = false
+				}
+			}
+			if ready {
+				order, placed[name], progressed = append(order, name), true, true
+			}
+		}
+		if !progressed { // a dependency cycle; deploy the rest in name order
+			for _, name := range s.ServiceNames() {
+				if !placed[name] {
+					order, placed[name] = append(order, name), true
+				}
+			}
+		}
+	}
+	return order
+}
+
 // EdgeIncompatible reports whether the service is known not to run on edge runtimes.
 func (svc *Service) EdgeIncompatible() bool {
 	return svc.Runtime != nil && svc.Runtime.EdgeCompatible != nil && !*svc.Runtime.EdgeCompatible

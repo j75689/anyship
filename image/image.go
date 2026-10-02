@@ -24,7 +24,9 @@ type Build struct {
 	Dockerfile string
 	// Repository is the image name without a tag, e.g. us-docker.pkg.dev/p/r/app-web.
 	Repository string
-	Platform   string
+	// Tag is the tag pushed alongside the digest; "latest" when empty.
+	Tag      string
+	Platform string
 }
 
 // BuildAndPush runs `docker buildx build --push` and returns the pushed
@@ -34,6 +36,10 @@ func BuildAndPush(ctx context.Context, env *adapter.Env, b Build) (string, error
 	if platform == "" {
 		platform = DefaultPlatform
 	}
+	tag := b.Tag
+	if tag == "" {
+		tag = "latest"
+	}
 	tmp, err := os.MkdirTemp("", "anyship-build-")
 	if err != nil {
 		return "", err
@@ -42,7 +48,7 @@ func BuildAndPush(ctx context.Context, env *adapter.Env, b Build) (string, error
 	metadata := filepath.Join(tmp, "metadata.json")
 
 	args := []string{"buildx", "build", "--platform", platform, "--file", b.Dockerfile,
-		"--tag", b.Repository + ":latest", "--metadata-file", metadata, "--push", b.Context}
+		"--tag", b.Repository + ":" + tag, "--metadata-file", metadata, "--push", b.Context}
 	env.Logf("$ docker %s", strings.Join(args, " "))
 	if err := env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir}, "docker", args...); err != nil {
 		return "", fmt.Errorf("docker buildx build failed: %w", err)
