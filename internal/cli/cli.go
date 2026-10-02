@@ -20,6 +20,7 @@ import (
 
 	"github.com/j75689/anyship/adapter"
 	"github.com/j75689/anyship/adapters/cloudflare"
+	"github.com/j75689/anyship/adapters/gcp"
 	"github.com/j75689/anyship/adapters/vps"
 	"github.com/j75689/anyship/detect"
 	"github.com/j75689/anyship/diagnose"
@@ -40,7 +41,7 @@ type app struct {
 // Execute runs the CLI and returns the process exit code.
 func Execute(version string) int {
 	style := newStyler(os.Stderr)
-	registry, err := adapter.NewRegistry(cloudflare.New(), vps.New())
+	registry, err := adapter.NewRegistry(cloudflare.New(), vps.New(), gcp.New())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, style.red("error: "+err.Error()))
 		return 1
