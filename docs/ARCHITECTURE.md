@@ -28,12 +28,12 @@ helps you operate it. This page describes the target architecture; parts not bui
 | `spec` | `anyship.json` types, validation, JSON Schema | nothing | built |
 | `detect` | drafting a spec from JS, Go, Python, Rust, Dockerfile or static projects | project files | built |
 | `dockerfile` | Dockerfiles for services that have none | project files | built |
-| `image` | building an image with `docker buildx` and pushing it to a registry, by digest | Docker, the registry | **planned** |
+| `image` | building an image with `docker buildx` and pushing it to a registry, by digest | Docker, the registry | built |
 | `diagnose` | context collection, redaction, JSON Patch, the retry loop | Claude API | built |
 | `adapter` | the contract (`Plan`, `Apply`, optional `Logs`, `Status`, `Destroy`) and registry | nothing | built |
 | `adapters/cloudflare` | `wrangler.jsonc`, Workers compatibility checks | `npx wrangler` | built |
 | `adapters/vps` | compose rendering, preflight, upload, status, logs, destroy | `ssh` to a Linux host | built |
-| `adapters/gcp` | Cloud Run services, Secret Manager, Artifact Registry | `gcloud`, `docker` | **planned** |
+| `adapters/gcp` | Cloud Run services, Secret Manager, Artifact Registry | `gcloud`, `docker` | built |
 | `adapters/aws` | a managed container service, Secrets Manager, ECR | `aws`, `docker` | **planned** |
 | `internal/cli` | the commands and the MCP server | everything above | built |
 
@@ -42,13 +42,13 @@ helps you operate it. This page describes the target architecture; parts not bui
 Each adapter talks to its provider through the provider's own CLI, so your existing login is used
 and anyship handles no cloud credentials.
 
-| anyship.json asks for | cloudflare | vps | gcp (planned) | aws (planned) |
+| anyship.json asks for | cloudflare | vps | gcp | aws (planned) |
 |---|---|---|---|---|
 | HTTP `server` | Worker | container | Cloud Run service | container service |
 | image or Dockerfile | refused | built on the host | built locally, pushed to Artifact Registry | built locally, pushed to ECR |
 | `static` site | Worker assets | nginx container | refused (use cloudflare) | refused (use cloudflare) |
 | volumes, TCP/UDP ports | refused | Docker volumes, published ports | refused (use vps) | refused (use vps) |
-| `replicas` | automatic | Compose replicas | min/max instances | desired count |
+| `replicas` | automatic | Compose replicas | min instances | desired count |
 | `secrets` | `wrangler secret` | files on the host | Secret Manager, by name | Secrets Manager, by name |
 | databases | D1, KV, R2, Hyperdrive by id | external only | external only | external only |
 | status, logs, destroy | logs, destroy | all three | all three | all three |
@@ -62,7 +62,7 @@ and anyship handles no cloud credentials.
 Nothing on the host changes until preflight passes. CI runs this path against its own runner on every
 pull request (`vps-e2e`).
 
-### `apply` on a cloud target (planned)
+### `apply` on a cloud target (gcp; aws planned)
 
 1. **plan**: render the provider's service settings and the Dockerfile, as for vps.
 2. **preflight**: check the CLI login, project or account, region, required APIs and registry access.

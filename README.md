@@ -6,8 +6,8 @@ anyship reads your project, drafts a platform-neutral deploy spec (`anyship.json
 spec into a deployment on whichever platform you pick. Each platform adapter either satisfies every
 need in the spec or tells you exactly which need it can't meet and why. It never quietly drops one.
 
-> **Status: early (v0.2).** The spec, rule-based detection, the CLI, a Cloudflare Workers adapter and a
-> VPS (Docker over SSH) adapter work today. More targets and the AI assistant layer are on the [roadmap](#roadmap).
+> **Status: early (v0.2).** The spec, rule-based detection, the CLI, a Cloudflare Workers adapter, a
+> VPS (Docker over SSH) adapter and a Google Cloud Run adapter work today. More targets and the AI assistant layer are on the [roadmap](#roadmap).
 
 ```console
 $ anyship init
@@ -140,6 +140,8 @@ using a resource that isn't declared, and rejects unknown fields so typos don't 
 |---|---|---|
 | `cloudflare` | ✅ v0.1 | Workers (edge handlers) and static assets; D1, KV, R2, Hyperdrive bindings; cron triggers; custom domains |
 | `vps` | ✅ v0.2 | any Linux server with Docker, over SSH: images or Dockerfiles, multi-service, volumes, TCP/UDP ports, secrets |
+| `gcp` | ✅ unreleased | Google Cloud Run: images or Dockerfiles (built locally, pushed to Artifact Registry), HTTP services, secrets in Secret Manager |
+| `aws` | planned | a managed container service, ECR, Secrets Manager |
 | `fly` | planned | containers, volumes, Postgres |
 | `vercel` | planned | static and serverless |
 | Cloudflare Containers | planned | container images on Cloudflare |
@@ -193,6 +195,36 @@ using a resource that isn't declared, and rejects unknown fields so typos don't 
 - Not yet: cron, provisioning databases (declare them as services instead), domains and HTTPS, and
   generated Dockerfiles for languages other than JavaScript, Go, Python and Rust. `plan` explains
   each refusal.
+
+### Google Cloud notes
+
+```jsonc
+"targets": {
+  "gcp": {
+    "project": "my-project",   // Google Cloud project id
+    "region": "us-central1",
+    "repository": "apps",      // existing Artifact Registry Docker repository; needed to build from source
+    "private": false           // true: public services require authentication
+  }
+}
+```
+
+- anyship drives your installed `gcloud` with its current login, and `docker buildx` for builds. It
+  creates nothing outside Cloud Run and Secret Manager: create the Artifact Registry repository once
+  (`gcloud artifacts repositories create apps --repository-format docker --location us-central1`).
+- Each service becomes the Cloud Run service `<spec name>-<service>`, labeled
+  `anyship-project=<spec name>`; `status`, `logs` and `destroy` find it by that label, with no local state.
+- Services that build from source are built for `linux/amd64`, pushed, and deployed by digest, so a
+  deploy runs exactly the image it built. Generated Dockerfiles are kept in `.anyship/gcp/` for review.
+- Every `apply` first checks the login, the project, the required APIs (`run`, `artifactregistry`,
+  `secretmanager`) and the repository; `apply --dry-run` stops after the checks.
+- Secrets live in Secret Manager as `<spec name>-<NAME>` and reach the container as environment
+  variables. A value in the deployer's environment adds a new version; `generate: "hex32"` secrets
+  are created once and kept. `destroy --volumes` deletes them; images stay in the registry.
+- One HTTP port per service (default 8080, also passed as `$PORT`); `internal` ports use internal
+  ingress. `replicas` sets the minimum instance count. Services reach each other by URL, not by name.
+- Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports and resources anyship
+  would have to provision. `logs -f` points to `gcloud beta run services logs tail`.
 
 ## Logs
 
@@ -304,12 +336,13 @@ returned in the tool result; nothing else touches the protocol's stdin and stdou
   Next: `init --ai` to draft specs for unrecognized stacks, and an AI review before deploying.
 - **v0.4** Cloudflare Containers, Vercel adapter, and creating app-scoped resources (such as a D1
   database) during `apply` when missing, found by name on the platform rather than tracked in state.
-- **Later** community adapters (Railway, Cloud Run, AWS), recipes with parameters (e.g. N-node RPC clusters).
+- **Next** ✅ Google Cloud Run adapter, then AWS.
+- **Later** community adapters (Railway), recipes with parameters (e.g. N-node RPC clusters).
 
 ## Project layout
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system map, the flows and the planned
-Google Cloud and AWS targets.
+AWS target.
 
 ```
 cmd/anyship/           main package
@@ -317,6 +350,8 @@ spec/                  anyship.json types, validation, JSON Schema
 adapter/               adapter contract and registry
 adapters/cloudflare/   Cloudflare Workers adapter
 adapters/vps/          Docker Compose over SSH adapter
+adapters/gcp/          Google Cloud Run adapter
+image/                 docker buildx build --push, by digest
 detect/                rule-based project detection (one file per language)
 dockerfile/            Dockerfile generation for services that have none
 internal/cli/          the `anyship` command (cobra)

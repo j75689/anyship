@@ -1,0 +1,202 @@
+package gcp
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/j75689/anyship/adapter"
+	"github.com/j75689/anyship/spec"
+)
+
+const defaultLogLimit = 100
+
+// cloudRunService is one entry of `gcloud run services list --format json`.
+type cloudRunService struct {
+	Metadata struct {
+		Name string `json:"name"`
+	} `json:"metadata"`
+	Status struct {
+		URL        string `json:"url"`
+		Conditions []struct {
+			Type    string `json:"type"`
+			Status  string `json:"status"`
+			Message string `json:"message"`
+		} `json:"conditions"`
+	} `json:"status"`
+}
+
+// deployed lists the project's Cloud Run services, found by label.
+func deployed(ctx context.Context, g gcloud, o Options, project string) (map[string]cloudRunService, error) {
+	var out bytes.Buffer
+	err := g.run(ctx, nil, &out, "run", "services", "list", "--region", o.Region,
+		"--filter", "metadata.labels."+projectLabel+"="+project, "--format", "json")
+	if err != nil {
+		return nil, fmt.Errorf("listing Cloud Run services in %s/%s failed (%w)", o.Project, o.Region, err)
+	}
+	var list []cloudRunService
+	if trimmed := bytes.TrimSpace(out.Bytes()); len(trimmed) > 0 {
+		if err := json.Unmarshal(trimmed, &list); err != nil {
+			return nil, fmt.Errorf("unexpected output from gcloud run services list: %w", err)
+		}
+	}
+	found := map[string]cloudRunService{}
+	for _, svc := range list {
+		found[svc.Metadata.Name] = svc
+	}
+	return found, nil
+}
+
+func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*adapter.Status, error) {
+	o, err := decodeOptions(s.Targets[Name])
+	if err != nil {
+		return nil, fmt.Errorf("targets.gcp: %w", err)
+	}
+	found, err := deployed(ctx, gcloud{env: env, project: o.Project}, *o, s.Name)
+	if err != nil {
+		return nil, err
+	}
+	st := &adapter.Status{Target: Name, Location: o.Project + "/" + o.Region, Deployed: len(found) > 0}
+	for _, name := range s.ServiceNames() {
+		ss := adapter.ServiceStatus{Name: name, State: "missing", Desired: 1}
+		if crs, ok := found[cloudRunName(s.Name, name)]; ok {
+			ss.State, ss.Detail = "deploying", crs.Status.URL
+			for _, c := range crs.Status.Conditions {
+				if c.Type != "Ready" {
+					continue
+				}
+				switch c.Status {
+				case "True":
+					ss.State, ss.Running = "running", 1
+				case "False":
+					ss.State, ss.Health = "failing", "unhealthy"
+					if c.Message != "" {
+						ss.Detail = c.Message
+					}
+				}
+			}
+		}
+		st.Services = append(st.Services, ss)
+	}
+	return st, nil
+}
+
+// Logs reads recent logs with `gcloud run services logs read`. Following
+// needs the beta logs tail command, so it's refused with a pointer to it.
+func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts adapter.LogOptions) error {
+	o, err := decodeOptions(s.Targets[Name])
+	if err != nil {
+		return fmt.Errorf("targets.gcp: %w", err)
+	}
+	if opts.Follow {
+		return fmt.Errorf("the gcp target can't follow logs; use `gcloud beta run services logs tail %s --region %s --project %s`",
+			cloudRunName(s.Name, firstOr(opts.Service, s.ServiceNames())), o.Region, o.Project)
+	}
+	if opts.Since != "" {
+		if _, err := time.ParseDuration(opts.Since); err != nil {
+			return errors.New("the gcp target takes --since as a duration such as 10m or 2h")
+		}
+	}
+	limit := opts.Tail
+	if limit == 0 {
+		limit = defaultLogLimit
+	}
+	names := s.ServiceNames()
+	if opts.Service != "" {
+		names = []string{opts.Service}
+	}
+	g := gcloud{env: env, project: o.Project}
+	for _, name := range names {
+		args := []string{"run", "services", "logs", "read", cloudRunName(s.Name, name), "--region", o.Region, "--limit", strconv.Itoa(limit)}
+		if opts.Since != "" {
+			args = append(args, "--freshness", opts.Since)
+		}
+		if len(names) > 1 {
+			env.Logf("== %s", name)
+		}
+		if err := g.run(ctx, nil, nil, args...); err != nil {
+			return fmt.Errorf("reading logs for %s failed (%w); has it been deployed with `anyship apply -t gcp`?", name, err)
+		}
+	}
+	return nil
+}
+
+func (a *Adapter) DestroySummary(s *spec.Spec, opts adapter.DestroyOptions) ([]string, error) {
+	o, err := decodeOptions(s.Targets[Name])
+	if err != nil {
+		return nil, fmt.Errorf("targets.gcp: %w", err)
+	}
+	var names []string
+	for _, name := range s.ServiceNames() {
+		names = append(names, cloudRunName(s.Name, name))
+	}
+	lines := []string{fmt.Sprintf("Delete the Cloud Run services %s in %s/%s.", strings.Join(names, ", "), o.Project, o.Region)}
+	secrets := secretIDs(s)
+	switch {
+	case opts.Volumes && len(secrets) > 0:
+		lines = append(lines, fmt.Sprintf("DELETE the Secret Manager secrets %s. Their values cannot be recovered.", strings.Join(secrets, ", ")))
+	case len(secrets) > 0:
+		lines = append(lines, fmt.Sprintf("Keep the Secret Manager secrets %s; destroy --volumes deletes them.", strings.Join(secrets, ", ")))
+	}
+	return append(lines, "Keep the images in Artifact Registry."), nil
+}
+
+func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, opts adapter.DestroyOptions) (*adapter.Result, error) {
+	o, err := decodeOptions(s.Targets[Name])
+	if err != nil {
+		return nil, fmt.Errorf("targets.gcp: %w", err)
+	}
+	g := gcloud{env: env, project: o.Project}
+	found, err := deployed(ctx, g, *o, s.Name)
+	if err != nil {
+		return nil, err
+	}
+	removed := 0
+	for _, name := range s.ServiceNames() {
+		crName := cloudRunName(s.Name, name)
+		if _, ok := found[crName]; !ok {
+			continue
+		}
+		env.Logf("$ gcloud run services delete %s", crName)
+		if err := g.run(ctx, nil, nil, "run", "services", "delete", crName, "--region", o.Region); err != nil {
+			return &adapter.Result{Messages: []string{fmt.Sprintf("deleting %s failed: %v", crName, err)}}, nil
+		}
+		removed++
+	}
+	if opts.Volumes {
+		for _, id := range secretIDs(s) {
+			if g.run(ctx, nil, io.Discard, "secrets", "describe", id) != nil {
+				continue
+			}
+			env.Logf("$ gcloud secrets delete %s", id)
+			if err := g.run(ctx, nil, nil, "secrets", "delete", id); err != nil {
+				return &adapter.Result{Messages: []string{fmt.Sprintf("deleting secret %s failed: %v", id, err)}}, nil
+			}
+		}
+	}
+	if removed == 0 && !opts.Volumes {
+		return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Nothing to remove: %s has no Cloud Run services in %s/%s.", s.Name, o.Project, o.Region)}}, nil
+	}
+	return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Removed %s from Cloud Run in %s/%s.", s.Name, o.Project, o.Region)}}, nil
+}
+
+func secretIDs(s *spec.Spec) []string {
+	var ids []string
+	for _, name := range sortedKeys(s.Secrets) {
+		ids = append(ids, secretID(s.Name, name))
+	}
+	return ids
+}
+
+func firstOr(value string, fallback []string) string {
+	if value != "" || len(fallback) == 0 {
+		return value
+	}
+	return fallback[0]
+}
