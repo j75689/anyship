@@ -27,6 +27,10 @@ const (
 	// Filename is the conventional spec file name.
 	Filename       = "anyship.yaml"
 	legacyFilename = "anyship.json"
+	// MigrationGuide is the path, in the repository, of the v0.2 to v0.3 guide.
+	MigrationGuide = "docs/MIGRATION.md"
+	// MigrationGuideURL is where to read that guide without a checkout.
+	MigrationGuideURL = "https://github.com/j75689/anyship/blob/main/" + MigrationGuide
 	// SchemaURL is where editors find the JSON Schema for anyship.yaml.
 	SchemaURL = "https://raw.githubusercontent.com/j75689/anyship/main/schema/anyship.schema.json"
 )
@@ -329,7 +333,7 @@ func Load(path string) (*Spec, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) && filepath.Base(path) == Filename {
 		if _, jsonErr := os.Stat(filepath.Join(filepath.Dir(path), legacyFilename)); jsonErr == nil {
-			return nil, fmt.Errorf("%s not found, but %s is: specs are YAML manifests now (apiVersion: %s); run `anyship init --force` or convert it by hand", Filename, legacyFilename, APIVersion)
+			return nil, fmt.Errorf("%s not found, but %s is: specs are YAML manifests now (apiVersion: %s); %s says how to convert it: %s", Filename, legacyFilename, APIVersion, MigrationGuide, MigrationGuideURL)
 		}
 	}
 	if err != nil {
