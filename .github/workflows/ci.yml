@@ -21,6 +21,19 @@ jobs:
         with:
           version: v2.12
 
+  # Releases ship Windows binaries, so the unit tests must pass on Windows,
+  # where the path separator is a backslash. The docker and ssh end-to-end
+  # tests stay on Linux; they skip themselves here.
+  check-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+
   # Builds and runs an image for every app under dockerfile/testdata/apps:
   # detect → generate Dockerfile → docker build → docker run → HTTP 200.
   images:
