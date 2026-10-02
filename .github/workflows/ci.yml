@@ -34,6 +34,42 @@ jobs:
         env:
           ANYSHIP_DOCKER_TESTS: "1"
 
+  # Builds every release archive without publishing, then installs from them
+  # with install.sh, the way users will, including a tampered archive.
+  release-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+      - name: List the archives
+        run: ls -l dist/*.tar.gz dist/*.zip dist/checksums.txt
+      - name: Install from the snapshot with install.sh
+        run: |
+          python3 -m http.server 8765 --directory dist >/dev/null 2>&1 &
+          sleep 1
+          ANYSHIP_DOWNLOAD_BASE=http://127.0.0.1:8765 ANYSHIP_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
+          "$RUNNER_TEMP/bin/anyship" --version | tee version.txt
+          grep -q -- '-next' version.txt
+          "$RUNNER_TEMP/bin/anyship" targets
+      - name: Refuse a tampered archive
+        run: |
+          mkdir tampered && cp dist/checksums.txt dist/anyship_linux_amd64.tar.gz tampered/
+          echo tampered >> tampered/anyship_linux_amd64.tar.gz
+          python3 -m http.server 8766 --directory tampered >/dev/null 2>&1 &
+          sleep 1
+          if ANYSHIP_DOWNLOAD_BASE=http://127.0.0.1:8766 ANYSHIP_INSTALL_DIR="$RUNNER_TEMP/bin2" sh install.sh; then
+            echo "install.sh accepted a tampered archive" && exit 1
+          fi
+          test ! -e "$RUNNER_TEMP/bin2/anyship"
+
   # Deploys a sample app to the runner itself over ssh, exercising the vps
   # target on a real Linux host with Docker: preflight, apply, status, logs
   # and destroy.
