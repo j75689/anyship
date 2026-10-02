@@ -22,6 +22,7 @@ import (
 	"github.com/j75689/anyship/adapters/cloudflare"
 	"github.com/j75689/anyship/adapters/vps"
 	"github.com/j75689/anyship/detect"
+	"github.com/j75689/anyship/diagnose"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -32,6 +33,8 @@ type app struct {
 	registry *adapter.Registry
 	out      io.Writer
 	style    styler
+	// newModel builds the diagnosis model; tests replace it.
+	newModel func(model, effort string) diagnose.Model
 }
 
 // Execute runs the CLI and returns the process exit code.
@@ -64,7 +67,7 @@ func (a *app) rootCommand(version string) *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.AddCommand(a.initCommand(), a.validateCommand(), a.planCommand(), a.applyCommand(), a.logsCommand(),
-		a.statusCommand(), a.destroyCommand(), a.targetsCommand(), a.schemaCommand(), a.mcpCommand(version))
+		a.statusCommand(), a.destroyCommand(), a.diagnoseCommand(), a.targetsCommand(), a.schemaCommand(), a.mcpCommand(version))
 	return root
 }
 

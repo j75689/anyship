@@ -130,7 +130,7 @@ func TestMCPListsToolsWithSafetyHints(t *testing.T) {
 	for _, tool := range res.Tools {
 		tools[tool.Name] = tool
 	}
-	for _, name := range []string{"targets", "detect", "validate", "plan", "status", "logs"} {
+	for _, name := range []string{"targets", "detect", "validate", "plan", "status", "logs", "diagnose_context"} {
 		if tools[name] == nil || tools[name].Annotations == nil || !tools[name].Annotations.ReadOnlyHint {
 			t.Errorf("%s should be listed as read-only", name)
 		}
@@ -293,5 +293,18 @@ func TestMCPOverStdio(t *testing.T) {
 	var plan planOutput
 	if err := json.Unmarshal(data, &plan); err != nil || !plan.Ready || plan.Target != "vps" {
 		t.Errorf("plan over stdio = %s (%v)", data, err)
+	}
+}
+
+func TestMCPDiagnoseContext(t *testing.T) {
+	h := connectMCP(t, false)
+	var out diagnoseContextOutput
+	if msg := h.call(t, "diagnose_context", map[string]any{"config": fakeSpec(t), "target": "fake", "note": "502s"}, &out); msg != "" {
+		t.Fatal(msg)
+	}
+	for _, want := range []string{"## anyship.json", "502s", "## Target checks (dry run)", "log line for"} {
+		if !strings.Contains(out.Context, want) {
+			t.Errorf("context is missing %q:\n%s", want, out.Context)
+		}
 	}
 }
