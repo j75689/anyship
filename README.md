@@ -50,7 +50,7 @@ code**:
 
 - **No state file.** anyship never records what it deployed. Every command asks the platform: Docker on
   the host, Cloudflare's API. There is nothing to lock, back up, import or drift from. What anyship
-  writes under `.anyship/` is generated output for review, rebuilt on every plan and never read back.
+  writes under `.anyship/` is generated output for review, rebuilt on every deploy and never read back.
 - **Applications, not infrastructure.** Servers, networks, DNS zones, accounts and managed databases
   are yours to provide (by hand, or with Terraform or OpenTofu). anyship deploys onto them and binds to
   what already exists, such as a D1 database id or an external Postgres URL.
@@ -357,23 +357,36 @@ stdio, so coding agents can detect, plan, deploy and debug for you. With Claude 
 ```bash
 claude mcp add anyship -- anyship mcp                  # plan, dry runs, status, logs
 claude mcp add anyship -- anyship mcp --allow-deploy   # also real deploys and destroys
+claude mcp list                                        # anyship: … - ✔ Connected
 ```
 
-| Tool | Does | Changes anything |
+`anyship` has to be on `PATH` when Claude Code starts, because Claude Code runs the command itself.
+The server also inherits the directory Claude Code was started in, and that is what `config` and `dir`
+fall back to. In a monorepo, tell the agent which subdirectory the app is in, or `detect` reads the
+repo root and finds nothing to build.
+
+| Tool | Does | Writes files |
 |---|---|---|
 | `targets` | list targets and what each supports | no |
 | `detect` | draft an `anyship.yaml` for a directory (returned, not written) | no |
 | `validate` | check `anyship.yaml` | no |
 | `plan` | what a deploy would do, and every unmet need | no |
 | `status`, `logs` | what runs on the target, and its recent logs | no |
-| `diagnose_context` | everything above plus dry-run checks, redacted, for diagnosing a failure | no |
-| `apply` | deploy; `dry_run` only runs the target's checks | only with `--allow-deploy` |
-| `destroy` | remove a deployment; `volumes` also deletes data | only with `--allow-deploy` |
+| `diagnose_context` | everything above plus dry-run checks, redacted, for diagnosing a failure | `.anyship/<target>/` |
+| `apply` | deploy; `dry_run` runs the target's checks and generates the deployment files | `.anyship/<target>/`; deploys only with `--allow-deploy` |
+| `destroy` | remove a deployment; `volumes` also deletes data | no; removes only with `--allow-deploy` |
+
+Running the target's checks means generating the compose file and Dockerfiles first, so
+`diagnose_context` and `apply` with `dry_run` both leave `.anyship/<target>/` behind for review.
+Neither one touches the platform.
 
 Safety is built into the server, not left to the agent: without `--allow-deploy` only dry runs are
 possible, and deleting data needs `confirm_project` set to the spec's name. Tools carry read-only and
 destructive hints so hosts can ask you before risky calls. Output from ssh, wrangler and builds is
 returned in the tool result; nothing else touches the protocol's stdin and stdout.
+
+[docs/verified/mcp.md](docs/verified/mcp.md) records a full run from Claude Code, including where an
+agent gets stuck.
 
 ## Examples
 
