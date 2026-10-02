@@ -172,7 +172,7 @@ func printPlan(w io.Writer, s styler, p *adapter.Plan, dir string) {
 		}
 	}
 	if len(p.Files) > 0 {
-		fmt.Fprintln(w, "\nGenerated files:")
+		fmt.Fprintln(w, "\nGenerated files"+s.dim(" (a deploy writes them)")+":")
 		for _, f := range p.Files {
 			rel, err := filepath.Rel(dir, f.Path)
 			if err != nil {

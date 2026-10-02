@@ -3,7 +3,9 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,11 +28,29 @@ type fakeAdapter struct{ destroyed *adapter.DestroyOptions }
 func (*fakeAdapter) Name() string        { return "fake" }
 func (*fakeAdapter) Description() string { return "test target" }
 
-func (*fakeAdapter) Plan(context.Context, *spec.Spec, *adapter.Env) (*adapter.Plan, error) {
-	return &adapter.Plan{Target: "fake", Actions: []adapter.Action{{Op: adapter.OpDeploy, Kind: "thing", Name: "x"}}}, nil
+func (*fakeAdapter) Plan(_ context.Context, _ *spec.Spec, env *adapter.Env) (*adapter.Plan, error) {
+	return &adapter.Plan{
+		Target:  "fake",
+		Actions: []adapter.Action{{Op: adapter.OpDeploy, Kind: "thing", Name: "x"}},
+		Files:   []adapter.File{{Path: filepath.Join(env.OutDir, "generated.yaml"), Contents: []byte("generated: for review\n")}},
+	}, nil
 }
 
-func (*fakeAdapter) Apply(ctx context.Context, _ *adapter.Plan, _ *spec.Spec, env *adapter.Env) (*adapter.Result, error) {
+func (*fakeAdapter) Status(context.Context, *spec.Spec, *adapter.Env) (*adapter.Status, error) {
+	return &adapter.Status{Target: "fake", Location: "nowhere", Deployed: false, Services: []adapter.ServiceStatus{}}, nil
+}
+
+// Apply writes the plan's files before it touches the target, dry run or not,
+// like every real adapter; TestMCPReadOnlyToolsWriteNothing depends on it.
+func (*fakeAdapter) Apply(ctx context.Context, p *adapter.Plan, _ *spec.Spec, env *adapter.Env) (*adapter.Result, error) {
+	for _, f := range p.Files {
+		if err := os.MkdirAll(filepath.Dir(f.Path), 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(f.Path, f.Contents, 0o644); err != nil {
+			return nil, err
+		}
+	}
 	env.Logf("$ deploying")
 	if err := env.Exec(ctx, adapter.ExecOptions{}, "sh", "-c", "echo from-stdout; echo from-stderr >&2; cat"); err != nil {
 		return &adapter.Result{Messages: []string{err.Error()}}, nil
@@ -173,7 +193,7 @@ func TestMCPReadOnlyTools(t *testing.T) {
 	var ready, refused planOutput
 	h.call(t, "plan", map[string]any{"config": example("ethereum-node"), "target": "vps"}, &ready)
 	h.call(t, "plan", map[string]any{"config": example("ethereum-node"), "target": "cloudflare"}, &refused)
-	if !ready.Ready || len(ready.Files) != 1 {
+	if !ready.Ready || len(ready.Files) != 1 || !strings.Contains(ready.Files[0].Contents, "reth") {
 		t.Errorf("vps plan = %+v", ready)
 	}
 	if refused.Ready || !slices.ContainsFunc(refused.Findings, func(f adapter.Finding) bool { return f.Code == "CF_VOLUMES" }) {
@@ -302,9 +322,101 @@ func TestMCPDiagnoseContext(t *testing.T) {
 	if msg := h.call(t, "diagnose_context", map[string]any{"config": fakeSpec(t), "target": "fake", "note": "502s"}, &out); msg != "" {
 		t.Fatal(msg)
 	}
-	for _, want := range []string{"## anyship.yaml", "502s", "## Target checks (dry run)", "log line for"} {
+	for _, want := range []string{"## anyship.yaml", "502s", "## Generated file generated.yaml", "## Target checks (dry run)", "log line for"} {
 		if !strings.Contains(out.Context, want) {
 			t.Errorf("context is missing %q:\n%s", want, out.Context)
 		}
 	}
+}
+
+// TestMCPPlanReturnsGeneratedFileContents keeps plan honest: it reports files
+// that are not on disk, so its findings can only send an agent to the
+// contents it returns.
+func TestMCPPlanReturnsGeneratedFileContents(t *testing.T) {
+	h := connectMCP(t, false)
+	var out planOutput
+	if msg := h.call(t, "plan", map[string]any{"config": fakeSpec(t), "target": "fake"}, &out); msg != "" {
+		t.Fatal(msg)
+	}
+	if len(out.Files) != 1 || out.Files[0].Contents != "generated: for review\n" {
+		t.Fatalf("plan files = %+v", out.Files)
+	}
+	if _, err := os.Stat(out.Files[0].Path); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("plan must not write %s (stat error = %v)", out.Files[0].Path, err)
+	}
+}
+
+// TestMCPReadOnlyToolsWriteNothing guards the read-only hint: a host may run
+// these tools without asking the user, so none of them may leave anything in
+// the user's project.
+func TestMCPReadOnlyToolsWriteNothing(t *testing.T) {
+	h := connectMCP(t, false)
+	onTarget := func(config string) map[string]any {
+		return map[string]any{"config": config, "target": "fake"}
+	}
+	// Arguments per tool, so a new read-only tool has to be covered here
+	// before this test can pass.
+	args := map[string]func(config string) map[string]any{
+		"targets":          func(string) map[string]any { return nil },
+		"detect":           func(c string) map[string]any { return map[string]any{"dir": filepath.Dir(c)} },
+		"validate":         func(c string) map[string]any { return map[string]any{"config": c} },
+		"plan":             onTarget,
+		"status":           onTarget,
+		"logs":             onTarget,
+		"diagnose_context": onTarget,
+	}
+
+	listed, err := h.session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	covered := 0
+	for _, tool := range listed.Tools {
+		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
+			continue
+		}
+		newArgs, ok := args[tool.Name]
+		if !ok {
+			t.Errorf("read-only tool %q is not covered here; add its arguments", tool.Name)
+			continue
+		}
+		covered++
+		t.Run(tool.Name, func(t *testing.T) {
+			config := fakeSpec(t)
+			dir := filepath.Dir(config)
+			before := tree(t, dir)
+			// A failed call is fine; the point is that nothing was written.
+			h.call(t, tool.Name, newArgs(config), nil)
+			if after := tree(t, dir); !slices.Equal(before, after) {
+				t.Errorf("%s changed the project directory:\nbefore %v\nafter  %v", tool.Name, before, after)
+			}
+		})
+	}
+	if covered != len(args) {
+		t.Errorf("checked %d read-only tools, expected %d", covered, len(args))
+	}
+}
+
+// tree lists every path under dir, relative to it and sorted.
+func tree(t *testing.T, dir string) []string {
+	t.Helper()
+	var paths []string
+	err := filepath.WalkDir(dir, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		if rel != "." {
+			paths = append(paths, rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(paths)
+	return paths
 }

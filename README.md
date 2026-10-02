@@ -50,7 +50,7 @@ code**:
 
 - **No state file.** anyship never records what it deployed. Every command asks the platform: Docker on
   the host, Cloudflare's API. There is nothing to lock, back up, import or drift from. What anyship
-  writes under `.anyship/` is generated output for review, rebuilt on every plan and never read back.
+  writes under `.anyship/` is generated output for review, rebuilt on every deploy and never read back.
 - **Applications, not infrastructure.** Servers, networks, DNS zones, accounts and managed databases
   are yours to provide (by hand, or with Terraform or OpenTofu). anyship deploys onto them and binds to
   what already exists, such as a D1 database id or an external Postgres URL.
@@ -355,16 +355,21 @@ claude mcp add anyship -- anyship mcp                  # plan, dry runs, status,
 claude mcp add anyship -- anyship mcp --allow-deploy   # also real deploys and destroys
 ```
 
-| Tool | Does | Changes anything |
+| Tool | Does | Writes files |
 |---|---|---|
 | `targets` | list targets and what each supports | no |
 | `detect` | draft an `anyship.yaml` for a directory (returned, not written) | no |
 | `validate` | check `anyship.yaml` | no |
-| `plan` | what a deploy would do, and every unmet need | no |
+| `plan` | what a deploy would do, every unmet need, and the generated files with their contents | no |
 | `status`, `logs` | what runs on the target, and its recent logs | no |
 | `diagnose_context` | everything above plus dry-run checks, redacted, for diagnosing a failure | no |
-| `apply` | deploy; `dry_run` only runs the target's checks | only with `--allow-deploy` |
-| `destroy` | remove a deployment; `volumes` also deletes data | only with `--allow-deploy` |
+| `apply` | deploy; `dry_run` runs the target's checks and writes the generated files | `.anyship/<target>/`; deploys only with `--allow-deploy` |
+| `destroy` | remove a deployment; `volumes` also deletes data | no; removes only with `--allow-deploy` |
+
+Every read-only tool leaves your project alone, so a host can run it without asking: `plan` returns
+the compose file and any generated Dockerfile with its contents instead of writing it, and
+`diagnose_context` runs the target's checks in a temporary directory. Only `apply` writes
+`.anyship/<target>/`, dry run or not.
 
 Safety is built into the server, not left to the agent: without `--allow-deploy` only dry runs are
 possible, and deleting data needs `confirm_project` set to the spec's name. Tools carry read-only and

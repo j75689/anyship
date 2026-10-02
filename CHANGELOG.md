@@ -37,6 +37,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`latest` by default) for registries that hold several services in one repository.
 - Every cloud adapter deploys dependencies first, in one shared order (`Spec.DeployOrder`).
 - `diagnose` patches the YAML tree in place, so comments and key order survive its fixes.
+- The MCP `plan` tool returns each generated file with its contents, so an agent can review the
+  compose file and generated Dockerfiles without writing anything. It used to return paths only,
+  while its own findings told the agent to read files that no tool had written yet.
+
+### Fixed
+
+- The MCP `diagnose_context` tool is annotated read-only but wrote the generated files into
+  `.anyship/<target>/` while it ran the target's checks. It now generates them in a temporary
+  directory, so no read-only tool touches your working directory.
 
 ## [0.2.0] - 2026-10-02
 

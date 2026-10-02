@@ -382,7 +382,7 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, dir string) chec
 		} else {
 			c.generated = generated
 			add(adapter.Info, "VPS_GENERATED_DOCKERFILE",
-				"No Dockerfile, so anyship generated one; review it in the generated files below.",
+				"No Dockerfile, so anyship generated one; review it in the plan's generated files (a deploy writes them under .anyship/).",
 				"To customize the build, commit your own Dockerfile and set services.<name>.dockerfile.")
 		}
 	}
