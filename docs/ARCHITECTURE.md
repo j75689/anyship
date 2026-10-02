@@ -1,8 +1,7 @@
 # anyship architecture
 
 anyship is one Go binary that turns `anyship.yaml` into a running app on a platform you pick, then
-helps you operate it. This page describes the target architecture; parts not built yet are marked
-**planned**.
+helps you operate it. Everything on this page is built.
 
 ![System map: callers, the anyship binary, its adapters and the providers where all state lives](architecture/system.svg)
 
@@ -34,7 +33,7 @@ helps you operate it. This page describes the target architecture; parts not bui
 | `adapters/cloudflare` | `wrangler.jsonc`, Workers compatibility checks | `npx wrangler` | built |
 | `adapters/vps` | compose rendering, preflight, upload, status, logs, destroy | `ssh` to a Linux host | built |
 | `adapters/gcp` | Cloud Run services, Secret Manager, Artifact Registry | `gcloud`, `docker` | built |
-| `adapters/aws` | a managed container service, Secrets Manager, ECR | `aws`, `docker` | **planned** |
+| `adapters/aws` | ECS Express Mode services, Secrets Manager, ECR | `aws`, `docker` | built |
 | `internal/cli` | the commands and the MCP server | everything above | built |
 
 ## Targets
@@ -42,13 +41,13 @@ helps you operate it. This page describes the target architecture; parts not bui
 Each adapter talks to its provider through the provider's own CLI, so your existing login is used
 and anyship handles no cloud credentials.
 
-| anyship.yaml asks for | cloudflare | vps | gcp | aws (planned) |
+| anyship.yaml asks for | cloudflare | vps | gcp | aws |
 |---|---|---|---|---|
-| HTTP `server` | Worker | container | Cloud Run service | container service |
+| HTTP `server` | Worker | container | Cloud Run service | ECS Express Mode service |
 | image or Dockerfile | refused | built on the host | built locally, pushed to Artifact Registry | built locally, pushed to ECR |
 | `static` site | Worker assets | nginx container | refused (use cloudflare) | refused (use cloudflare) |
 | volumes, TCP/UDP ports | refused | Docker volumes, published ports | refused (use vps) | refused (use vps) |
-| `replicas` | automatic | Compose replicas | min instances | desired count |
+| `replicas` | automatic | Compose replicas | min instances | min tasks |
 | `secrets` | `wrangler secret` | files on the host | Secret Manager, by name | Secrets Manager, by name |
 | databases | D1, KV, R2, Hyperdrive by id | external only | external only | external only |
 | status, logs, destroy | logs, destroy | all three | all three | all three |
@@ -62,14 +61,14 @@ and anyship handles no cloud credentials.
 Nothing on the host changes until preflight passes. CI runs this path against its own runner on every
 pull request (`vps-e2e`).
 
-### `apply` on a cloud target (gcp; aws planned)
+### `apply` on a cloud target (gcp, aws)
 
 1. **plan**: render the provider's service settings and the Dockerfile, as for vps.
 2. **preflight**: check the CLI login, project or account, region, required APIs and registry access.
 3. **image**: `docker buildx build --platform linux/amd64 --push`, then deploy by digest so every
    apply rolls out exactly the image it built.
-4. **deploy**: create or update the service by its name (`<spec name>-<service>`), labeled
-   `anyship-project=<spec name>` so later commands can find it without state.
+4. **deploy**: create or update the service by its name (`<spec name>-<service>`), labeled or tagged
+   `anyship-project=<spec name>`. Later commands find it by that name or label, without state.
 
 ### `diagnose`
 

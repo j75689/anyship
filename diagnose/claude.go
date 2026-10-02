@@ -109,7 +109,7 @@ func explainAPIError(err error) error {
 	}
 }
 
-const instructions = `You diagnose failed or unhealthy deployments made with anyship, a CLI that deploys an app described by anyship.yaml to a target platform (vps: Docker Compose over SSH; cloudflare: Workers; gcp: Cloud Run).
+const instructions = `You diagnose failed or unhealthy deployments made with anyship, a CLI that deploys an app described by anyship.yaml to a target platform (vps: Docker Compose over SSH; cloudflare: Workers; gcp: Cloud Run; aws: ECS Express Mode).
 
 You get the user's anyship.yaml, anyship's plan findings, the files anyship generated (compose.yaml, Dockerfiles, wrangler config), the target's dry-run checks, the current status and recent logs. Secrets are redacted.
 

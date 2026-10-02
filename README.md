@@ -148,7 +148,7 @@ using a resource that isn't declared, and rejects unknown fields so typos don't 
 | `cloudflare` | ✅ v0.1 | Workers (edge handlers) and static assets; D1, KV, R2, Hyperdrive bindings; cron triggers; custom domains |
 | `vps` | ✅ v0.2 | any Linux server with Docker, over SSH: images or Dockerfiles, multi-service, volumes, TCP/UDP ports, secrets |
 | `gcp` | ✅ unreleased | Google Cloud Run: images or Dockerfiles (built locally, pushed to Artifact Registry), HTTP services, secrets in Secret Manager |
-| `aws` | planned | a managed container service, ECR, Secrets Manager |
+| `aws` | ✅ unreleased | Amazon ECS Express Mode: images or Dockerfiles (built locally, pushed to ECR), HTTP services with a managed load balancer and HTTPS URL, secrets in Secrets Manager |
 | `fly` | planned | containers, volumes, Postgres |
 | `vercel` | planned | static and serverless |
 | Cloudflare Containers | planned | container images on Cloudflare |
@@ -230,6 +230,47 @@ spec:
   ingress. `replicas` sets the minimum instance count. Services reach each other by URL, not by name.
 - Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports and resources anyship
   would have to provision. `logs -f` points to `gcloud beta run services logs tail`.
+
+### AWS notes
+
+```yaml
+spec:
+  targets:
+    aws:
+      region: us-east-1
+      profile: work                 # optional aws CLI profile
+      cluster: default              # existing ECS cluster
+      repository: apps              # existing ECR repository; needed to build from source
+      executionRole: ecsTaskExecutionRole                       # name or ARN (default shown)
+      infrastructureRole: ecsInfrastructureRoleForExpressServices # name or ARN (default shown)
+      taskRole: my-app-role         # optional, for the app's own AWS access
+      subnets: [subnet-0abc]        # optional; default: the default VPC's public subnets
+      securityGroups: [sg-0abc]     # optional, with subnets
+      cpu: "1024"                   # optional, per task
+      memory: "2048"
+      maxTasks: 4                   # autoscaling ceiling (at least replicas)
+```
+
+- anyship drives your installed `aws` CLI (v2, with ECS Express Mode support) with its current login,
+  and `docker buildx` for builds. App Runner no longer takes new customers, so services run on
+  [ECS Express Mode](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-overview.html),
+  which provisions the load balancer, HTTPS URL (`<service>.ecs.<region>.on.aws`) and autoscaling.
+- Create once per account and region: the cluster, the ECR repository and the two IAM roles from
+  AWS's [Express Mode guide](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-getting-started.html).
+  `apply` checks them first and prints the commands for anything missing; `apply --dry-run` stops after the checks.
+- Each service becomes the Express Mode service `<spec name>-<service>`, tagged
+  `anyship-project=<spec name>`; `status`, `logs` and `destroy` find it by name, with no local state.
+  Built images are tagged with the service name in the repository and deployed by digest.
+- Secrets live in Secrets Manager as `anyship/<spec name>/<NAME>` and reach the container as environment
+  variables. The execution role needs `secretsmanager:GetSecretValue` on them (`plan` warns). Values are
+  handed to the aws CLI through a private temporary file, never on the command line.
+- The load balancer checks `healthCheck.path`, or `/`, for HTTP 200. One HTTP port per service
+  (default 80); `internal` ports need private `subnets`. `replicas` is the minimum task count.
+- `logs` uses `aws logs tail`, so `-f` works for one service at a time; it selects by `--since`, not `-n`.
+- `destroy` deletes the services with their load balancers; the cluster, roles, images and log groups
+  stay. `destroy --volumes` also deletes the secrets without a recovery window.
+- Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports and resources anyship
+  would have to provision.
 
 ## Logs
 
@@ -341,13 +382,12 @@ returned in the tool result; nothing else touches the protocol's stdin and stdou
   Next: `init --ai` to draft specs for unrecognized stacks, and an AI review before deploying.
 - **v0.4** Cloudflare Containers, Vercel adapter, and creating app-scoped resources (such as a D1
   database) during `apply` when missing, found by name on the platform rather than tracked in state.
-- **Next** ✅ Google Cloud Run adapter, then AWS.
+- **Next** ✅ Google Cloud Run and ✅ AWS (ECS Express Mode) adapters.
 - **Later** community adapters (Railway), recipes with parameters (e.g. N-node RPC clusters).
 
 ## Project layout
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system map, the flows and the planned
-AWS target.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system map and the flows.
 
 ```
 cmd/anyship/           main package
@@ -356,6 +396,7 @@ adapter/               adapter contract and registry
 adapters/cloudflare/   Cloudflare Workers adapter
 adapters/vps/          Docker Compose over SSH adapter
 adapters/gcp/          Google Cloud Run adapter
+adapters/aws/          Amazon ECS Express Mode adapter
 image/                 docker buildx build --push, by digest
 detect/                rule-based project detection (one file per language)
 dockerfile/            Dockerfile generation for services that have none
