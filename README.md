@@ -60,12 +60,23 @@ in the plan. Commit your own Dockerfile whenever you want to take over.
 
 ## Quick start
 
-anyship is a single Go binary with no runtime dependencies. Release binaries aren't published yet, so
-install from source (Go 1.26+):
+anyship is a single binary with no runtime dependencies, for Linux, macOS and Windows on amd64 and
+arm64.
 
 ```bash
-go install github.com/j75689/anyship/cmd/anyship@latest
+curl -fsSL https://raw.githubusercontent.com/j75689/anyship/main/install.sh | sh
+```
 
+The script picks the archive for your OS and CPU from the
+[latest release](https://github.com/j75689/anyship/releases/latest), checks it against the release's
+`checksums.txt`, and installs to `/usr/local/bin` (or `~/.local/bin`). Set `ANYSHIP_VERSION=v0.2.0` to
+pin a version or `ANYSHIP_INSTALL_DIR` to choose the directory. You can also download an archive from
+the releases page, or build from source with Go 1.26+:
+`go install github.com/j75689/anyship/cmd/anyship@latest`.
+
+Then, in your project:
+
+```bash
 cd path/to/your/app
 anyship init
 anyship plan  --target cloudflare
