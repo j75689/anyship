@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 300" role="img" aria-label="apply on the vps target: plan locally, then three ssh calls. The first sends compose.yaml to a temporary directory on the host for preflight checks and stops on errors or with --dry-run. The second streams a tar into anyship/name. The third runs a deploy script that generates missing secrets and runs docker compose up.">
+  <style>
+    svg { --bg:#f4f6f8; --panel:#ffffff; --lane:#e9edf1; --fg:#15202b; --muted:#556270; --line:#c3ccd5; --accent:#b8430f; --accent-soft:#fbe7dc; color:var(--fg); }
+    @media (prefers-color-scheme: dark) { svg { --bg:#0f151b; --panel:#161e27; --lane:#1b242e; --fg:#e2e8ee; --muted:#94a2b0; --line:#344250; --accent:#f08a4b; --accent-soft:#3a2418; } }
+    .bg { fill:var(--bg); } .lane { fill:var(--lane); }
+    .n { fill:var(--panel); stroke:var(--line); stroke-width:1.25; }
+    .n-strong { fill:var(--panel); stroke:var(--fg); stroke-width:1.25; }
+    .n-accent { fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.5; }
+    .t { fill:var(--fg); font:600 13px system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .s { fill:var(--muted); font:11px system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .lbl { fill:var(--fg); font:500 11px ui-monospace, Menlo, monospace; }
+    .lane-lbl { fill:var(--muted); font:600 11px ui-monospace, Menlo, monospace; letter-spacing:.06em; }
+    .accent-lbl { fill:var(--accent); font:600 11px ui-monospace, Menlo, monospace; }
+    .a { stroke:currentColor; stroke-width:1.4; fill:none; } .head { fill:currentColor; }
+  </style>
+  <rect class="bg" x="0" y="0" width="960" height="300"/>
+          <defs>
+            <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <rect class="lane" x="0" y="10" width="960" height="130" rx="8"/>
+          <text class="lane-lbl" x="14" y="30">YOUR MACHINE</text>
+          <rect class="lane" x="0" y="160" width="960" height="130" rx="8"/>
+          <text class="lane-lbl" x="14" y="180">LINUX HOST</text>
+
+          <rect class="n" x="20" y="50" width="200" height="64" rx="6"/>
+          <text class="t" x="120" y="77" text-anchor="middle">1 · plan</text>
+          <text class="s" x="120" y="96" text-anchor="middle">compose.yaml + Dockerfiles</text>
+          <rect class="n" x="260" y="50" width="200" height="64" rx="6"/>
+          <text class="t" x="360" y="77" text-anchor="middle">2 · preflight</text>
+          <text class="s" x="360" y="96" text-anchor="middle">compose.yaml on stdin</text>
+          <rect class="n" x="500" y="50" width="200" height="64" rx="6"/>
+          <text class="t" x="600" y="77" text-anchor="middle">3 · upload</text>
+          <text class="s" x="600" y="96" text-anchor="middle">tar stream on stdin</text>
+          <rect class="n" x="740" y="50" width="200" height="64" rx="6"/>
+          <text class="t" x="840" y="77" text-anchor="middle">4 · deploy</text>
+          <text class="s" x="840" y="96" text-anchor="middle">deploy script</text>
+
+          <line class="a" x1="220" y1="82" x2="258" y2="82" marker-end="url(#arr2)"/>
+          <line class="a" x1="460" y1="82" x2="498" y2="82" marker-end="url(#arr2)"/>
+          <text class="lbl" x="479" y="74" text-anchor="middle">ok</text>
+          <line class="a" x1="700" y1="82" x2="738" y2="82" marker-end="url(#arr2)"/>
+          <text class="accent-lbl" x="480" y="132" text-anchor="middle">errors or --dry-run: stop here</text>
+
+          <rect class="n" x="260" y="200" width="200" height="64" rx="6"/>
+          <text class="t" x="360" y="227" text-anchor="middle">temp dir, removed after</text>
+          <text class="s" x="360" y="246" text-anchor="middle">config · arch · disk · ports</text>
+          <rect class="n-accent" x="500" y="200" width="200" height="64" rx="6"/>
+          <text class="t" x="600" y="227" text-anchor="middle">anyship/&lt;name&gt;/</text>
+          <text class="s" x="600" y="246" text-anchor="middle">compose.yaml · src/ · secrets/</text>
+          <rect class="n-accent" x="740" y="200" width="200" height="64" rx="6"/>
+          <text class="t" x="840" y="227" text-anchor="middle">docker compose up</text>
+          <text class="s" x="840" y="246" text-anchor="middle">missing secrets generated</text>
+
+          <line class="a" x1="340" y1="114" x2="340" y2="198" marker-end="url(#arr2)"/>
+          <text class="lbl" x="332" y="168" text-anchor="end">ssh 1</text>
+          <line class="a" x1="380" y1="200" x2="380" y2="116" marker-end="url(#arr2)"/>
+          <text class="lbl" x="388" y="168">report</text>
+          <line class="a" x1="600" y1="114" x2="600" y2="198" marker-end="url(#arr2)"/>
+          <text class="lbl" x="608" y="168">ssh 2</text>
+          <line class="a" x1="840" y1="114" x2="840" y2="198" marker-end="url(#arr2)"/>
+          <text class="lbl" x="848" y="168">ssh 3</text>
+        </svg>
