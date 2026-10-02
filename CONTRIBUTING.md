@@ -41,6 +41,10 @@ Rules every adapter follows (see `adapters/cloudflare` for a reference):
    sorted order and don't embed timestamps or today's date.
 6. **Credentials stay local.** Read them from the platform's own CLI login or environment variables;
    never send them anywhere else.
+7. **Keep no state.** Never record what was deployed, and never read `env.OutDir` back to find out:
+   ask the platform. Address deployments from the spec alone (names, hosts, ids in `targets.<name>`),
+   and make `Apply` and `Destroy` safe to repeat. If something must be created, find it by name on
+   the platform first instead of remembering that it was made.
 
 Add tests covering rendered config, every refusal code, and `Apply` with a stubbed `Exec`. Then
 register the adapter in `internal/cli/cli.go`.
