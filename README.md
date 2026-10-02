@@ -212,6 +212,39 @@ Worker with `wrangler delete` and never touches bound D1, KV, R2 or Hyperdrive r
 
 `plan`, `status` and `targets` take `--json` for scripts and agents; progress messages go to stderr.
 
+## Diagnose failures with Claude
+
+```console
+$ anyship diagnose -t vps --note "lighthouse keeps restarting"
+# Illustrative output:
+Diagnosis: lighthouse can't authenticate to reth's engine API.
+
+Root cause (high confidence)
+...
+Proposed change to anyship.json (applies cleanly and plans without errors)
+  add /services/lighthouse/secrets: ["JWT_SECRET"]
+
+Apply this change to anyship.json? [y/N]
+```
+
+`diagnose` collects what anyship already knows (plan findings, the target's dry-run checks, status,
+recent logs and the generated compose.yaml or Dockerfiles) and asks Claude for the root cause, the
+evidence for it, next steps, and a fix. The rules:
+
+- **Nothing is written unless you confirm.** A proposed `anyship.json` change is shown only if it
+  applies and the patched spec plans cleanly; otherwise the rejection goes back to Claude, up to three
+  times. Fixes outside `anyship.json` (your code, a hand-written Dockerfile, the host) are described,
+  never applied.
+- **Secrets are redacted before anything is sent:** values of the spec's secrets found in your
+  environment, credential-like keys (`*_KEY`, `*_TOKEN`, `*PASSWORD*`, ...), API tokens, passwords in
+  URLs and private keys. `--show-context` prints exactly what would be sent, without calling the API.
+- **Bring your own credentials:** `ANTHROPIC_API_KEY`, or `ant auth login`. It uses `claude-opus-5-5`
+  at high effort by default (`--model`, `--effort` to change). Everything else in anyship works without
+  a key.
+
+Using an agent instead? The MCP tool `diagnose_context` returns the same redacted context, so the agent
+can diagnose with its own model and no extra key.
+
 ## Use it from AI agents (MCP)
 
 `anyship mcp` serves anyship over the [Model Context Protocol](https://modelcontextprotocol.io) on
@@ -229,6 +262,7 @@ claude mcp add anyship -- anyship mcp --allow-deploy   # also real deploys and d
 | `validate` | check `anyship.json` | no |
 | `plan` | what a deploy would do, and every unmet need | no |
 | `status`, `logs` | what runs on the target, and its recent logs | no |
+| `diagnose_context` | everything above plus dry-run checks, redacted, for diagnosing a failure | no |
 | `apply` | deploy; `dry_run` only runs the target's checks | only with `--allow-deploy` |
 | `destroy` | remove a deployment; `volumes` also deletes data | only with `--allow-deploy` |
 
@@ -248,8 +282,8 @@ returned in the tool result; nothing else touches the protocol's stdin and stdou
 
 - **v0.2** ✅ `vps` adapter, ✅ MCP server. Next: domains and HTTPS on `vps`, release binaries,
   Fly.io adapter.
-- **v0.3** AI layer (bring your own model and key): draft specs for unrecognized stacks, Workers
-  compatibility review, failed-deploy diagnosis that proposes spec diffs.
+- **v0.3** AI layer (bring your own key): ✅ `diagnose` for failed deploys with validated spec fixes.
+  Next: `init --ai` to draft specs for unrecognized stacks, and an AI review before deploying.
 - **v0.4** Cloudflare Containers, resource creation during `apply`, Vercel adapter.
 - **Later** community adapters (Railway, Cloud Run, AWS), recipes with parameters (e.g. N-node RPC clusters).
 
