@@ -108,7 +108,7 @@ Credentials stay on your machine; anyship has no server.
 ## The spec
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/j75689/anyship/main/schema/anyship.schema.json
+# yaml-language-server: $schema=.anyship/anyship.schema.json
 apiVersion: anyship/v1alpha1
 kind: App
 metadata:
@@ -136,10 +136,24 @@ spec:
 ```
 
 The layout follows Kubernetes manifests: `apiVersion` and `kind` say what the file is, `metadata.name`
-names the app, and `spec` describes it. Editors with the YAML language server validate and
-autocomplete against [`schema/anyship.schema.json`](schema/anyship.schema.json) through the first-line
-comment, which `anyship init` writes (`anyship schema` prints the schema). `anyship validate` also checks cross-references, such as a service
-using a resource that isn't declared, and rejects unknown fields so typos don't go unnoticed.
+names the app, and `spec` describes it. `anyship validate` also checks cross-references, such as a
+service using a resource that isn't declared, and rejects unknown fields so typos don't go unnoticed.
+
+### Editor validation
+
+The first-line comment points the YAML language server at a **local** copy of
+[`schema/anyship.schema.json`](schema/anyship.schema.json), resolved relative to `anyship.yaml`. There
+are two ways to put that copy in place:
+
+- **`anyship init`** writes it to `.anyship/anyship.schema.json` next to the spec it drafts. Nothing
+  else to do.
+- **`anyship schema`** prints the schema to stdout; `anyship schema -o .anyship/anyship.schema.json`
+  writes it. Use this in a project whose spec you wrote by hand, or after cloning a repo that keeps
+  `.anyship/` out of version control. The schema also ships in every release archive.
+
+The schema is **not** fetched from a URL. The repository is private, so a `raw.githubusercontent.com`
+address 404s for everyone and the editor silently gets no completion or validation. The binary carries
+the schema instead, so the copy you get always matches the anyship you run.
 
 ## Targets
 

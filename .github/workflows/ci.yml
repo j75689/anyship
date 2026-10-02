@@ -51,6 +51,18 @@ jobs:
           args: release --snapshot --clean
       - name: List the archives
         run: ls -l dist/*.tar.gz dist/*.zip dist/checksums.txt
+      - name: Ship the JSON Schema in every archive
+        run: |
+          for archive in dist/*.tar.gz; do
+            tar tzf "$archive" | grep -qx anyship.schema.json || {
+              echo "$archive has no anyship.schema.json" && exit 1
+            }
+          done
+          for archive in dist/*.zip; do
+            unzip -l "$archive" | grep -q ' anyship.schema.json$' || {
+              echo "$archive has no anyship.schema.json" && exit 1
+            }
+          done
       - name: Install from the snapshot with install.sh
         run: |
           python3 -m http.server 8765 --directory dist >/dev/null 2>&1 &

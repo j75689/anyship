@@ -13,7 +13,10 @@ import (
 func JSONSchema() ([]byte, error) {
 	r := &jsonschema.Reflector{ExpandedStruct: true}
 	schema := r.Reflect(&Manifest{})
-	schema.ID = SchemaURL
+	// No "$id": the schema travels as a file, not as a URL, and every "$ref"
+	// in it is a local fragment. The reflector's default would be a GitHub
+	// address nothing serves.
+	schema.ID = jsonschema.EmptyID
 	schema.Title = "anyship deploy spec"
 	out, err := json.MarshalIndent(schema, "", "  ")
 	if err != nil {

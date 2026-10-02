@@ -123,7 +123,7 @@ func TestMarshalRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.HasPrefix(data, []byte("# yaml-language-server: $schema="+SchemaURL+"\napiVersion: anyship/v1alpha1\nkind: App\nmetadata:\n  name: shop\nspec:\n")) {
+	if !bytes.HasPrefix(data, []byte("# yaml-language-server: $schema="+SchemaFile+"\napiVersion: anyship/v1alpha1\nkind: App\nmetadata:\n  name: shop\nspec:\n")) {
 		t.Errorf("unexpected header:\n%s", data)
 	}
 	again := mustParse(t, data)

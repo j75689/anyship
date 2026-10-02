@@ -27,8 +27,10 @@ const (
 	// Filename is the conventional spec file name.
 	Filename       = "anyship.yaml"
 	legacyFilename = "anyship.json"
-	// SchemaURL is where editors find the JSON Schema for anyship.yaml.
-	SchemaURL = "https://raw.githubusercontent.com/j75689/anyship/main/schema/anyship.schema.json"
+	// SchemaFile is where editors find the JSON Schema for anyship.yaml: a
+	// path relative to the spec file, which `anyship init` writes. The repo is
+	// private, so a remote URL would 404 for every reader.
+	SchemaFile = ".anyship/anyship.schema.json"
 )
 
 // Manifest is the file format, a Kubernetes-style envelope around the app.
@@ -321,7 +323,7 @@ func Marshal(s *Spec) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append([]byte("# yaml-language-server: $schema="+SchemaURL+"\n"), out...), nil
+	return append([]byte("# yaml-language-server: $schema="+SchemaFile+"\n"), out...), nil
 }
 
 // Load reads and parses a spec file.

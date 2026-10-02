@@ -29,6 +29,10 @@ archives:
     files:
       - LICENSE
       - README.md
+      # The binary also carries the schema (anyship schema), but shipping the
+      # file means an editor can point at it straight out of the archive.
+      - src: schema/anyship.schema.json
+        dst: anyship.schema.json
 
 checksum:
   name_template: checksums.txt

@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/j75689/anyship/main/schema/anyship.schema.json
+# yaml-language-server: $schema=../../schema/anyship.schema.json
 apiVersion: anyship/v1alpha1
 kind: App
 metadata:

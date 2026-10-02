@@ -24,6 +24,7 @@ import (
 	"github.com/j75689/anyship/adapters/vps"
 	"github.com/j75689/anyship/detect"
 	"github.com/j75689/anyship/diagnose"
+	"github.com/j75689/anyship/schema"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -177,6 +178,13 @@ func (a *app) initCommand() *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(a.out, "\n%s wrote %s\n", a.style.green("✔"), displayPath(file))
+
+			// The spec's editor hint points at this copy, so write it too.
+			schemaFile := filepath.Join(root, filepath.FromSlash(spec.SchemaFile))
+			if err := writeSchema(schemaFile); err != nil {
+				return err
+			}
+			fmt.Fprintf(a.out, "%s wrote %s\n", a.style.green("✔"), displayPath(schemaFile))
 
 			if _, err := spec.Parse(data); err != nil {
 				fmt.Fprintln(a.out, a.style.yellow("\nThe draft needs edits before it can be deployed:"))
@@ -345,19 +353,38 @@ func addJSONFlag(cmd *cobra.Command, asJSON *bool) {
 }
 
 func (a *app) schemaCommand() *cobra.Command {
-	return &cobra.Command{
+	var out string
+	cmd := &cobra.Command{
 		Use:   "schema",
 		Short: "Print the JSON Schema for " + spec.Filename,
-		Args:  cobra.NoArgs,
+		Long: "Print the JSON Schema for " + spec.Filename + ".\n\n" +
+			"The schema ships inside this binary, so editors can validate the spec\n" +
+			"without downloading anything.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			data, err := spec.JSONSchema()
-			if err != nil {
+			if out == "" {
+				_, err := a.out.Write(schema.JSON)
 				return err
 			}
-			_, err = a.out.Write(data)
-			return err
+			if err := writeSchema(out); err != nil {
+				return err
+			}
+			fmt.Fprintf(a.out, "%s wrote %s\n", a.style.green("✔"), displayPath(out))
+			return nil
 		},
 	}
+	cmd.Flags().StringVarP(&out, "output", "o", "", "write the schema to this file instead of stdout")
+	return cmd
+}
+
+// writeSchema writes the embedded schema to path, creating its directory.
+func writeSchema(path string) error {
+	if dir := filepath.Dir(path); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(path, schema.JSON, 0o644)
 }
 
 func addConfigFlag(cmd *cobra.Command, config *string) {
