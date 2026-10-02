@@ -308,6 +308,9 @@ returned in the tool result; nothing else touches the protocol's stdin and stdou
 
 ## Project layout
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system map, the flows and the planned
+Google Cloud and AWS targets.
+
 ```
 cmd/anyship/           main package
 spec/                  anyship.json types, validation, JSON Schema

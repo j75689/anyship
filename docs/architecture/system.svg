@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 880" role="img" aria-label="anyship system map. Callers use the CLI or the MCP server. Core packages and an adapter contract drive four adapters: cloudflare and vps (built), gcp and aws (planned). Each adapter talks to its provider directly below it, where all deployment state lives. The diagnose package calls the Claude API. Locally anyship reads anyship.json and only writes generated files to .anyship.">
+  <style>
+    svg { --bg:#f4f6f8; --panel:#ffffff; --fg:#15202b; --muted:#556270; --line:#c3ccd5; --accent:#b8430f; --accent-soft:#fbe7dc; color:var(--fg); }
+    @media (prefers-color-scheme: dark) { svg { --bg:#0f151b; --panel:#161e27; --fg:#e2e8ee; --muted:#94a2b0; --line:#344250; --accent:#f08a4b; --accent-soft:#3a2418; } }
+    .bg { fill:var(--bg); }
+    .n { fill:var(--panel); stroke:var(--line); stroke-width:1.25; }
+    .n-strong { fill:var(--panel); stroke:var(--fg); stroke-width:1.25; }
+    .n-state { fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.5; }
+    .planned { stroke-dasharray:5 4; }
+    .frame { fill:none; stroke:var(--fg); stroke-width:1.25; }
+    .group { fill:none; stroke:var(--line); stroke-width:1; stroke-dasharray:4 4; }
+    .state { fill:none; stroke:var(--accent); stroke-width:1.5; stroke-dasharray:6 5; }
+    .t { fill:var(--fg); font:600 13px system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .s { fill:var(--muted); font:11px system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .m { fill:var(--muted); font:11px ui-monospace, Menlo, monospace; }
+    .lbl { fill:var(--fg); font:500 11px ui-monospace, Menlo, monospace; }
+    .accent-lbl { fill:var(--accent); font:600 11px ui-monospace, Menlo, monospace; letter-spacing:.04em; }
+    .a { stroke:currentColor; stroke-width:1.4; fill:none; }
+    .a-accent { stroke:var(--accent); stroke-width:1.6; fill:none; }
+    .head { fill:currentColor; }
+    .head-accent { fill:var(--accent); }
+  </style>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arr-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head-accent" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+  <rect class="bg" x="0" y="0" width="1080" height="880"/>
+
+  <!-- callers -->
+  <rect class="n" x="290" y="20" width="240" height="56" rx="6"/>
+  <text class="t" x="410" y="44" text-anchor="middle">You · CI</text>
+  <text class="s" x="410" y="63" text-anchor="middle">terminal and scripts</text>
+  <rect class="n" x="550" y="20" width="240" height="56" rx="6"/>
+  <text class="t" x="670" y="44" text-anchor="middle">AI agent</text>
+  <text class="s" x="670" y="63" text-anchor="middle">Claude Code, Cursor, …</text>
+  <line class="a" x1="410" y1="76" x2="410" y2="143" marker-end="url(#arr)"/>
+  <text class="lbl" x="418" y="114">commands</text>
+  <line class="a" x1="670" y1="76" x2="670" y2="143" marker-end="url(#arr)"/>
+  <text class="lbl" x="678" y="114">MCP over stdio</text>
+
+  <!-- the binary -->
+  <rect class="frame" x="240" y="100" width="600" height="560" rx="10"/>
+  <text class="t" x="254" y="121">anyship</text>
+  <text class="s" x="254" y="135">one Go binary</text>
+
+  <rect class="n-strong" x="290" y="145" width="240" height="56" rx="6"/>
+  <text class="t" x="410" y="168" text-anchor="middle">CLI</text>
+  <text class="s" x="410" y="187" text-anchor="middle">init · plan · apply · diagnose …</text>
+  <rect class="n-strong" x="550" y="145" width="240" height="56" rx="6"/>
+  <text class="t" x="670" y="168" text-anchor="middle">MCP server</text>
+  <text class="s" x="670" y="187" text-anchor="middle">deploys need --allow-deploy</text>
+  <line class="a" x1="410" y1="201" x2="410" y2="233" marker-end="url(#arr)"/>
+  <line class="a" x1="670" y1="201" x2="670" y2="233" marker-end="url(#arr)"/>
+
+  <rect class="group" x="260" y="235" width="560" height="82" rx="6"/>
+  <text class="m" x="270" y="251">core</text>
+  <rect class="n" x="270" y="258" width="100" height="48" rx="5"/>
+  <text class="t" x="320" y="278" text-anchor="middle">detect</text>
+  <text class="s" x="320" y="295" text-anchor="middle">draft the spec</text>
+  <rect class="n" x="380" y="258" width="100" height="48" rx="5"/>
+  <text class="t" x="430" y="278" text-anchor="middle">spec</text>
+  <text class="s" x="430" y="295" text-anchor="middle">schema, validate</text>
+  <rect class="n" x="490" y="258" width="100" height="48" rx="5"/>
+  <text class="t" x="540" y="278" text-anchor="middle">dockerfile</text>
+  <text class="s" x="540" y="295" text-anchor="middle">generate</text>
+  <rect class="n planned" x="600" y="258" width="100" height="48" rx="5"/>
+  <text class="t" x="650" y="278" text-anchor="middle">image</text>
+  <text class="s" x="650" y="295" text-anchor="middle">build + push</text>
+  <rect class="n" x="710" y="258" width="100" height="48" rx="5"/>
+  <text class="t" x="760" y="278" text-anchor="middle">diagnose</text>
+  <text class="s" x="760" y="295" text-anchor="middle">redact, ask</text>
+  <line class="a" x1="540" y1="317" x2="540" y2="343" marker-end="url(#arr)"/>
+
+  <rect class="n-strong" x="260" y="345" width="560" height="48" rx="6"/>
+  <text class="t" x="540" y="366" text-anchor="middle">adapter contract</text>
+  <text class="m" x="540" y="383" text-anchor="middle">Plan · Apply · Logs · Status · Destroy</text>
+  <line class="a" x1="324" y1="393" x2="324" y2="435" marker-end="url(#arr)"/>
+  <line class="a" x1="468" y1="393" x2="468" y2="435" marker-end="url(#arr)"/>
+  <line class="a" x1="612" y1="393" x2="612" y2="435" marker-end="url(#arr)"/>
+  <line class="a" x1="756" y1="393" x2="756" y2="435" marker-end="url(#arr)"/>
+
+  <rect class="n" x="260" y="437" width="128" height="56" rx="6"/>
+  <text class="t" x="324" y="460" text-anchor="middle">cloudflare</text>
+  <text class="s" x="324" y="479" text-anchor="middle">wrangler.jsonc</text>
+  <rect class="n" x="404" y="437" width="128" height="56" rx="6"/>
+  <text class="t" x="468" y="460" text-anchor="middle">vps</text>
+  <text class="s" x="468" y="479" text-anchor="middle">compose.yaml</text>
+  <rect class="n planned" x="548" y="437" width="128" height="56" rx="6"/>
+  <text class="t" x="612" y="460" text-anchor="middle">gcp</text>
+  <text class="s" x="612" y="479" text-anchor="middle">Cloud Run service</text>
+  <rect class="n planned" x="692" y="437" width="128" height="56" rx="6"/>
+  <text class="t" x="756" y="460" text-anchor="middle">aws</text>
+  <text class="s" x="756" y="479" text-anchor="middle">container service</text>
+
+  <!-- outbound calls: each adapter talks to the provider below it -->
+  <line class="a-accent" x1="324" y1="493" x2="324" y2="723" marker-end="url(#arr-accent)"/>
+  <text class="lbl" x="332" y="600">wrangler</text>
+  <line class="a-accent" x1="468" y1="493" x2="468" y2="723" marker-end="url(#arr-accent)"/>
+  <text class="lbl" x="476" y="600">ssh</text>
+  <line class="a-accent planned" x1="612" y1="493" x2="612" y2="723" marker-end="url(#arr-accent)"/>
+  <text class="lbl" x="620" y="592">gcloud</text>
+  <text class="lbl" x="620" y="607">docker push</text>
+  <line class="a-accent planned" x1="756" y1="493" x2="756" y2="723" marker-end="url(#arr-accent)"/>
+  <text class="lbl" x="748" y="632" text-anchor="end">aws CLI</text>
+  <text class="lbl" x="748" y="647" text-anchor="end">docker push</text>
+
+  <line class="a" x1="810" y1="282" x2="868" y2="282" marker-end="url(#arr)"/>
+  <text class="lbl" x="854" y="274" text-anchor="end">HTTPS</text>
+  <rect class="n" x="870" y="254" width="190" height="56" rx="6"/>
+  <text class="t" x="965" y="277" text-anchor="middle">Claude API</text>
+  <text class="s" x="965" y="296" text-anchor="middle">diagnose only · your key</text>
+
+  <!-- local files -->
+  <rect class="n-strong" x="20" y="360" width="170" height="56" rx="6"/>
+  <text class="t" x="105" y="383" text-anchor="middle">anyship.json</text>
+  <text class="s" x="105" y="402" text-anchor="middle">the only input, committed</text>
+  <rect class="n" x="20" y="450" width="170" height="56" rx="6"/>
+  <text class="t" x="105" y="473" text-anchor="middle">.anyship/&lt;target&gt;/</text>
+  <text class="s" x="105" y="492" text-anchor="middle">generated, never read back</text>
+  <line class="a" x1="190" y1="388" x2="238" y2="388" marker-end="url(#arr)"/>
+  <text class="lbl" x="214" y="381" text-anchor="middle">reads</text>
+  <line class="a" x1="240" y1="478" x2="192" y2="478" marker-end="url(#arr)"/>
+  <text class="lbl" x="214" y="471" text-anchor="middle">writes</text>
+
+  <!-- providers: where all deployment state lives -->
+  <text class="accent-lbl" x="244" y="866">ALL DEPLOYMENT STATE LIVES ON THE PROVIDERS</text>
+  <rect class="state" x="244" y="702" width="592" height="144" rx="10"/>
+  <rect class="n-state" x="260" y="725" width="128" height="104" rx="6"/>
+  <text class="t" x="324" y="750" text-anchor="middle">Cloudflare</text>
+  <text class="s" x="324" y="770" text-anchor="middle">Workers</text>
+  <text class="s" x="324" y="786" text-anchor="middle">D1 · KV · R2</text>
+  <rect class="n-state" x="404" y="725" width="128" height="104" rx="6"/>
+  <text class="t" x="468" y="750" text-anchor="middle">Linux host</text>
+  <text class="s" x="468" y="770" text-anchor="middle">Docker Compose</text>
+  <text class="s" x="468" y="786" text-anchor="middle">volumes, secrets</text>
+  <rect class="n-state planned" x="548" y="725" width="128" height="104" rx="6"/>
+  <text class="t" x="612" y="750" text-anchor="middle">Google Cloud</text>
+  <text class="s" x="612" y="770" text-anchor="middle">Cloud Run</text>
+  <text class="s" x="612" y="786" text-anchor="middle">Artifact Registry</text>
+  <text class="s" x="612" y="802" text-anchor="middle">Secret Manager</text>
+  <rect class="n-state planned" x="692" y="725" width="128" height="104" rx="6"/>
+  <text class="t" x="756" y="750" text-anchor="middle">AWS</text>
+  <text class="s" x="756" y="770" text-anchor="middle">container service</text>
+  <text class="s" x="756" y="786" text-anchor="middle">ECR</text>
+  <text class="s" x="756" y="802" text-anchor="middle">Secrets Manager</text>
+
+  <!-- legend -->
+  <rect class="n" x="870" y="725" width="22" height="14" rx="2"/>
+  <text class="s" x="900" y="736">built</text>
+  <rect class="n planned" x="870" y="749" width="22" height="14" rx="2"/>
+  <text class="s" x="900" y="760">planned</text>
+</svg>

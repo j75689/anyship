@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 260" role="img" aria-label="diagnose collects plan findings, dry-run checks, status and logs, redacts secrets, and asks Claude for a cause and a JSON Patch. The patch is validated by applying, parsing and planning it; a rejection is sent back to Claude up to three times. A valid change is shown and written to anyship.json only if you confirm. Agents get the same redacted context from the MCP tool diagnose_context.">
+  <style>
+    svg { --bg:#f4f6f8; --panel:#ffffff; --lane:#e9edf1; --fg:#15202b; --muted:#556270; --line:#c3ccd5; --accent:#b8430f; --accent-soft:#fbe7dc; color:var(--fg); }
+    @media (prefers-color-scheme: dark) { svg { --bg:#0f151b; --panel:#161e27; --lane:#1b242e; --fg:#e2e8ee; --muted:#94a2b0; --line:#344250; --accent:#f08a4b; --accent-soft:#3a2418; } }
+    .bg { fill:var(--bg); } .lane { fill:var(--lane); }
+    .n { fill:var(--panel); stroke:var(--line); stroke-width:1.25; }
+    .n-strong { fill:var(--panel); stroke:var(--fg); stroke-width:1.25; }
+    .n-accent { fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.5; }
+    .t { fill:var(--fg); font:600 13px system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .s { fill:var(--muted); font:11px system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .lbl { fill:var(--fg); font:500 11px ui-monospace, Menlo, monospace; }
+    .lane-lbl { fill:var(--muted); font:600 11px ui-monospace, Menlo, monospace; letter-spacing:.06em; }
+    .accent-lbl { fill:var(--accent); font:600 11px ui-monospace, Menlo, monospace; }
+    .a { stroke:currentColor; stroke-width:1.4; fill:none; } .head { fill:currentColor; }
+  </style>
+  <rect class="bg" x="0" y="0" width="960" height="260"/>
+          <defs>
+            <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <rect class="n" x="10" y="40" width="124" height="64" rx="6"/>
+          <text class="t" x="72" y="67" text-anchor="middle">collect</text>
+          <text class="s" x="72" y="86" text-anchor="middle">plan, checks, logs</text>
+          <rect class="n" x="170" y="40" width="124" height="64" rx="6"/>
+          <text class="t" x="232" y="67" text-anchor="middle">redact</text>
+          <text class="s" x="232" y="86" text-anchor="middle">secrets, tokens, keys</text>
+          <rect class="n" x="330" y="40" width="124" height="64" rx="6"/>
+          <text class="t" x="392" y="67" text-anchor="middle">Claude</text>
+          <text class="s" x="392" y="86" text-anchor="middle">cause + JSON Patch</text>
+          <rect class="n-strong" x="490" y="40" width="124" height="64" rx="6"/>
+          <text class="t" x="552" y="67" text-anchor="middle">validate</text>
+          <text class="s" x="552" y="86" text-anchor="middle">apply, parse, plan</text>
+          <rect class="n" x="650" y="40" width="124" height="64" rx="6"/>
+          <text class="t" x="712" y="67" text-anchor="middle">you confirm</text>
+          <text class="s" x="712" y="86" text-anchor="middle">shown as changes</text>
+          <rect class="n-accent" x="810" y="40" width="124" height="64" rx="6"/>
+          <text class="t" x="872" y="67" text-anchor="middle">anyship.json</text>
+          <text class="s" x="872" y="86" text-anchor="middle">written on yes</text>
+
+          <line class="a" x1="134" y1="72" x2="168" y2="72" marker-end="url(#arr3)"/>
+          <line class="a" x1="294" y1="72" x2="328" y2="72" marker-end="url(#arr3)"/>
+          <line class="a" x1="454" y1="72" x2="488" y2="72" marker-end="url(#arr3)"/>
+          <line class="a" x1="614" y1="72" x2="648" y2="72" marker-end="url(#arr3)"/>
+          <line class="a" x1="774" y1="72" x2="808" y2="72" marker-end="url(#arr3)"/>
+
+          <polyline class="a" points="552,104 552,150 392,150 392,106" marker-end="url(#arr3)"/>
+          <text class="lbl" x="472" y="168" text-anchor="middle">rejected: reason sent back, max 3 tries</text>
+
+          <line class="a" x1="232" y1="104" x2="232" y2="188" marker-end="url(#arr3)"/>
+          <text class="lbl" x="240" y="150">agents</text>
+          <rect class="n" x="150" y="190" width="164" height="56" rx="6"/>
+          <text class="t" x="232" y="213" text-anchor="middle">diagnose_context</text>
+          <text class="s" x="232" y="232" text-anchor="middle">agent uses its own model</text>
+        </svg>
