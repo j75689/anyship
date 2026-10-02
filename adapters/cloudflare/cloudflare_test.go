@@ -151,6 +151,27 @@ func TestBindsResourcesAndAsksForMissingIDs(t *testing.T) {
 	jsonEqual(t, bound["r2_buckets"], `[{"binding": "FILES", "bucket_name": "api-files"}]`)
 }
 
+func TestAttachesServiceDomainsAndHonorsTheOverride(t *testing.T) {
+	const service = `"services": {"web": {"kind": "server", "entry": "src/index.ts",
+		"ports": [{"port": 8080}], "domains": ["api.example.com", "www.example.com"]}}`
+
+	fromSpec := plan(t, parse(t, `{"name": "api", `+service+`}`), newEnv())
+	if len(fromSpec.Findings) != 0 {
+		t.Errorf("findings = %v", codes(fromSpec))
+	}
+	jsonEqual(t, rendered(t, fromSpec)["routes"], `[
+		{"pattern": "api.example.com", "custom_domain": true},
+		{"pattern": "www.example.com", "custom_domain": true}]`)
+
+	// targets.cloudflare.domains replaces the service's own domains, with a note.
+	overridden := plan(t, parse(t, `{"name": "api", `+service+`,
+		"targets": {"cloudflare": {"domains": ["staging.example.com"]}}}`), newEnv())
+	jsonEqual(t, rendered(t, overridden)["routes"], `[{"pattern": "staging.example.com", "custom_domain": true}]`)
+	if got := codes(overridden); !slices.Equal(got, []string{"CF_DOMAIN_OVERRIDE"}) {
+		t.Errorf("codes = %v", got)
+	}
+}
+
 func TestRefusesWhatWorkersCannotRun(t *testing.T) {
 	eth, err := spec.Load(filepath.Join("..", "..", "examples", "ethereum-node", spec.Filename))
 	if err != nil {

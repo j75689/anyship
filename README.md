@@ -121,6 +121,7 @@ spec:
       start: node dist/server.js # process-based platforms
       ports:
         - port: 3000             # protocol: http|tcp|udp|tcp+udp, exposure: public|internal
+      domains: [api.example.com] # custom domains for a public http port
       uses: [db]
       secrets: [JWT_SECRET]
       cron:
@@ -145,6 +146,40 @@ Coming from v0.2, where the spec was `anyship.json`? Only the envelope changed; 
 `services`, `resources`, `secrets` and `targets` is the same. [docs/MIGRATION.md](docs/MIGRATION.md)
 has the field-by-field mapping and complete before/after examples.
 
+### Domains
+
+`services.<name>.domains` names the hosts a service answers on, in one place for every target:
+
+```yaml
+spec:
+  services:
+    web:
+      kind: server
+      ports:
+        - port: 3000             # protocol: http, exposure: public
+      domains:
+        - example.com
+        - www.example.com
+```
+
+The rules `validate` enforces:
+
+- A domain is a fully qualified name such as `app.example.com`. No scheme, port, path or wildcard;
+  upper case and a trailing dot are accepted and normalized away.
+- A service with domains needs at least one port with `protocol: http` and `exposure: public`, since
+  that is the port a platform's HTTP router sends the traffic to.
+- A domain belongs to one service: the same host twice in one app is an error.
+
+Only the `cloudflare` target attaches domains today. The others say so with an error finding
+(`VPS_DOMAIN_UNSUPPORTED`, `GCP_DOMAIN_UNSUPPORTED`, `AWS_DOMAIN_UNSUPPORTED`) and a hint, rather
+than deploying a service that answers on the wrong host. anyship never issues TLS certificates or
+creates DNS records; the platform or you do that.
+
+`targets.cloudflare.domains` still works and **replaces** `services.<name>.domains` for that target
+when it is set, with a `CF_DOMAIN_OVERRIDE` note in the plan. The override wins so one spec can go to
+Cloudflare on staging hosts, and merging the two lists would make it impossible to deploy fewer
+domains than the spec asks for. Remove `targets.cloudflare.domains` to use the service's own list.
+
 ## Targets
 
 | Target | Status | Runs |
@@ -165,6 +200,9 @@ has the field-by-field mapping and complete before/after examples.
   service `edgeCompatible: false`, so `plan` explains why it can't run on Workers before you deploy.
 - D1, KV and Hyperdrive need existing resource ids. `plan` prints the `wrangler ... create` command
   to run and where to put the id. R2 buckets are addressed by name.
+- `services.<name>.domains` become custom-domain routes in the generated `wrangler.jsonc`. The zone
+  must already be on your Cloudflare account; Cloudflare issues the certificate.
+  `targets.cloudflare.domains` overrides the service's list (see [Domains](#domains)).
 - Next.js needs `@opennextjs/cloudflare`; anyship doesn't drive it yet.
 
 ### VPS notes
@@ -202,7 +240,8 @@ spec:
   arm64 for image-based services), free disk space is compared with the declared volume sizes, and
   published ports must be free unless the project is already running there. Nothing is uploaded or
   started until the checks pass.
-- Not yet: cron, provisioning databases (declare them as services instead), domains and HTTPS, and
+- Not yet: cron, provisioning databases (declare them as services instead), `domains` and HTTPS
+  (`VPS_DOMAIN_UNSUPPORTED`; put your own reverse proxy in front of the published ports for now), and
   generated Dockerfiles for languages other than JavaScript, Go, Python and Rust. `plan` explains
   each refusal.
 
@@ -232,8 +271,9 @@ spec:
   are created once and kept. `destroy --volumes` deletes them; images stay in the registry.
 - One HTTP port per service (default 8080, also passed as `$PORT`); `internal` ports use internal
   ingress. `replicas` sets the minimum instance count. Services reach each other by URL, not by name.
-- Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports and resources anyship
-  would have to provision. `logs -f` points to `gcloud beta run services logs tail`.
+- Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports, `domains`
+  (`GCP_DOMAIN_UNSUPPORTED`; map them with `gcloud beta run domain-mappings` or a load balancer) and
+  resources anyship would have to provision. `logs -f` points to `gcloud beta run services logs tail`.
 
 ### AWS notes
 
@@ -273,8 +313,9 @@ spec:
 - `logs` uses `aws logs tail`, so `-f` works for one service at a time; it selects by `--since`, not `-n`.
 - `destroy` deletes the services with their load balancers; the cluster, roles, images and log groups
   stay. `destroy --volumes` also deletes the secrets without a recovery window.
-- Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports and resources anyship
-  would have to provision.
+- Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports, `domains`
+  (`AWS_DOMAIN_UNSUPPORTED`; point a CNAME at the `on.aws` URL, or add your own ACM certificate and
+  listener rule) and resources anyship would have to provision.
 - This target has not been run against a real AWS account yet. Express Mode provisions a load
   balancer that bills whether or not it serves traffic, so read
   [docs/verified/aws.md](docs/verified/aws.md) — the runbook and residual-resource checklist — before

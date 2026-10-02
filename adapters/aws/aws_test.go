@@ -225,11 +225,12 @@ func TestPlanRefusesUnsupported(t *testing.T) {
 			"db": {"kind": "server", "image": "postgres:16", "ports": [{"port": 5432, "protocol": "tcp"}],
 				"volumes": [{"name": "data", "mountPath": "/var/lib/postgresql/data", "size": "10GB"}]},
 			"api": {"kind": "server", "image": "api", "ports": [{"port": 80}, {"port": 81}], "uses": ["cache"]},
-			"admin": {"kind": "server", "image": "admin", "ports": [{"port": 80, "exposure": "internal"}]}},
+			"admin": {"kind": "server", "image": "admin", "ports": [{"port": 80, "exposure": "internal"}]},
+			"www": {"kind": "server", "image": "www", "ports": [{"port": 80}], "domains": ["shop.example.com"]}},
 		"resources": {"cache": {"type": "redis"}}, `+target+`}`)
 	env, _ := newEnv(t, t.TempDir(), nil)
 	errs := codes(plan(t, s, env), adapter.Error)
-	for _, want := range []string{"AWS_STATIC", "AWS_WORKER", "AWS_VOLUMES", "AWS_NON_HTTP_PORT", "AWS_MULTIPLE_PORTS", "AWS_RESOURCE", "AWS_INTERNAL_NEEDS_SUBNETS"} {
+	for _, want := range []string{"AWS_STATIC", "AWS_WORKER", "AWS_VOLUMES", "AWS_NON_HTTP_PORT", "AWS_MULTIPLE_PORTS", "AWS_RESOURCE", "AWS_INTERNAL_NEEDS_SUBNETS", "AWS_DOMAIN_UNSUPPORTED"} {
 		if !slices.Contains(errs, want) {
 			t.Errorf("missing error %s in %v", want, errs)
 		}
