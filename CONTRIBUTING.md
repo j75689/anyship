@@ -89,7 +89,7 @@ Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/
   `ci`, `chore` and `style`.
 - **Scopes** name the area touched: `spec`, `detect`, `cli`, `adapter`, `cloudflare` (or another
   adapter's name), `ci`.
-- **Breaking changes** (for example, an incompatible change to `anyship.json`) add `!` after the
+- **Breaking changes** (for example, an incompatible change to `anyship.yaml`) add `!` after the
   type/scope and a `BREAKING CHANGE:` footer explaining the migration.
 
 Examples:
@@ -100,5 +100,5 @@ fix(cli): refuse to deploy when stdin is not a terminal
 docs: explain how to write an adapter
 feat(spec)!: rename services.<name>.uses to bindings
 
-BREAKING CHANGE: rename "uses" to "bindings" in anyship.json.
+BREAKING CHANGE: rename "uses" to "bindings" in anyship.yaml.
 ```

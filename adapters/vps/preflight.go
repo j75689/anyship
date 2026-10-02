@@ -167,7 +167,7 @@ func (p preflight) findings(s *spec.Spec, host string) []adapter.Finding {
 	case needed > p.diskFreeKB*1024:
 		add(adapter.Warning, "VPS_PREFLIGHT_DISK",
 			fmt.Sprintf("Volumes are sized at %s in total, but only %s is free under %s on %s.", humanBytes(needed), humanBytes(p.diskFreeKB*1024), p.diskPath, host),
-			"Add disk space before the volumes fill up, or lower the sizes in anyship.json.")
+			"Add disk space before the volumes fill up, or lower the sizes in anyship.yaml.")
 	default:
 		add(adapter.Info, "VPS_PREFLIGHT_DISK", fmt.Sprintf("%s free under %s on %s.", humanBytes(p.diskFreeKB*1024), p.diskPath, host), "")
 	}
@@ -185,7 +185,7 @@ func (p preflight) findings(s *spec.Spec, host string) []adapter.Finding {
 					out = append(out, adapter.Finding{
 						Level: adapter.Error, Code: "VPS_PREFLIGHT_PORT_IN_USE", Service: name,
 						Message: fmt.Sprintf("Port %s is already in use on %s.", m.key(), host),
-						Hint:    "Stop whatever listens there, or publish a different port in anyship.json.",
+						Hint:    "Stop whatever listens there, or publish a different port in anyship.yaml.",
 					})
 				}
 			}

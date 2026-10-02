@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/j75689/anyship/internal/spectest"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -23,7 +24,7 @@ func context(t *testing.T, files map[string]string) string {
 
 func service(t *testing.T, src string) *spec.Service {
 	t.Helper()
-	s, err := spec.Parse([]byte(`{"version": 1, "name": "app", "services": {"web": ` + src + `}}`))
+	s, err := spectest.Parse(`{"name": "app", "services": {"web": ` + src + `}}`)
 	if err != nil {
 		t.Fatal(err)
 	}

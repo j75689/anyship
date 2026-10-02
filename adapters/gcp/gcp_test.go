@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/j75689/anyship/adapter"
+	"github.com/j75689/anyship/internal/spectest"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -105,7 +106,7 @@ func newEnv(t *testing.T, dir string, env map[string]string) (*adapter.Env, *fak
 
 func parse(t *testing.T, src string) *spec.Spec {
 	t.Helper()
-	s, err := spec.Parse([]byte(src))
+	s, err := spectest.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +148,7 @@ func nodeApp(t *testing.T) string {
 }
 
 func TestPlanImageService(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "shop",
+	s := parse(t, `{"name": "shop",
 		"services": {"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}],
 			"env": {"MODE": "prod", "HOSTS": "a,b"}, "secrets": ["API_KEY"], "replicas": 2}},
 		"secrets": {"API_KEY": {}}, `+target+`}`)
@@ -179,7 +180,7 @@ func TestPlanImageService(t *testing.T) {
 }
 
 func TestPlanRefusesUnsupported(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "shop",
+	s := parse(t, `{"name": "shop",
 		"services": {
 			"site": {"kind": "static", "path": "site"},
 			"job": {"kind": "worker", "image": "busybox"},
@@ -204,7 +205,7 @@ func TestPlanOptions(t *testing.T) {
 		"unknown field": `{"gcp": {"project": "my-project", "region": "us-central1", "zone": "a"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			s := parse(t, `{"version": 1, "name": "shop", "services": {"web": {"kind": "server", "image": "nginx"}}, "targets": `+targets+`}`)
+			s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx"}}, "targets": `+targets+`}`)
 			env, _ := newEnv(t, t.TempDir(), nil)
 			if errs := codes(plan(t, s, env), adapter.Error); !slices.Equal(errs, []string{"GCP_BAD_OPTIONS"}) {
 				t.Errorf("errors = %v", errs)
@@ -215,7 +216,7 @@ func TestPlanOptions(t *testing.T) {
 
 func TestPlanBuildNeedsRepository(t *testing.T) {
 	dir := nodeApp(t)
-	s := parse(t, `{"version": 1, "name": "shop", "services": {"web": {"kind": "server", "start": "node server.js"}},
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "start": "node server.js"}},
 		"targets": {"gcp": {"project": "my-project", "region": "us-central1"}}}`)
 	env, _ := newEnv(t, dir, nil)
 	if errs := codes(plan(t, s, env), adapter.Error); !slices.Contains(errs, "GCP_NO_REPOSITORY") {
@@ -224,7 +225,7 @@ func TestPlanBuildNeedsRepository(t *testing.T) {
 }
 
 func TestDeployOrderFollowsDependsOn(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "shop", "services": {
+	s := parse(t, `{"name": "shop", "services": {
 		"a": {"kind": "server", "image": "x", "dependsOn": ["b"]},
 		"b": {"kind": "server", "image": "x", "dependsOn": ["c"]},
 		"c": {"kind": "server", "image": "x"}}, `+target+`}`)
@@ -235,7 +236,7 @@ func TestDeployOrderFollowsDependsOn(t *testing.T) {
 
 func TestApplyBuildsAndDeploysByDigest(t *testing.T) {
 	dir := nodeApp(t)
-	s := parse(t, `{"version": 1, "name": "shop", "services": {"web": {"kind": "server", "start": "node server.js", "secrets": ["SESSION"]}},
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "start": "node server.js", "secrets": ["SESSION"]}},
 		"secrets": {"SESSION": {"generate": "hex32"}}, `+target+`}`)
 	env, fc := newEnv(t, dir, nil)
 	fc.fail = []string{"gcloud secrets describe"}
@@ -279,7 +280,7 @@ func TestApplyBuildsAndDeploysByDigest(t *testing.T) {
 }
 
 func TestApplySecretFromEnvAddsVersion(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "shop", "services": {"web": {"kind": "server", "image": "nginx", "secrets": ["TOKEN"]}},
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx", "secrets": ["TOKEN"]}},
 		"secrets": {"TOKEN": {}}, `+target+`}`)
 	env, fc := newEnv(t, t.TempDir(), map[string]string{"TOKEN": "s3cret"})
 	res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
@@ -295,7 +296,7 @@ func TestApplySecretFromEnvAddsVersion(t *testing.T) {
 }
 
 func TestApplyMissingSecretFails(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "shop", "services": {"web": {"kind": "server", "image": "nginx", "secrets": ["TOKEN"]}},
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx", "secrets": ["TOKEN"]}},
 		"secrets": {"TOKEN": {}}, `+target+`}`)
 	env, fc := newEnv(t, t.TempDir(), nil)
 	fc.fail = []string{"gcloud secrets describe"}
@@ -309,7 +310,7 @@ func TestApplyMissingSecretFails(t *testing.T) {
 }
 
 func TestApplyPreflight(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "shop", "services": {"web": {"kind": "server", "image": "nginx"}}, `+target+`}`)
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx"}}, `+target+`}`)
 
 	t.Run("api disabled", func(t *testing.T) {
 		env, fc := newEnv(t, t.TempDir(), nil)
@@ -349,7 +350,7 @@ func TestApplyPreflight(t *testing.T) {
 }
 
 func TestStatus(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "shop", "services": {
+	s := parse(t, `{"name": "shop", "services": {
 		"web": {"kind": "server", "image": "nginx"}, "api": {"kind": "server", "image": "api"}, "admin": {"kind": "server", "image": "admin"}}, `+target+`}`)
 	env, fc := newEnv(t, t.TempDir(), nil)
 	fc.out["gcloud run services list"] = `[
@@ -375,7 +376,7 @@ func TestStatus(t *testing.T) {
 }
 
 func TestLogs(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "shop", "services": {"web": {"kind": "server", "image": "nginx"}}, `+target+`}`)
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx"}}, `+target+`}`)
 	env, fc := newEnv(t, t.TempDir(), nil)
 	if err := New().Logs(context.Background(), s, env, adapter.LogOptions{Tail: 20, Since: "10m"}); err != nil {
 		t.Fatal(err)
@@ -392,7 +393,7 @@ func TestLogs(t *testing.T) {
 }
 
 func TestDestroy(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "shop", "services": {
+	s := parse(t, `{"name": "shop", "services": {
 		"web": {"kind": "server", "image": "nginx", "secrets": ["TOKEN"]}, "api": {"kind": "server", "image": "api"}},
 		"secrets": {"TOKEN": {}}, `+target+`}`)
 	env, fc := newEnv(t, t.TempDir(), nil)

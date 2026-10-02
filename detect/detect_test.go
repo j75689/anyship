@@ -1,7 +1,6 @@
 package detect
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -43,10 +42,10 @@ func codes(findings []adapter.Finding) []string {
 	return out
 }
 
-// reparse round-trips the draft through JSON, the way `anyship init` writes it.
+// reparse round-trips the draft through YAML, the way `anyship init` writes it.
 func reparse(t *testing.T, s *spec.Spec) error {
 	t.Helper()
-	data, err := json.Marshal(s)
+	data, err := spec.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -114,7 +114,7 @@ func example(name string) string {
 func fakeSpec(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), spec.Filename)
-	if err := os.WriteFile(path, []byte(`{"version": 1, "name": "demo", "services": {"web": {"kind": "server", "image": "nginx"}}}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("apiVersion: anyship/v1alpha1\nkind: App\nmetadata:\n  name: demo\nspec:\n  services:\n    web:\n      kind: server\n      image: nginx\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -155,7 +155,7 @@ func TestMCPReadOnlyTools(t *testing.T) {
 	if msg := h.call(t, "detect", map[string]any{"dir": filepath.Join("..", "..", "dockerfile", "testdata", "apps", "go")}, &detected); msg != "" {
 		t.Fatal(msg)
 	}
-	if !detected.Valid || detected.Spec.(map[string]any)["name"] != "goapp" {
+	if !detected.Valid || !strings.Contains(detected.Spec, "name: goapp") {
 		t.Errorf("detect = %+v", detected)
 	}
 
@@ -302,7 +302,7 @@ func TestMCPDiagnoseContext(t *testing.T) {
 	if msg := h.call(t, "diagnose_context", map[string]any{"config": fakeSpec(t), "target": "fake", "note": "502s"}, &out); msg != "" {
 		t.Fatal(msg)
 	}
-	for _, want := range []string{"## anyship.json", "502s", "## Target checks (dry run)", "log line for"} {
+	for _, want := range []string{"## anyship.yaml", "502s", "## Target checks (dry run)", "log line for"} {
 		if !strings.Contains(out.Context, want) {
 			t.Errorf("context is missing %q:\n%s", want, out.Context)
 		}

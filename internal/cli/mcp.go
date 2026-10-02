@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -21,9 +20,9 @@ import (
 	"github.com/j75689/anyship/spec"
 )
 
-const mcpInstructions = `anyship deploys an app described by anyship.json to a target platform.
+const mcpInstructions = `anyship deploys an app described by anyship.yaml to a target platform.
 
-Typical flow: detect (draft a spec for a directory) → write anyship.json → validate → plan → apply with dry_run → apply.
+Typical flow: detect (draft a spec for a directory) → write anyship.yaml → validate → plan → apply with dry_run → apply.
 Read-only tools never change anything. Deploying and destroying are only possible when the server was started with --allow-deploy.
 Never pass volumes=true to destroy unless the user explicitly asked to delete data; it deletes volumes and secrets for good.`
 
@@ -54,11 +53,11 @@ also need --allow-deploy.`,
 }
 
 type configInput struct {
-	Config string `json:"config,omitempty" jsonschema:"path to anyship.json; defaults to anyship.json in the server's working directory"`
+	Config string `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
 }
 
 type targetInput struct {
-	Config string `json:"config,omitempty" jsonschema:"path to anyship.json; defaults to anyship.json in the server's working directory"`
+	Config string `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
 	Target string `json:"target" jsonschema:"deploy target such as vps or cloudflare; the targets tool lists them"`
 }
 
@@ -77,8 +76,8 @@ type detectInput struct {
 }
 
 type detectOutput struct {
-	// Spec is the drafted anyship.json, to review and write to the project.
-	Spec     any               `json:"spec"`
+	// Spec is the drafted anyship.yaml, to review and write to the project.
+	Spec     string            `json:"spec"`
 	Valid    bool              `json:"valid"`
 	Problems []string          `json:"problems"`
 	Findings []adapter.Finding `json:"findings"`
@@ -101,7 +100,7 @@ type planOutput struct {
 }
 
 type logsInput struct {
-	Config  string `json:"config,omitempty" jsonschema:"path to anyship.json; defaults to anyship.json in the server's working directory"`
+	Config  string `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
 	Target  string `json:"target" jsonschema:"deploy target such as vps or cloudflare"`
 	Service string `json:"service,omitempty" jsonschema:"only this service's logs"`
 	Tail    int    `json:"tail,omitempty" jsonschema:"recent lines per service; the target's default when 0"`
@@ -116,7 +115,7 @@ type logsOutput struct {
 }
 
 type diagnoseContextInput struct {
-	Config string `json:"config,omitempty" jsonschema:"path to anyship.json; defaults to anyship.json in the server's working directory"`
+	Config string `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
 	Target string `json:"target" jsonschema:"deploy target such as vps or cloudflare"`
 	Note   string `json:"note,omitempty" jsonschema:"what the user saw, such as an error message"`
 }
@@ -127,13 +126,13 @@ type diagnoseContextOutput struct {
 }
 
 type applyInput struct {
-	Config string `json:"config,omitempty" jsonschema:"path to anyship.json; defaults to anyship.json in the server's working directory"`
+	Config string `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
 	Target string `json:"target" jsonschema:"deploy target such as vps or cloudflare"`
 	DryRun bool   `json:"dry_run,omitempty" jsonschema:"only run the target's checks; change nothing"`
 }
 
 type destroyInput struct {
-	Config  string `json:"config,omitempty" jsonschema:"path to anyship.json; defaults to anyship.json in the server's working directory"`
+	Config  string `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
 	Target  string `json:"target" jsonschema:"deploy target such as vps or cloudflare"`
 	DryRun  bool   `json:"dry_run,omitempty" jsonschema:"only describe what would be removed"`
 	Volumes bool   `json:"volumes,omitempty" jsonschema:"also delete volumes, secrets and deployment files; only when the user explicitly asked"`
@@ -167,28 +166,25 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "detect",
-		Description: "Detect a project's stack and draft an anyship.json for it. Nothing is written; review the draft, then save it as anyship.json.",
+		Description: "Detect a project's stack and draft an anyship.yaml for it. Nothing is written; review the draft, then save it as anyship.yaml.",
 		Annotations: readOnly,
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in detectInput) (*mcp.CallToolResult, detectOutput, error) {
 		d, err := detect.Project(orDefault(in.Dir, "."))
 		if err != nil {
 			return nil, detectOutput{}, err
 		}
-		data, err := json.Marshal(d.Spec)
+		data, err := spec.Marshal(d.Spec)
 		if err != nil {
 			return nil, detectOutput{}, err
 		}
-		out := detectOutput{Valid: true, Problems: []string{}, Findings: nonNil(d.Findings), Evidence: nonNil(d.Evidence)}
-		if err := json.Unmarshal(data, &out.Spec); err != nil {
-			return nil, detectOutput{}, err
-		}
+		out := detectOutput{Spec: string(data), Valid: true, Problems: []string{}, Findings: nonNil(d.Findings), Evidence: nonNil(d.Evidence)}
 		if _, err := spec.Parse(data); err != nil {
 			out.Valid, out.Problems = false, problemsOrError(err)
 		}
 		return nil, out, nil
 	})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "validate", Description: "Check anyship.json against the schema and cross-references.", Annotations: readOnly},
+	mcp.AddTool(server, &mcp.Tool{Name: "validate", Description: "Check anyship.yaml against the schema and cross-references.", Annotations: readOnly},
 		func(_ context.Context, _ *mcp.CallToolRequest, in configInput) (*mcp.CallToolResult, validateOutput, error) {
 			s, err := spec.Load(orDefault(in.Config, spec.Filename))
 			if err != nil {
@@ -267,7 +263,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "diagnose_context",
 		Description: "Collect what anyship knows about the spec on a target, with secrets redacted: plan findings, the target's dry-run checks, " +
-			"status, recent logs and generated files. Use it to work out why a deployment fails; propose fixes to anyship.json from it.",
+			"status, recent logs and generated files. Use it to work out why a deployment fails; propose fixes to anyship.yaml from it.",
 		Annotations: readsTarget,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in diagnoseContextInput) (*mcp.CallToolResult, diagnoseContextOutput, error) {
 		config := orDefault(in.Config, spec.Filename)
@@ -305,7 +301,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			return nil, resultOutput{}, err
 		}
 		if adapter.HasErrors(p.Findings) {
-			return nil, resultOutput{Findings: p.Findings, Messages: []string{"The plan has errors; nothing was done. Fix anyship.json and plan again."}}, nil
+			return nil, resultOutput{Findings: p.Findings, Messages: []string{"The plan has errors; nothing was done. Fix anyship.yaml and plan again."}}, nil
 		}
 		result, err := d.adapter.Apply(ctx, p, d.spec, d.env)
 		if err != nil {

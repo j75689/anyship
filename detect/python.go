@@ -108,7 +108,7 @@ func (d *Detection) detectPython(p project) *spec.Service {
 		d.Findings = append(d.Findings, adapter.Finding{
 			Level: adapter.Error, Code: "DETECT_NO_START", Service: ServiceName,
 			Message: "Could not find how this Python app starts.",
-			Hint:    "Set services.web.start in anyship.json, e.g. \"gunicorn myapp.wsgi --bind 0.0.0.0:8000\".",
+			Hint:    "Set services.web.start in anyship.yaml, e.g. \"gunicorn myapp.wsgi --bind 0.0.0.0:8000\".",
 		})
 	}
 

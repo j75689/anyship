@@ -86,7 +86,7 @@ func Collect(ctx context.Context, in Inputs) *Context {
 	}
 	target := in.Adapter.Name()
 
-	c.add(fmt.Sprintf("anyship.json (%s), deploying to the %s target", filepath.Base(in.SpecPath), target), string(in.SpecRaw))
+	c.add(fmt.Sprintf("anyship.yaml (%s), deploying to the %s target", filepath.Base(in.SpecPath), target), string(in.SpecRaw))
 	if in.Note != "" {
 		c.add("What the user reports", in.Note)
 	}
@@ -156,10 +156,11 @@ var redactPatterns = []struct {
 	{regexp.MustCompile(`\b(?:sk-ant-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`), "[redacted token]"},
 	// user:password@ in URLs
 	{regexp.MustCompile(`(\b[a-z][a-z0-9+.-]*://[^:/\s@]+:)[^@\s]+@`), "${1}[redacted]@"},
-	// "API_KEY": "value", API_KEY=value and similar. Only scalar values: arrays
-	// and objects under such keys (like "secrets": [...]) are structure, and
-	// values already redacted start with "[".
-	{regexp.MustCompile(`(?i)("?[A-Z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE)[A-Z0-9_.-]*"?\s*[:=]\s*)("[^"\n\[{][^"\n]*"|'[^'\n]*'|[^\s,}\[{"'][^\s,}]*)`), `${1}"[redacted]"`},
+	// "API_KEY": "value", API_KEY: value, API_KEY=value and similar, on one
+	// line. Only scalar values: arrays and objects under such keys (like
+	// "secrets": [...] or a YAML block) are structure, and values already
+	// redacted start with "[".
+	{regexp.MustCompile(`(?i)("?[A-Z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE)[A-Z0-9_.-]*"?[ \t]*[:=][ \t]*)("[^"\n\[{][^"\n]*"|'[^'\n]*'|[^\s,}\[{"'][^\s,}]*)`), `${1}"[redacted]"`},
 }
 
 // NewRedactor redacts the values of the spec's secrets that are set in the

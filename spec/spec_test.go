@@ -10,18 +10,23 @@ import (
 	"testing"
 )
 
-func mustParse(t *testing.T, src string) *Spec {
+// app wraps a YAML spec body in the manifest envelope.
+func app(name, body string) []byte {
+	return []byte("apiVersion: anyship/v1alpha1\nkind: App\nmetadata:\n  name: " + name + "\nspec:\n" + body)
+}
+
+func mustParse(t *testing.T, src []byte) *Spec {
 	t.Helper()
-	s, err := Parse([]byte(src))
+	s, err := Parse(src)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
 	return s
 }
 
-func problemsOf(t *testing.T, src string) []string {
+func problemsOf(t *testing.T, src []byte) []string {
 	t.Helper()
-	_, err := Parse([]byte(src))
+	_, err := Parse(src)
 	var verr *ValidationError
 	if !errors.As(err, &verr) {
 		t.Fatalf("want a ValidationError, got %v", err)
@@ -30,7 +35,17 @@ func problemsOf(t *testing.T, src string) []string {
 }
 
 func TestParseFillsDefaults(t *testing.T) {
-	s := mustParse(t, `{"version":1,"name":"app","services":{"web":{"kind":"server","start":"node index.js","ports":[{"port":80}],"volumes":[{"name":"data","mountPath":"/data","size":"1GB"}]}}}`)
+	s := mustParse(t, app("app", `
+  # comments are fine
+  services:
+    web:
+      kind: server
+      start: node index.js
+      ports:
+        - port: 80
+      volumes:
+        - {name: data, mountPath: /data, size: 1GB}
+`))
 	web := s.Services["web"]
 	if web.Path != "." || web.Replicas != 1 || web.Runtime == nil || web.Env == nil {
 		t.Errorf("defaults not applied: %+v", web)
@@ -47,12 +62,15 @@ func TestParseFillsDefaults(t *testing.T) {
 }
 
 func TestParseRejectsDanglingReferences(t *testing.T) {
-	got := problemsOf(t, `{"version":1,"name":"app","services":{"web":{"kind":"server","start":"x","uses":["db"],"secrets":["API_KEY"],"dependsOn":["web","missing"]}}}`)
+	got := problemsOf(t, app("app", `
+  services:
+    web: {kind: server, start: x, uses: [db], secrets: [API_KEY], dependsOn: [web, missing]}
+`))
 	want := []string{
-		`services.web.secrets.0: secret "API_KEY" is not declared in top-level secrets`,
-		`services.web.uses.0: unknown resource "db"`,
-		"services.web.dependsOn.0: a service cannot depend on itself",
-		`services.web.dependsOn.1: unknown service "missing"`,
+		`spec.services.web.secrets.0: secret "API_KEY" is not declared in spec.secrets`,
+		`spec.services.web.uses.0: unknown resource "db"`,
+		"spec.services.web.dependsOn.0: a service cannot depend on itself",
+		`spec.services.web.dependsOn.1: unknown service "missing"`,
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("problems:\n got  %q\n want %q", got, want)
@@ -60,26 +78,67 @@ func TestParseRejectsDanglingReferences(t *testing.T) {
 }
 
 func TestParseRequiresAWayToRun(t *testing.T) {
-	got := problemsOf(t, `{"version":1,"name":"app","services":{"web":{"kind":"server"}}}`)
-	if !slices.Contains(got, "services.web: needs one of start, entry, image or dockerfile") {
+	got := problemsOf(t, app("app", "  services:\n    web: {kind: server}\n"))
+	if !slices.Contains(got, "spec.services.web: needs one of start, entry, image or dockerfile") {
 		t.Errorf("problems: %q", got)
 	}
 }
 
 func TestParseRejectsBadNamesAndDuplicatePorts(t *testing.T) {
-	got := problemsOf(t, `{"version":1,"name":"My App","services":{"web":{"kind":"server","start":"x","ports":[{"port":80},{"port":80}]}}}`)
-	if !slices.ContainsFunc(got, func(p string) bool { return strings.HasPrefix(p, "name:") }) {
+	got := problemsOf(t, app(`"My App"`, "  services:\n    web: {kind: server, start: x, ports: [{port: 80}, {port: 80}]}\n"))
+	if !slices.ContainsFunc(got, func(p string) bool { return strings.HasPrefix(p, "metadata.name:") }) {
 		t.Errorf("want a name problem, got %q", got)
 	}
-	if !slices.Contains(got, "services.web.ports.1.port: port 80 is listed twice") {
+	if !slices.Contains(got, "spec.services.web.ports.1.port: port 80 is listed twice") {
 		t.Errorf("want a duplicate port problem, got %q", got)
 	}
 }
 
 func TestParseRejectsUnknownFields(t *testing.T) {
-	_, err := Parse([]byte(`{"version":1,"name":"app","services":{"web":{"kind":"server","start":"x","replica":2}}}`))
+	_, err := Parse(app("app", "  services:\n    web: {kind: server, start: x, replica: 2}\n"))
 	if err == nil || !strings.Contains(err.Error(), `unknown field "replica"`) {
 		t.Errorf("want unknown field error, got %v", err)
+	}
+}
+
+func TestParseChecksTheEnvelope(t *testing.T) {
+	got := problemsOf(t, []byte("apiVersion: v1\nkind: Deployment\nmetadata: {name: app}\n"))
+	want := []string{"apiVersion: must be anyship/v1alpha1", "kind: must be App", "spec: is required"}
+	if !slices.Equal(got, want) {
+		t.Errorf("problems:\n got  %q\n want %q", got, want)
+	}
+	if _, err := Parse([]byte("apiVersion: anyship/v1alpha1\nkind: App\nkind: App\n")); err == nil || !strings.Contains(err.Error(), "appears twice") {
+		t.Errorf("want a duplicate key error, got %v", err)
+	}
+}
+
+func TestMarshalRoundTrips(t *testing.T) {
+	s := mustParse(t, app("shop", `
+  services:
+    web: {kind: server, image: "nginx:1.27", env: {PORT: "8080", DEBUG: "true"}}
+  targets:
+    vps: {host: deploy@203.0.113.10}
+`))
+	data, err := Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(data, []byte("# yaml-language-server: $schema="+SchemaURL+"\napiVersion: anyship/v1alpha1\nkind: App\nmetadata:\n  name: shop\nspec:\n")) {
+		t.Errorf("unexpected header:\n%s", data)
+	}
+	again := mustParse(t, data)
+	if again.Services["web"].Env["PORT"] != "8080" || again.Services["web"].Env["DEBUG"] != "true" || string(again.Targets["vps"]) != `{"host":"deploy@203.0.113.10"}` {
+		t.Errorf("round trip changed the spec:\n%s", data)
+	}
+}
+
+func TestLoadPointsAtTheOldJSONFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "anyship.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(filepath.Join(dir, Filename)); err == nil || !strings.Contains(err.Error(), "YAML manifests now") {
+		t.Errorf("want a pointer to the new format, got %v", err)
 	}
 }
 

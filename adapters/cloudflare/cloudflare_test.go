@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/j75689/anyship/adapter"
+	"github.com/j75689/anyship/internal/spectest"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -31,7 +32,7 @@ func newEnv() *adapter.Env {
 
 func parse(t *testing.T, src string) *spec.Spec {
 	t.Helper()
-	s, err := spec.Parse([]byte(src))
+	s, err := spectest.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +84,7 @@ func jsonEqual(t *testing.T, got any, want string) {
 
 func TestRendersWorkerForEdgeServer(t *testing.T) {
 	p := plan(t, parse(t, `{
-		"version": 1, "name": "api",
+		"name": "api",
 		"services": {"web": {"kind": "server", "entry": "src/index.ts", "env": {"MODE": "prod"}, "cron": [{"schedule": "0 * * * *"}]}},
 		"targets": {"cloudflare": {"domains": ["api.example.com"]}}
 	}`), newEnv())
@@ -110,7 +111,7 @@ func TestRendersWorkerForEdgeServer(t *testing.T) {
 
 func TestRendersStaticAssetsAndBuildsFirst(t *testing.T) {
 	p := plan(t, parse(t, `{
-		"version": 1, "name": "site",
+		"name": "site",
 		"services": {"web": {"kind": "static", "path": "apps/site", "build": {"command": "npm run build", "output": "dist"}}},
 		"targets": {"cloudflare": {"spa": true}}
 	}`), newEnv())
@@ -126,7 +127,7 @@ func TestRendersStaticAssetsAndBuildsFirst(t *testing.T) {
 }
 
 func TestBindsResourcesAndAsksForMissingIDs(t *testing.T) {
-	const base = `"version": 1, "name": "api",
+	const base = `"name": "api",
 		"services": {"web": {"kind": "server", "entry": "src/index.ts", "uses": ["db", "files", "cache"]}},
 		"resources": {"db": {"type": "sqlite"}, "files": {"type": "bucket"}, "cache": {"type": "kv"}}`
 
@@ -168,13 +169,13 @@ func TestRefusesWhatWorkersCannotRun(t *testing.T) {
 }
 
 func TestRefusesNodeOnlyCodeAndBadOptions(t *testing.T) {
-	nodeOnly := plan(t, parse(t, `{"version": 1, "name": "api",
+	nodeOnly := plan(t, parse(t, `{"name": "api",
 		"services": {"web": {"kind": "server", "start": "node server.js", "runtime": {"edgeCompatible": false}}}}`), newEnv())
 	if got := codes(nodeOnly); !slices.Equal(got, []string{"CF_EDGE_INCOMPATIBLE"}) {
 		t.Errorf("codes = %v", got)
 	}
 
-	typo := plan(t, parse(t, `{"version": 1, "name": "api",
+	typo := plan(t, parse(t, `{"name": "api",
 		"services": {"web": {"kind": "server", "entry": "a.ts"}},
 		"targets": {"cloudflare": {"domain": ["x.com"]}}}`), newEnv())
 	if got := codes(typo); !slices.Equal(got, []string{"CF_BAD_OPTIONS"}) || !strings.Contains(typo.Findings[0].Message, `"domain"`) {
@@ -193,7 +194,7 @@ func TestApplyWritesConfigBuildsThenDeploys(t *testing.T) {
 		return nil
 	}
 
-	s := parse(t, `{"version": 1, "name": "site", "services": {"web": {"kind": "static", "build": {"command": "make", "output": "out"}}}}`)
+	s := parse(t, `{"name": "site", "services": {"web": {"kind": "static", "build": {"command": "make", "output": "out"}}}}`)
 	result, err := New().Apply(context.Background(), plan(t, s, env), s, env)
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +213,7 @@ func TestApplyWritesConfigBuildsThenDeploys(t *testing.T) {
 }
 
 func TestApplyRefusesPlanWithErrors(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "api", "services": {"web": {"kind": "worker", "start": "node job.js"}}}`)
+	s := parse(t, `{"name": "api", "services": {"web": {"kind": "worker", "start": "node job.js"}}}`)
 	env := newEnv()
 	result, err := New().Apply(context.Background(), plan(t, s, env), s, env)
 	if err != nil {
@@ -224,7 +225,7 @@ func TestApplyRefusesPlanWithErrors(t *testing.T) {
 }
 
 func TestLogsAndDestroyAddressTheWorkerFromTheSpecOnly(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "api", "services": {"web": {"kind": "server", "entry": "src/index.ts"}},
+	s := parse(t, `{"name": "api", "services": {"web": {"kind": "server", "entry": "src/index.ts"}},
 		"targets": {"cloudflare": {"name": "api-prod", "accountId": "acc-123"}}}`)
 	env := newEnv()
 	env.OutDir = t.TempDir()
@@ -263,7 +264,7 @@ func TestLogsAndDestroyAddressTheWorkerFromTheSpecOnly(t *testing.T) {
 }
 
 func TestLogsRefusesHistoryOptions(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "api", "services": {"web": {"kind": "server", "entry": "a.ts"}}}`)
+	s := parse(t, `{"name": "api", "services": {"web": {"kind": "server", "entry": "a.ts"}}}`)
 	for _, opts := range []adapter.LogOptions{{Tail: 50}, {Since: "10m"}} {
 		err := New().Logs(context.Background(), s, newEnv(), opts)
 		if err == nil || !strings.Contains(err.Error(), "only streams live logs") {
@@ -273,7 +274,7 @@ func TestLogsRefusesHistoryOptions(t *testing.T) {
 }
 
 func TestRefusesNonJavaScriptServices(t *testing.T) {
-	p := plan(t, parse(t, `{"version": 1, "name": "api",
+	p := plan(t, parse(t, `{"name": "api",
 		"services": {"web": {"kind": "server", "build": {"command": "go build -o bin/api ."}, "start": "./bin/api", "runtime": {"language": "go"}}}}`), newEnv())
 	if got := codes(p); !slices.Equal(got, []string{"CF_LANGUAGE"}) {
 		t.Errorf("codes = %v", got)
@@ -284,7 +285,7 @@ func TestRefusesNonJavaScriptServices(t *testing.T) {
 }
 
 func TestDestroyDeletesTheWorker(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "api", "services": {"web": {"kind": "server", "entry": "a.ts"}}}`)
+	s := parse(t, `{"name": "api", "services": {"web": {"kind": "server", "entry": "a.ts"}}}`)
 	env := newEnv()
 	env.OutDir = t.TempDir()
 	var got []string

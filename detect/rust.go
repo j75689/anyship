@@ -57,7 +57,7 @@ func (d *Detection) detectRust(p project) *spec.Service {
 		d.Findings = append(d.Findings, adapter.Finding{
 			Level: adapter.Error, Code: "DETECT_NO_START", Service: ServiceName,
 			Message: "No binary target found (src/main.rs or [[bin]]).",
-			Hint:    "Set services.web.build.command and services.web.start in anyship.json.",
+			Hint:    "Set services.web.build.command and services.web.start in anyship.yaml.",
 		})
 		return svc
 	}

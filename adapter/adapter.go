@@ -99,7 +99,7 @@ func ExitCode(err error) (int, bool) {
 
 // Env is what an adapter may use to touch the outside world.
 type Env struct {
-	// Dir is the directory containing anyship.json.
+	// Dir is the directory containing anyship.yaml.
 	Dir string
 	// OutDir is scratch space for generated platform config, e.g. <Dir>/.anyship/<target>.
 	// It is write-only: anyship keeps no state, so adapters must never read it

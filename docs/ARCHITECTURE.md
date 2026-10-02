@@ -1,6 +1,6 @@
 # anyship architecture
 
-anyship is one Go binary that turns `anyship.json` into a running app on a platform you pick, then
+anyship is one Go binary that turns `anyship.yaml` into a running app on a platform you pick, then
 helps you operate it. This page describes the target architecture; parts not built yet are marked
 **planned**.
 
@@ -10,7 +10,7 @@ helps you operate it. This page describes the target architecture; parts not bui
 
 - **No state.** anyship never records what it deployed. `status`, `logs`, `destroy` and redeploy
   checks ask the provider. `.anyship/<target>/` is generated output for review: written, never read
-  back. Deployments are addressed from `anyship.json` alone.
+  back. Deployments are addressed from `anyship.yaml` alone.
 - **Applications, not infrastructure.** Servers, networks, DNS, accounts and managed databases are
   provided by you or by Terraform/OpenTofu. anyship binds to what exists; anything it creates (such as
   a secret) is found by name on the provider, so repeating a command is safe.
@@ -25,7 +25,7 @@ helps you operate it. This page describes the target architecture; parts not bui
 
 | Package | Owns | Talks to | Status |
 |---|---|---|---|
-| `spec` | `anyship.json` types, validation, JSON Schema | nothing | built |
+| `spec` | `anyship.yaml` types, validation, JSON Schema | nothing | built |
 | `detect` | drafting a spec from JS, Go, Python, Rust, Dockerfile or static projects | project files | built |
 | `dockerfile` | Dockerfiles for services that have none | project files | built |
 | `image` | building an image with `docker buildx` and pushing it to a registry, by digest | Docker, the registry | built |
@@ -42,7 +42,7 @@ helps you operate it. This page describes the target architecture; parts not bui
 Each adapter talks to its provider through the provider's own CLI, so your existing login is used
 and anyship handles no cloud credentials.
 
-| anyship.json asks for | cloudflare | vps | gcp | aws (planned) |
+| anyship.yaml asks for | cloudflare | vps | gcp | aws (planned) |
 |---|---|---|---|---|
 | HTTP `server` | Worker | container | Cloud Run service | container service |
 | image or Dockerfile | refused | built on the host | built locally, pushed to Artifact Registry | built locally, pushed to ECR |

@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/j75689/anyship/main/schema/anyship.schema.json
+apiVersion: anyship/v1alpha1
+kind: App
+metadata:
+  name: hono-worker
+spec:
+  services:
+    web:
+      kind: server
+      entry: src/index.ts
+      env:
+        GREETING: hello
+      runtime:
+        language: javascript
+        framework: hono
+        edgeCompatible: true

@@ -14,55 +14,52 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"github.com/j75689/anyship/adapter"
+	"github.com/j75689/anyship/internal/spectest"
 	"github.com/j75689/anyship/spec"
 )
 
-const specJSON = `{
-  "version": 1,
-  "name": "shop",
-  "services": {
-    "web": {
-      "kind": "server",
-      "image": "shop:1",
-      "ports": [{ "port": 3000 }],
-      "env": { "MODE": "prod" }
-    }
-  }
-}
+const specYAML = `# yaml-language-server: $schema=https://example.com/schema.json
+apiVersion: anyship/v1alpha1
+kind: App
+metadata:
+  name: shop
+spec:
+  services:
+    web:
+      kind: server
+      image: shop:1 # pinned for the launch
+      ports:
+        - port: 3000
+      env:
+        MODE: prod
 `
 
-func TestApplyPatchKeepsKeyOrder(t *testing.T) {
-	got, err := ApplyPatch([]byte(specJSON), []PatchOp{
-		{Op: "replace", Path: "/services/web/ports/0/port", Value: "8080"},
-		{Op: "add", Path: "/services/web/env/PORT", Value: `"8080"`},
-		{Op: "remove", Path: "/services/web/env/MODE"},
-		{Op: "add", Path: "/services/web/ports/-", Value: `{"port": 9000, "protocol": "udp"}`},
+func TestApplyPatchKeepsOrderAndComments(t *testing.T) {
+	got, err := ApplyPatch([]byte(specYAML), []PatchOp{
+		{Op: "replace", Path: "/spec/services/web/ports/0/port", Value: "8080"},
+		{Op: "add", Path: "/spec/services/web/env/PORT", Value: `"8080"`},
+		{Op: "remove", Path: "/spec/services/web/env/MODE"},
+		{Op: "add", Path: "/spec/services/web/ports/-", Value: `{"port": 9000, "protocol": "udp"}`},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{
-  "version": 1,
-  "name": "shop",
-  "services": {
-    "web": {
-      "kind": "server",
-      "image": "shop:1",
-      "ports": [
-        {
-          "port": 8080
-        },
-        {
-          "port": 9000,
-          "protocol": "udp"
-        }
-      ],
-      "env": {
-        "PORT": "8080"
-      }
-    }
-  }
-}
+	want := `# yaml-language-server: $schema=https://example.com/schema.json
+apiVersion: anyship/v1alpha1
+kind: App
+metadata:
+  name: shop
+spec:
+  services:
+    web:
+      kind: server
+      image: shop:1 # pinned for the launch
+      ports:
+        - port: 8080
+        - port: 9000
+          protocol: udp
+      env:
+        PORT: "8080"
 `
 	if string(got) != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -71,29 +68,30 @@ func TestApplyPatchKeepsKeyOrder(t *testing.T) {
 
 func TestApplyPatchRejectsBadOps(t *testing.T) {
 	for _, op := range []PatchOp{
-		{Op: "replace", Path: "/services/api/image", Value: `"x"`},
-		{Op: "remove", Path: "/services/web/ports/3"},
-		{Op: "replace", Path: "/services/web/image", Value: `not json`},
-		{Op: "move", Path: "/name", Value: `"x"`},
+		{Op: "replace", Path: "/spec/services/api/image", Value: `"x"`},
+		{Op: "remove", Path: "/spec/services/web/ports/3"},
+		{Op: "replace", Path: "/spec/services/web/image", Value: `not json`},
+		{Op: "replace", Path: "/spec/services/web/image", Value: `x: 1`},
+		{Op: "move", Path: "/metadata/name", Value: `"x"`},
 		{Op: "replace", Path: "", Value: `{}`},
 		{Op: "replace", Path: "name", Value: `"x"`},
 	} {
-		if _, err := ApplyPatch([]byte(specJSON), []PatchOp{op}); err == nil {
+		if _, err := ApplyPatch([]byte(specYAML), []PatchOp{op}); err == nil {
 			t.Errorf("%+v should fail", op)
 		}
 	}
 }
 
 func TestDescribePatch(t *testing.T) {
-	got := DescribePatch([]byte(specJSON), []PatchOp{
-		{Op: "replace", Path: "/services/web/ports/0/port", Value: "8080"},
-		{Op: "remove", Path: "/services/web/env"},
-		{Op: "add", Path: "/services/web/start", Value: `"node server.js"`},
+	got := DescribePatch([]byte(specYAML), []PatchOp{
+		{Op: "replace", Path: "/spec/services/web/ports/0/port", Value: "8080"},
+		{Op: "remove", Path: "/spec/services/web/env"},
+		{Op: "add", Path: "/spec/services/web/start", Value: `"node server.js"`},
 	})
 	want := []string{
-		"replace /services/web/ports/0/port: 3000 → 8080",
-		`remove /services/web/env (was {"MODE":"prod"})`,
-		`add /services/web/start: "node server.js"`,
+		"replace /spec/services/web/ports/0/port: 3000 → 8080",
+		`remove /spec/services/web/env (was {"MODE":"prod"})`,
+		`add /spec/services/web/start: "node server.js"`,
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q\nwant %q", got, want)
@@ -101,7 +99,7 @@ func TestDescribePatch(t *testing.T) {
 }
 
 func TestRedactor(t *testing.T) {
-	s, err := spec.Parse([]byte(`{"version": 1, "name": "app", "services": {"web": {"kind": "server", "image": "x", "secrets": ["DB_PASSWORD"]}}, "secrets": {"DB_PASSWORD": {}}}`))
+	s, err := spectest.Parse(`{"name": "app", "services": {"web": {"kind": "server", "image": "x", "secrets": ["DB_PASSWORD"]}}, "secrets": {"DB_PASSWORD": {}}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,6 +113,7 @@ func TestRedactor(t *testing.T) {
 		"connecting with hunter2-very-secret",
 		`"API_KEY": "abc123"`,
 		"STRIPE_SECRET=sk_live_123",
+		"GITHUB_TOKEN: ghs_yaml_value",
 		"postgres://admin:s3cret@db:5432/shop",
 		"auth sk-ant-api03-abcdefghijklmnopqrstuvwxyz",
 		"AKIAABCDEFGHIJKLMNOP",
@@ -122,7 +121,7 @@ func TestRedactor(t *testing.T) {
 		"port 8080 is fine",
 	}, "\n")
 	got := r.Redact(in)
-	for _, leaked := range []string{"hunter2", "abc123", "sk_live_123", "s3cret", "sk-ant-api03", "AKIAABCDEFGHIJKLMNOP", "OPENSSH PRIVATE KEY"} {
+	for _, leaked := range []string{"hunter2", "abc123", "sk_live_123", "ghs_yaml_value", "s3cret", "sk-ant-api03", "AKIAABCDEFGHIJKLMNOP", "OPENSSH PRIVATE KEY"} {
 		if strings.Contains(got, leaked) {
 			t.Errorf("%q leaked:\n%s", leaked, got)
 		}
@@ -135,7 +134,7 @@ func TestRedactor(t *testing.T) {
 }
 
 func TestRedactorKeepsStructure(t *testing.T) {
-	s, _ := spec.Parse([]byte(specJSON))
+	s, _ := spec.Parse([]byte(specYAML))
 	r := NewRedactor(s, func(name string) (string, bool) { return "", false })
 	// Keys that look secret but hold arrays or objects are spec structure, and
 	// redacted values must not be redacted again.
@@ -145,6 +144,8 @@ func TestRedactorKeepsStructure(t *testing.T) {
 		`"JWT_SECRET": { "generate": "hex32" }`,
 		`JWT_SECRET=[redacted secret JWT_SECRET] is set`,
 		`"API_KEY": ""`,
+		"  secrets:\n    JWT_SECRET:\n      generate: hex32",
+		"      secrets:\n        - JWT_SECRET",
 	} {
 		if got := r.Redact(in); got != in {
 			t.Errorf("Redact(%q) = %q, want it unchanged", in, got)
@@ -168,19 +169,19 @@ func (m *scriptedModel) Diagnose(_ context.Context, req Request) (*Diagnosis, er
 }
 
 func TestRunRetriesRejectedPatches(t *testing.T) {
-	bad := &Diagnosis{Summary: "port", SpecPatch: []PatchOp{{Op: "replace", Path: "/services/api/ports/0/port", Value: "8080"}}}
-	good := &Diagnosis{Summary: "port", SpecPatch: []PatchOp{{Op: "replace", Path: "/services/web/ports/0/port", Value: "8080"}}}
+	bad := &Diagnosis{Summary: "port", SpecPatch: []PatchOp{{Op: "replace", Path: "/spec/services/api/ports/0/port", Value: "8080"}}}
+	good := &Diagnosis{Summary: "port", SpecPatch: []PatchOp{{Op: "replace", Path: "/spec/services/web/ports/0/port", Value: "8080"}}}
 	model := &scriptedModel{answers: []*Diagnosis{bad, good}}
 	validate := func(patched []byte) error {
 		_, err := spec.Parse(patched)
 		return err
 	}
 
-	r, err := Run(context.Background(), model, "ctx", []byte(specJSON), validate)
+	r, err := Run(context.Background(), model, "ctx", []byte(specYAML), validate)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Patched == nil || !strings.Contains(string(r.Patched), `"port": 8080`) {
+	if r.Patched == nil || !strings.Contains(string(r.Patched), "- port: 8080") {
 		t.Errorf("result = %+v", r)
 	}
 	if len(model.requests) != 2 || len(model.requests[1].Rejected) != 1 || !strings.Contains(model.requests[1].Rejected[0].Problem, `"api" does not exist`) {
@@ -188,7 +189,7 @@ func TestRunRetriesRejectedPatches(t *testing.T) {
 	}
 
 	stubborn := &scriptedModel{answers: []*Diagnosis{bad}}
-	r, err = Run(context.Background(), stubborn, "ctx", []byte(specJSON), validate)
+	r, err = Run(context.Background(), stubborn, "ctx", []byte(specYAML), validate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +198,7 @@ func TestRunRetriesRejectedPatches(t *testing.T) {
 	}
 
 	noPatch := &scriptedModel{answers: []*Diagnosis{{Summary: "host is down"}}}
-	r, _ = Run(context.Background(), noPatch, "ctx", []byte(specJSON), validate)
+	r, _ = Run(context.Background(), noPatch, "ctx", []byte(specYAML), validate)
 	if r.Patched != nil || r.PatchProblem != "" || r.Diagnosis.Summary != "host is down" {
 		t.Errorf("result = %+v", r)
 	}
@@ -229,13 +230,13 @@ func (fakeTarget) Logs(_ context.Context, _ *spec.Spec, env *adapter.Env, opts a
 }
 
 func TestCollectGathersAndRedacts(t *testing.T) {
-	s, err := spec.Parse([]byte(specJSON))
+	s, err := spec.Parse([]byte(specYAML))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var steps []string
 	c := Collect(context.Background(), Inputs{
-		Spec: s, SpecPath: "/p/anyship.json", SpecRaw: []byte(specJSON), Adapter: fakeTarget{},
+		Spec: s, SpecPath: "/p/anyship.yaml", SpecRaw: []byte(specYAML), Adapter: fakeTarget{},
 		NewEnv: func(dryRun bool, out io.Writer) *adapter.Env {
 			return &adapter.Env{DryRun: dryRun, Logf: func(f string, a ...any) { _, _ = fmt.Fprintf(out, f+"\n", a...) }}
 		},
@@ -246,7 +247,7 @@ func TestCollectGathersAndRedacts(t *testing.T) {
 	})
 	text := c.Render()
 	for _, want := range []string{
-		"## anyship.json (anyship.json), deploying to the fake target",
+		"## anyship.yaml (anyship.yaml), deploying to the fake target",
 		"## What the user reports", "it keeps restarting",
 		`"code": "FAKE_NOTE"`,
 		"## Generated file compose.yaml",
@@ -300,7 +301,7 @@ func TestClaudeRequestAndResponse(t *testing.T) {
 	answer, _ := json.Marshal(Diagnosis{
 		Summary: "The app listens on 3000 but the spec publishes 8080.", RootCause: "port mismatch", Confidence: "high",
 		Evidence: []string{"EADDRINUSE"}, Steps: []string{"fix the port"},
-		SpecPatch: []PatchOp{{Op: "replace", Path: "/services/web/ports/0/port", Value: "3000"}},
+		SpecPatch: []PatchOp{{Op: "replace", Path: "/spec/services/web/ports/0/port", Value: "3000"}},
 	})
 	claude, req, body := fakeClaude(t, 200, message("end_turn", string(answer)))
 
@@ -326,7 +327,7 @@ func TestClaudeRequestAndResponse(t *testing.T) {
 	}
 	system := b["system"].([]any)[0].(map[string]any)
 	if system["cache_control"].(map[string]any)["type"] != "ephemeral" || !strings.Contains(system["text"].(string), `"$schema"`) {
-		t.Error("the system prompt should carry the anyship.json schema and be cached")
+		t.Error("the system prompt should carry the anyship.yaml schema and be cached")
 	}
 	user := b["messages"].([]any)[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
 	if !strings.Contains(user, "## Recent logs") || !strings.Contains(user, "rejected") {

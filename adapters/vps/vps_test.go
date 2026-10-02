@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/j75689/anyship/adapter"
+	"github.com/j75689/anyship/internal/spectest"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -80,7 +81,7 @@ func newEnv(t *testing.T, dir string) (*adapter.Env, *recorder) {
 
 func parse(t *testing.T, src string) *spec.Spec {
 	t.Helper()
-	s, err := spec.Parse([]byte(src))
+	s, err := spectest.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +169,7 @@ func TestRendersEthereumNode(t *testing.T) {
 
 func TestRequiresAValidHost(t *testing.T) {
 	env, _ := newEnv(t, t.TempDir())
-	base := `"version": 1, "name": "app", "services": {"web": {"kind": "server", "image": "nginx"}}`
+	base := `"name": "app", "services": {"web": {"kind": "server", "image": "nginx"}}`
 	for _, targets := range []string{
 		``,
 		`, "targets": {"vps": {}}`,
@@ -195,7 +196,7 @@ func TestRefusesWhatItCannotRunYet(t *testing.T) {
 		`"a": {"kind": "server", "image": "x", "ports": [{"port": 80}]}, "b": {"kind": "server", "image": "y", "ports": [{"port": 80}]}`: "VPS_PORT_CONFLICT",
 	}
 	for services, want := range cases {
-		p := plan(t, parse(t, `{"version": 1, "name": "app", "services": {`+services+`}, "targets": {"vps": {"host": "h"}}}`), env)
+		p := plan(t, parse(t, `{"name": "app", "services": {`+services+`}, "targets": {"vps": {"host": "h"}}}`), env)
 		if got := codes(p, adapter.Error); !slices.Contains(got, want) {
 			t.Errorf("services %s: errors = %v, want %s", services, got, want)
 		}
@@ -204,7 +205,7 @@ func TestRefusesWhatItCannotRunYet(t *testing.T) {
 		}
 	}
 
-	resources := plan(t, parse(t, `{"version": 1, "name": "app",
+	resources := plan(t, parse(t, `{"name": "app",
 		"services": {"web": {"kind": "server", "image": "app", "uses": ["db", "cache"]}},
 		"resources": {"db": {"type": "postgres"}, "cache": {"type": "redis", "external": true}},
 		"targets": {"vps": {"host": "h"}}}`), env)
@@ -233,7 +234,7 @@ func TestDockerfileServicesUploadTheirContext(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	s := parse(t, `{"version": 1, "name": "shop",
+	s := parse(t, `{"name": "shop",
 		"services": {"api": {"kind": "server", "path": "api", "dockerfile": "Dockerfile", "ports": [{"port": 8080}], "secrets": ["API_KEY", "SESSION_KEY"]}},
 		"secrets": {"API_KEY": {}, "SESSION_KEY": {"generate": "hex32"}},
 		"targets": {"vps": {"host": "deploy@203.0.113.10", "port": 2222, "dir": "apps/shop", "sudo": true}}}`)
@@ -423,7 +424,7 @@ func TestLogsRunsComposeLogsOverSSH(t *testing.T) {
 }
 
 func TestLogsHonorsDirAndSudo(t *testing.T) {
-	s := parse(t, `{"version": 1, "name": "app", "services": {"web": {"kind": "server", "image": "nginx"}},
+	s := parse(t, `{"name": "app", "services": {"web": {"kind": "server", "image": "nginx"}},
 		"targets": {"vps": {"host": "h", "dir": "/srv/my app", "sudo": true}}}`)
 	env, rec := newEnv(t, t.TempDir())
 	if err := New().Logs(context.Background(), s, env, adapter.LogOptions{}); err != nil {
@@ -442,7 +443,7 @@ func TestLogsExplainsFailures(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 
-	noTarget := parse(t, `{"version": 1, "name": "app", "services": {"web": {"kind": "server", "image": "nginx"}}}`)
+	noTarget := parse(t, `{"name": "app", "services": {"web": {"kind": "server", "image": "nginx"}}}`)
 	if err := New().Logs(context.Background(), noTarget, env, adapter.LogOptions{}); err == nil || !strings.Contains(err.Error(), "host is required") {
 		t.Errorf("err = %v", err)
 	}
@@ -464,7 +465,7 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 func TestGeneratesADockerfileForSourceServices(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{"go.mod": "module example.com/api\n", "main.go": "package main\n"})
-	s := parse(t, `{"version": 1, "name": "api",
+	s := parse(t, `{"name": "api",
 		"services": {"web": {"kind": "server", "build": {"command": "go build -o bin/api ."}, "start": "./bin/api", "ports": [{"port": 8080}], "runtime": {"language": "go"}}},
 		"targets": {"vps": {"host": "h"}}}`)
 	env, rec := newEnv(t, dir)
@@ -502,21 +503,21 @@ func TestServesStaticSitesWithNginx(t *testing.T) {
 	writeFiles(t, dir, map[string]string{"site/index.html": "<p>hi"})
 	env, _ := newEnv(t, dir)
 
-	defaultPort := plan(t, parse(t, `{"version": 1, "name": "docs",
+	defaultPort := plan(t, parse(t, `{"name": "docs",
 		"services": {"site": {"kind": "static", "path": "site"}},
 		"targets": {"vps": {"host": "h"}}}`), env)
 	if got := composeOf(t, defaultPort).Services["site"].Ports; !slices.Equal(got, []string{"80:80"}) {
 		t.Errorf("ports = %v, want [80:80]", got)
 	}
 
-	custom := plan(t, parse(t, `{"version": 1, "name": "docs",
+	custom := plan(t, parse(t, `{"name": "docs",
 		"services": {"site": {"kind": "static", "path": "site", "ports": [{"port": 8080}]}},
 		"targets": {"vps": {"host": "h"}}}`), env)
 	if got := composeOf(t, custom).Services["site"].Ports; !slices.Equal(got, []string{"8080:80"}) {
 		t.Errorf("ports = %v, want [8080:80]", got)
 	}
 
-	conflict := plan(t, parse(t, `{"version": 1, "name": "docs",
+	conflict := plan(t, parse(t, `{"name": "docs",
 		"services": {"site": {"kind": "static", "path": "site"}, "proxy": {"kind": "server", "image": "caddy", "ports": [{"port": 80}]}},
 		"targets": {"vps": {"host": "h"}}}`), env)
 	if !slices.Contains(codes(conflict, adapter.Error), "VPS_PORT_CONFLICT") {

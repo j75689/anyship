@@ -62,7 +62,7 @@ func (d *Detection) detectGo(p project) *spec.Service {
 		d.Findings = append(d.Findings, adapter.Finding{
 			Level: adapter.Error, Code: "DETECT_NO_START", Service: ServiceName,
 			Message: "No main package found at the module root or under cmd/.",
-			Hint:    "Set services.web.build.command and services.web.start in anyship.json.",
+			Hint:    "Set services.web.build.command and services.web.start in anyship.yaml.",
 		})
 	} else {
 		svc.Build = &spec.Build{Command: fmt.Sprintf("go build -o bin/%s %s", binary, pkg)}
