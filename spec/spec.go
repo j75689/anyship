@@ -80,8 +80,11 @@ type Service struct {
 	// Start is the command that starts the process.
 	Start string `json:"start,omitempty" jsonschema_description:"Command that starts the process."`
 	// Entry is a module exporting a fetch handler, for edge runtimes. Relative to Path.
-	Entry       string            `json:"entry,omitempty" jsonschema_description:"Module exporting a fetch handler, for edge runtimes. Relative to path."`
-	Ports       []Port            `json:"ports,omitempty"`
+	Entry string `json:"entry,omitempty" jsonschema_description:"Module exporting a fetch handler, for edge runtimes. Relative to path."`
+	Ports []Port `json:"ports,omitempty"`
+	// Domains are the custom domains this service answers on. A target that
+	// can't attach them says so instead of dropping them.
+	Domains     []string          `json:"domains,omitempty" jsonschema_description:"Custom domains this service answers on, e.g. \"app.example.com\". Needs a public http port. Wildcards are not supported."`
 	Volumes     []Volume          `json:"volumes,omitempty"`
 	Replicas    int               `json:"replicas,omitempty" jsonschema:"minimum=1"`
 	Env         map[string]string `json:"env,omitempty"`
@@ -216,6 +219,14 @@ func (svc *Service) EdgeIncompatible() bool {
 	return svc.Runtime != nil && svc.Runtime.EdgeCompatible != nil && !*svc.Runtime.EdgeCompatible
 }
 
+// servesPublicHTTP reports whether the service has a port a platform's HTTP
+// router can put a domain in front of.
+func (svc *Service) servesPublicHTTP() bool {
+	return slices.ContainsFunc(svc.Ports, func(p Port) bool {
+		return p.Protocol == ProtocolHTTP && p.Exposure == ExposurePublic
+	})
+}
+
 // Framework returns the detected framework, if any.
 func (svc *Service) Framework() string {
 	if svc.Runtime == nil {
@@ -276,6 +287,10 @@ func (s *Spec) Normalize() {
 			if svc.Volumes[i].Class == "" {
 				svc.Volumes[i].Class = "standard"
 			}
+		}
+		// Domains are case-insensitive and may be written with the root dot.
+		for i, domain := range svc.Domains {
+			svc.Domains[i] = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(domain), "."))
 		}
 	}
 }

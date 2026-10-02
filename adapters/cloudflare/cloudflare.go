@@ -31,7 +31,9 @@ type Options struct {
 	Name              string `json:"name,omitempty"`
 	CompatibilityDate string `json:"compatibilityDate,omitempty"`
 	AccountID         string `json:"accountId,omitempty"`
-	// Domains are custom domains attached to the Worker.
+	// Domains are custom domains attached to the Worker. When set they replace
+	// the service's own services.<name>.domains, so a Cloudflare deploy can use
+	// a different set of hosts than the platform-neutral spec asks for.
 	Domains []string `json:"domains,omitempty"`
 	// SPA serves index.html for unknown paths.
 	SPA bool `json:"spa,omitempty"`
@@ -215,7 +217,21 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 		}
 		config.Triggers.Crons = append(config.Triggers.Crons, c.Schedule)
 	}
-	for _, domain := range opts.Domains {
+	// targets.cloudflare.domains overrides the service's domains, so this target
+	// can be deployed to other hosts than the rest of the spec.
+	domains := svc.Domains
+	if len(opts.Domains) > 0 {
+		domains = opts.Domains
+		if len(svc.Domains) > 0 {
+			plan.Findings = append(plan.Findings, adapter.Finding{
+				Level: adapter.Info, Code: "CF_DOMAIN_OVERRIDE", Service: serviceName,
+				Message: fmt.Sprintf("targets.cloudflare.domains (%s) replaces services.%s.domains (%s).",
+					strings.Join(opts.Domains, ", "), serviceName, strings.Join(svc.Domains, ", ")),
+				Hint: "Remove targets.cloudflare.domains to attach the service's own domains.",
+			})
+		}
+	}
+	for _, domain := range domains {
 		config.Routes = append(config.Routes, routeConfig{Pattern: domain, CustomDomain: true})
 	}
 

@@ -12,15 +12,23 @@ const (
 	NamePattern       = `^[a-z][a-z0-9-]{0,62}$`
 	SecretNamePattern = `^[A-Z][A-Z0-9_]*$`
 	SizePattern       = `^\d+(GB|TB)$`
+	// DomainPattern matches a fully qualified domain name. It accepts either
+	// case, because Normalize lowercases domains; wildcards are left out on
+	// purpose, since no target attaches them.
+	DomainPattern = `^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$`
+	// domainMaxLength is the limit on a domain name in the DNS wire format.
+	domainMaxLength = 253
 
 	nameHint       = "use lowercase letters, digits and dashes, starting with a letter"
 	secretNameHint = "use UPPER_SNAKE_CASE"
+	domainHint     = `use a domain like "app.example.com"`
 )
 
 var (
 	nameRe       = regexp.MustCompile(NamePattern)
 	secretNameRe = regexp.MustCompile(SecretNamePattern)
 	sizeRe       = regexp.MustCompile(SizePattern)
+	domainRe     = regexp.MustCompile(DomainPattern)
 
 	serviceKinds  = []ServiceKind{KindStatic, KindServer, KindWorker}
 	protocols     = []Protocol{ProtocolHTTP, ProtocolTCP, ProtocolUDP, ProtocolTCPUDP}
@@ -75,13 +83,16 @@ func (s *Spec) Validate() []string {
 		}
 	}
 
+	// claimedDomains maps a domain to the service that claimed it first, so a
+	// domain used twice in the app is reported on its second use.
+	claimedDomains := map[string]string{}
 	for _, name := range s.ServiceNames() {
-		s.validateService(name, &p)
+		s.validateService(name, claimedDomains, &p)
 	}
 	return p
 }
 
-func (s *Spec) validateService(name string, p *problems) {
+func (s *Spec) validateService(name string, claimedDomains map[string]string, p *problems) {
 	at := func(path ...any) []any { return append([]any{"spec", "services", name}, path...) }
 
 	if !nameRe.MatchString(name) {
@@ -115,6 +126,26 @@ func (s *Spec) validateService(name string, p *problems) {
 		if !slices.Contains(exposures, port.Exposure) {
 			p.add(at("ports", i, "exposure"), "must be one of %s", quoted(exposures))
 		}
+	}
+
+	for i, domain := range svc.Domains {
+		switch {
+		case strings.HasPrefix(domain, "*"):
+			p.add(at("domains", i), "wildcard domains are not supported; name each host, e.g. \"app.example.com\"")
+		case len(domain) > domainMaxLength:
+			p.add(at("domains", i), "is longer than %d characters", domainMaxLength)
+		case !domainRe.MatchString(domain):
+			p.add(at("domains", i), "invalid domain %q: %s", domain, domainHint)
+		case claimedDomains[domain] == name:
+			p.add(at("domains", i), "domain %q is listed twice", domain)
+		case claimedDomains[domain] != "":
+			p.add(at("domains", i), "domain %q is already claimed by service %q", domain, claimedDomains[domain])
+		default:
+			claimedDomains[domain] = name
+		}
+	}
+	if len(svc.Domains) > 0 && !svc.servesPublicHTTP() {
+		p.add(at("domains"), "needs a port with protocol \"http\" and exposure \"public\" to route to")
 	}
 
 	for i, v := range svc.Volumes {

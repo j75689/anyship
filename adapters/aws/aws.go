@@ -252,6 +252,11 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	if len(svc.Cron) > 0 {
 		add(adapter.Error, "AWS_CRON", "Cron schedules aren't supported on the aws target yet.", "")
 	}
+	if len(svc.Domains) > 0 {
+		add(adapter.Error, "AWS_DOMAIN_UNSUPPORTED",
+			fmt.Sprintf("anyship doesn't attach custom domains on Express Mode (domains: %s); the service answers on its on.aws URL.", strings.Join(svc.Domains, ", ")),
+			"Point a CNAME at that URL, or add an ACM certificate and listener rule yourself, then drop domains from the spec.")
+	}
 
 	var http []spec.Port
 	for _, p := range svc.Ports {

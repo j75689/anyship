@@ -193,6 +193,7 @@ func TestRefusesWhatItCannotRunYet(t *testing.T) {
 		`"web": {"kind": "server", "image": "app", "cron": [{"schedule": "* * * * *"}]}`:                                                 "VPS_CRON_UNSUPPORTED",
 		`"web": {"kind": "server", "image": "app", "replicas": 2, "ports": [{"port": 80}]}`:                                              "VPS_REPLICAS_WITH_PORTS",
 		`"web": {"kind": "server", "image": "app", "dockerfile": "Dockerfile"}`:                                                          "VPS_DOCKERFILE_MISSING",
+		`"web": {"kind": "server", "image": "app", "ports": [{"port": 80}], "domains": ["app.example.com"]}`:                             "VPS_DOMAIN_UNSUPPORTED",
 		`"a": {"kind": "server", "image": "x", "ports": [{"port": 80}]}, "b": {"kind": "server", "image": "y", "ports": [{"port": 80}]}`: "VPS_PORT_CONFLICT",
 	}
 	for services, want := range cases {

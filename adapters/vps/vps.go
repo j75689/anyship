@@ -437,6 +437,11 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, dir string) chec
 		add(adapter.Info, "VPS_VOLUME_SIZE",
 			"Docker volumes don't enforce size or disk class; make sure the host has room for: "+strings.Join(sizes, ", ")+".", "")
 	}
+	if len(svc.Domains) > 0 {
+		add(adapter.Error, "VPS_DOMAIN_UNSUPPORTED",
+			fmt.Sprintf("The vps target has no HTTP router yet, so it can't serve the domains %s; containers publish host ports directly.", strings.Join(svc.Domains, ", ")),
+			"Put your own reverse proxy (Caddy, nginx, Traefik) in front of the published ports, or deploy to the cloudflare target.")
+	}
 	for _, m := range mappings {
 		if m.http {
 			add(adapter.Info, "VPS_NO_TLS",
