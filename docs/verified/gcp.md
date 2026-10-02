@@ -533,7 +533,7 @@ confirm or refute, not findings — except where marked confirmed.
 
    So `destroy --volumes` on an empty project says it removed something it never had. It is a wrong
    message rather than a wrong action, but it matters exactly here: this runbook asks the operator to
-   trust `destroy`'s output as evidence that teardown worked. Filed as its own issue.
+   trust `destroy`'s output as evidence that teardown worked. Filed as OPE-32.
 
    `status` on the same state is honest and reports `missing`, so the two commands disagree.
 
@@ -555,7 +555,7 @@ One issue per bug, per the acceptance criteria.
 
 | Issue | Summary | Found by |
 | --- | --- | --- |
-| _(see OPE-13)_ | `destroy --volumes` prints "Removed ... from Cloud Run" when it deleted nothing | static review + fake CLI, no project needed |
+| OPE-32 | `destroy --volumes` prints "Removed ... from Cloud Run" when it deleted nothing | static review + fake CLI, no project needed |
 | _(pending)_ | anything the live run turns up | |
 
 The flag-level review of all 20+ `gcloud` flags the adapter sends found nothing wrong, so no issue
