@@ -25,8 +25,9 @@ const (
 	// Kind is the manifest kind for an app.
 	Kind = "App"
 	// Filename is the conventional spec file name.
-	Filename       = "anyship.yaml"
-	legacyFilename = "anyship.json"
+	Filename = "anyship.yaml"
+	// LegacyFilename is the spec file name anyship used up to v0.2.x.
+	LegacyFilename = "anyship.json"
 	// MigrationGuide is the path, in the repository, of the v0.2 to v0.3 guide.
 	MigrationGuide = "docs/MIGRATION.md"
 	// MigrationGuideURL is where to read that guide without a checkout.
@@ -345,8 +346,8 @@ func Marshal(s *Spec) ([]byte, error) {
 func Load(path string) (*Spec, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) && filepath.Base(path) == Filename {
-		if _, jsonErr := os.Stat(filepath.Join(filepath.Dir(path), legacyFilename)); jsonErr == nil {
-			return nil, fmt.Errorf("%s not found, but %s is: specs are YAML manifests now (apiVersion: %s); %s says how to convert it: %s", Filename, legacyFilename, APIVersion, MigrationGuide, MigrationGuideURL)
+		if _, jsonErr := os.Stat(filepath.Join(filepath.Dir(path), LegacyFilename)); jsonErr == nil {
+			return nil, fmt.Errorf("%s not found, but %s is: specs are YAML manifests now (apiVersion: %s); run `anyship migrate` to convert it, or read %s: %s", Filename, LegacyFilename, APIVersion, MigrationGuide, MigrationGuideURL)
 		}
 	}
 	if err != nil {
