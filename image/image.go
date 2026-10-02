@@ -1,0 +1,79 @@
+// Package image builds container images and pushes them to a registry. It
+// returns the pushed digest, so a deploy runs exactly the image it built.
+package image
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/j75689/anyship/adapter"
+	"github.com/j75689/anyship/dockerfile"
+)
+
+// DefaultPlatform is what managed container services run.
+const DefaultPlatform = "linux/amd64"
+
+type Build struct {
+	// Context is the build context directory.
+	Context string
+	// Dockerfile is the path of the Dockerfile to build.
+	Dockerfile string
+	// Repository is the image name without a tag, e.g. us-docker.pkg.dev/p/r/app-web.
+	Repository string
+	Platform   string
+}
+
+// BuildAndPush runs `docker buildx build --push` and returns the pushed
+// image as repository@sha256:digest.
+func BuildAndPush(ctx context.Context, env *adapter.Env, b Build) (string, error) {
+	platform := b.Platform
+	if platform == "" {
+		platform = DefaultPlatform
+	}
+	tmp, err := os.MkdirTemp("", "anyship-build-")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+	metadata := filepath.Join(tmp, "metadata.json")
+
+	args := []string{"buildx", "build", "--platform", platform, "--file", b.Dockerfile,
+		"--tag", b.Repository + ":latest", "--metadata-file", metadata, "--push", b.Context}
+	env.Logf("$ docker %s", strings.Join(args, " "))
+	if err := env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir}, "docker", args...); err != nil {
+		return "", fmt.Errorf("docker buildx build failed: %w", err)
+	}
+
+	data, err := os.ReadFile(metadata)
+	if err != nil {
+		return "", fmt.Errorf("docker buildx didn't report the pushed image: %w", err)
+	}
+	var m struct {
+		Digest string `json:"containerimage.digest"`
+	}
+	if err := json.Unmarshal(data, &m); err != nil || !strings.HasPrefix(m.Digest, "sha256:") {
+		return "", fmt.Errorf("docker buildx didn't report a digest for %s", b.Repository)
+	}
+	return b.Repository + "@" + m.Digest, nil
+}
+
+// WriteGenerated writes a generated Dockerfile and its ignore file into dir
+// as <name>.Dockerfile, and returns the Dockerfile's path. BuildKit reads the
+// ignore file from next to the Dockerfile.
+func WriteGenerated(dir, name string, g *dockerfile.Result) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, name+".Dockerfile")
+	if err := os.WriteFile(path, g.Dockerfile, 0o644); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path+".dockerignore", g.Ignore, 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
