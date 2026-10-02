@@ -54,6 +54,21 @@ The spec is the contract between detection and every adapter, so changes need ca
 - Regenerate the JSON Schema: `go run ./cmd/anyship schema > schema/anyship.schema.json`. A test fails
   if you forget.
 
+## Releasing
+
+Releases are cut by pushing a version tag on `main`:
+
+```bash
+git tag -a v0.2.0 -m "v0.2.0"
+git push origin v0.2.0
+```
+
+The `Release` workflow runs the tests, then GoReleaser builds the archives for every OS and CPU,
+writes `checksums.txt`, groups the changelog by commit type, and publishes the GitHub release. Tags
+with a suffix such as `v1.0.0-rc.1` become pre-releases. Every pull request already builds the same
+archives in snapshot mode and installs one with `install.sh`, so a broken release config fails CI
+before anything is tagged.
+
 ## Commit style
 
 Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
