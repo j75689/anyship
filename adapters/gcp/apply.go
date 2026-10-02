@@ -17,23 +17,62 @@ import (
 	"github.com/j75689/anyship/spec"
 )
 
-// gcloud runs gcloud commands for one project.
+// gcloud runs gcloud commands for one project, in the configured gcloud
+// configuration.
 type gcloud struct {
-	env     *adapter.Env
-	project string
+	env           *adapter.Env
+	project       string
+	configuration string
+}
+
+func newGcloud(env *adapter.Env, o Options) gcloud {
+	return gcloud{env: env, project: o.Project, configuration: o.Configuration}
+}
+
+func (g gcloud) options(in io.Reader, out, errOut io.Writer) adapter.ExecOptions {
+	opts := adapter.ExecOptions{Dir: g.env.Dir, Stdin: in, Stdout: out, Stderr: errOut}
+	if g.configuration != "" {
+		opts.Env = []string{"CLOUDSDK_ACTIVE_CONFIG_NAME=" + g.configuration}
+	}
+	return opts
 }
 
 // run executes gcloud with --project and --quiet; stdout is captured when out
 // is set and stdin is fed from in.
 func (g gcloud) run(ctx context.Context, in io.Reader, out io.Writer, args ...string) error {
 	args = append(args, "--project", g.project, "--quiet")
-	return g.env.Exec(ctx, adapter.ExecOptions{Dir: g.env.Dir, Stdin: in, Stdout: out}, "gcloud", args...)
+	return g.env.Exec(ctx, g.options(in, out, nil), "gcloud", args...)
 }
 
 func (g gcloud) output(ctx context.Context, args ...string) (string, error) {
 	var out bytes.Buffer
 	err := g.run(ctx, nil, &out, args...)
 	return strings.TrimSpace(out.String()), err
+}
+
+// probe runs a check whose failure anyship reports itself. gcloud's error
+// output is kept out of the terminal and folded into the error instead.
+func (g gcloud) probe(ctx context.Context, args ...string) (string, error) {
+	var out, errOut bytes.Buffer
+	args = append(args, "--project", g.project, "--quiet")
+	if err := g.env.Exec(ctx, g.options(nil, &out, &errOut), "gcloud", args...); err != nil {
+		if msg := gcloudError(errOut.String()); msg != "" {
+			return "", fmt.Errorf("%w: %s", err, msg)
+		}
+		return "", err
+	}
+	return strings.TrimSpace(out.String()), nil
+}
+
+// gcloudError picks the ERROR: line out of gcloud's error output.
+func gcloudError(stderr string) string {
+	lines := strings.Split(strings.TrimSpace(stderr), "\n")
+	for _, line := range lines {
+		if msg, ok := strings.CutPrefix(line, "ERROR: "); ok {
+			return msg
+		}
+	}
+	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 // Apply runs the preflight checks, then sets secrets, builds and pushes
@@ -55,9 +94,9 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		}
 	}
 
-	g := gcloud{env: env, project: data.opts.Project}
+	g := newGcloud(env, data.opts)
 	env.Logf("checking project %s in %s", data.opts.Project, data.opts.Region)
-	checks := preflight(ctx, g, data)
+	runAs, checks := preflight(ctx, g, data)
 	result := func(ok bool, messages ...string) *adapter.Result {
 		return &adapter.Result{OK: ok, Findings: checks, Messages: messages}
 	}
@@ -70,6 +109,9 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 
 	for _, sc := range data.secrets {
 		if err := ensureSecret(ctx, g, data.project, sc); err != nil {
+			return result(false, err.Error()), nil
+		}
+		if err := grantAccess(ctx, g, sc.id, runAs); err != nil {
 			return result(false, err.Error()), nil
 		}
 	}
@@ -101,7 +143,7 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 	messages := []string{fmt.Sprintf("Deployed %s to Cloud Run in %s/%s.", data.project, data.opts.Project, data.opts.Region)}
 	for _, sv := range data.services {
 		env.Logf("$ gcloud run deploy %s", sv.cloudRun)
-		if err := g.env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir}, "gcloud", deployArgs(data, sv, sv.image)...); err != nil {
+		if err := g.env.Exec(ctx, g.options(nil, nil, nil), "gcloud", deployArgs(data, sv, sv.image)...); err != nil {
 			return result(false, fmt.Sprintf("gcloud run deploy %s failed: %v", sv.cloudRun, err)), nil
 		}
 		if url, err := g.output(ctx, "run", "services", "describe", sv.cloudRun, "--region", data.opts.Region, "--format", "value(status.url)"); err == nil && url != "" {
@@ -117,21 +159,38 @@ var requiredAPIs = map[string]string{
 	"secrets":  "secretmanager.googleapis.com",
 }
 
-// preflight checks the login, project, APIs and registry before anything changes.
-func preflight(ctx context.Context, g gcloud, d *planData) []adapter.Finding {
+// preflight checks the login, project, APIs and registry before anything
+// changes, and returns the service account the services run as.
+func preflight(ctx context.Context, g gcloud, d *planData) (string, []adapter.Finding) {
 	var findings []adapter.Finding
 	add := func(level adapter.Level, code, message, hint string) {
 		findings = append(findings, adapter.Finding{Level: level, Code: code, Message: message, Hint: hint})
 	}
 
-	if _, err := g.output(ctx, "auth", "print-access-token"); err != nil {
-		add(adapter.Error, "GCP_PREFLIGHT_AUTH", "gcloud isn't logged in.", "Run `gcloud auth login`.")
-		return findings
+	account, _ := g.probe(ctx, "config", "get-value", "account")
+	if _, err := g.probe(ctx, "auth", "print-access-token"); err != nil || account == "" {
+		hint := "Run `gcloud auth login`."
+		if g.configuration != "" {
+			hint = fmt.Sprintf("Run `gcloud auth login`, then `gcloud config set account <email> --configuration %s`.", g.configuration)
+		}
+		add(adapter.Error, "GCP_PREFLIGHT_AUTH", "gcloud isn't logged in.", hint)
+		return "", findings
 	}
-	enabled, err := g.output(ctx, "services", "list", "--enabled", "--format", "value(config.name)")
+	number, err := g.probe(ctx, "projects", "describe", d.opts.Project, "--format", "value(projectNumber)")
+	if err != nil || number == "" {
+		add(adapter.Error, "GCP_PREFLIGHT_PROJECT", fmt.Sprintf("%s can't read project %s; check that it exists and that this account has access (%v).", account, d.opts.Project, err),
+			"Use another account (`gcloud config set account`, or a configuration via spec.targets.gcp.configuration), or grant this one access to the project.")
+		return "", findings
+	}
+	runAs := d.opts.ServiceAccount
+	if runAs == "" {
+		runAs = number + "-compute@developer.gserviceaccount.com"
+	}
+
+	enabled, err := g.probe(ctx, "services", "list", "--enabled", "--format", "value(config.name)")
 	if err != nil {
-		add(adapter.Error, "GCP_PREFLIGHT_PROJECT", fmt.Sprintf("Couldn't read project %s; check that it exists and that you can access it.", d.opts.Project), "")
-		return findings
+		add(adapter.Error, "GCP_PREFLIGHT_PROJECT", fmt.Sprintf("%s can't list the enabled APIs of %s.", account, d.opts.Project), "")
+		return runAs, findings
 	}
 	building := slices.ContainsFunc(d.services, func(sv service) bool { return sv.build != nil })
 	needed := []string{requiredAPIs["run"]}
@@ -149,23 +208,27 @@ func preflight(ctx context.Context, g gcloud, d *planData) []adapter.Finding {
 		}
 	}
 
-	if building {
-		format, err := g.output(ctx, "artifacts", "repositories", "describe", d.opts.Repository, "--location", d.opts.Region, "--format", "value(format)")
+	if building && slices.Contains(apis, requiredAPIs["registry"]) {
+		format, err := g.probe(ctx, "artifacts", "repositories", "describe", d.opts.Repository, "--location", d.opts.Region, "--format", "value(format)")
 		switch {
+		case err != nil && !strings.Contains(err.Error(), "NOT_FOUND"):
+			add(adapter.Error, "GCP_PREFLIGHT_REPOSITORY", fmt.Sprintf("Couldn't check Artifact Registry repository %s in %s: %v.", d.opts.Repository, d.opts.Region, err), "")
 		case err != nil:
 			add(adapter.Error, "GCP_PREFLIGHT_REPOSITORY", fmt.Sprintf("Artifact Registry repository %s doesn't exist in %s.", d.opts.Repository, d.opts.Region),
 				fmt.Sprintf("gcloud artifacts repositories create %s --repository-format docker --location %s --project %s", d.opts.Repository, d.opts.Region, d.opts.Project))
 		case format != "DOCKER":
 			add(adapter.Error, "GCP_PREFLIGHT_REPOSITORY", fmt.Sprintf("Artifact Registry repository %s holds %s packages, not Docker images.", d.opts.Repository, format), "")
 		}
-		if err := g.env.Exec(ctx, adapter.ExecOptions{Dir: g.env.Dir, Stdout: io.Discard}, "docker", "buildx", "version"); err != nil {
+	}
+	if building {
+		if err := g.env.Exec(ctx, adapter.ExecOptions{Dir: g.env.Dir, Stdout: io.Discard, Stderr: io.Discard}, "docker", "buildx", "version"); err != nil {
 			add(adapter.Error, "GCP_PREFLIGHT_DOCKER", "Building from source needs Docker with buildx on this machine.", "Install Docker Desktop or the buildx plugin, or set services.<name>.image.")
 		}
 	}
 	if !adapter.HasErrors(findings) {
-		add(adapter.Info, "GCP_PREFLIGHT_OK", fmt.Sprintf("Project %s is ready: logged in and the required APIs are enabled.", d.opts.Project), "")
+		add(adapter.Info, "GCP_PREFLIGHT_OK", fmt.Sprintf("Project %s is ready for %s: the required APIs are enabled.", d.opts.Project, account), "")
 	}
-	return findings
+	return runAs, findings
 }
 
 // ensureSecret makes the secret exist with the right value: a value from the
@@ -174,7 +237,8 @@ func preflight(ctx context.Context, g gcloud, d *planData) []adapter.Finding {
 func ensureSecret(ctx context.Context, g gcloud, project string, sc secret) error {
 	value, fromEnv := g.env.LookupEnv(sc.name)
 	fromEnv = fromEnv && value != ""
-	exists := g.run(ctx, nil, io.Discard, "secrets", "describe", sc.id) == nil
+	_, err := g.probe(ctx, "secrets", "describe", sc.id)
+	exists := err == nil
 
 	switch {
 	case exists && !fromEnv:
@@ -195,10 +259,22 @@ func ensureSecret(ctx context.Context, g gcloud, project string, sc secret) erro
 		value = hex.EncodeToString(buf)
 	}
 	g.env.Logf("$ gcloud secrets create %s", sc.id)
-	err := g.run(ctx, strings.NewReader(value), io.Discard, "secrets", "create", sc.id,
+	err = g.run(ctx, strings.NewReader(value), io.Discard, "secrets", "create", sc.id,
 		"--replication-policy", "automatic", "--data-file", "-", "--labels", projectLabel+"="+project)
 	if err != nil {
 		return fmt.Errorf("creating secret %s failed: %w", sc.id, err)
+	}
+	return nil
+}
+
+// grantAccess lets the account the services run as read one secret. The
+// binding is idempotent, so every apply can make sure it exists.
+func grantAccess(ctx context.Context, g gcloud, secretID, account string) error {
+	g.env.Logf("$ gcloud secrets add-iam-policy-binding %s (secretAccessor for %s)", secretID, account)
+	err := g.run(ctx, nil, io.Discard, "secrets", "add-iam-policy-binding", secretID,
+		"--member", "serviceAccount:"+account, "--role", "roles/secretmanager.secretAccessor")
+	if err != nil {
+		return fmt.Errorf("letting %s read secret %s failed: %w", account, secretID, err)
 	}
 	return nil
 }

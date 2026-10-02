@@ -455,6 +455,9 @@ func runWith(ctx context.Context, opts adapter.ExecOptions, std stdio, name stri
 	if opts.Stdin != nil {
 		cmd.Stdin = opts.Stdin
 	}
+	if opts.Stderr != nil {
+		cmd.Stderr = opts.Stderr
+	}
 	if opts.Stdout != nil {
 		cmd.Stdout = opts.Stdout
 	}

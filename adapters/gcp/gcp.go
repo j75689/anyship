@@ -45,13 +45,21 @@ type Options struct {
 	Repository string `json:"repository,omitempty"`
 	// Private makes public services require authentication.
 	Private bool `json:"private,omitempty"`
+	// Configuration is the gcloud configuration to use (`gcloud config
+	// configurations list`); the active one when empty.
+	Configuration string `json:"configuration,omitempty"`
+	// ServiceAccount is the email of the account services run as; the
+	// project's Compute Engine default service account when empty.
+	ServiceAccount string `json:"serviceAccount,omitempty"`
 }
 
 var (
-	projectRe      = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]$`)
-	regionRe       = regexp.MustCompile(`^[a-z]+-[a-z]+[0-9]+$`)
-	repositoryRe   = regexp.MustCompile(`^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`)
-	cloudRunNameRe = regexp.MustCompile(`^[a-z]([a-z0-9-]{0,47}[a-z0-9])?$`)
+	projectRe       = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]$`)
+	regionRe        = regexp.MustCompile(`^[a-z]+-[a-z]+[0-9]+$`)
+	repositoryRe    = regexp.MustCompile(`^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`)
+	cloudRunNameRe  = regexp.MustCompile(`^[a-z]([a-z0-9-]{0,47}[a-z0-9])?$`)
+	configurationRe = regexp.MustCompile(`^[a-z][-a-z0-9]*$`)
+	accountRe       = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z0-9.-]+\.iam\.gserviceaccount\.com$|^[0-9]+-compute@developer\.gserviceaccount\.com$`)
 )
 
 type Adapter struct{}
@@ -161,6 +169,12 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 			Level: adapter.Info, Code: "GCP_SECRETS_AS_ENV",
 			Message: "Secrets reach Cloud Run containers as environment variables named after the secret, not as files under /run/secrets.",
 		})
+		account := opts.ServiceAccount
+		if account == "" {
+			account = "the Compute Engine default service account"
+		}
+		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpNote, Kind: "IAM binding", Name: "roles/secretmanager.secretAccessor",
+			Detail: "lets " + account + ", which the services run as, read each of these secrets (and no others)"})
 	}
 
 	for _, sv := range data.services {
@@ -326,6 +340,9 @@ func deployArgs(d *planData, sv service, image string) []string {
 	if sv.svc.Replicas > 1 {
 		args = append(args, "--min-instances", strconv.Itoa(sv.svc.Replicas))
 	}
+	if o.ServiceAccount != "" {
+		args = append(args, "--service-account", o.ServiceAccount)
+	}
 	return append(args, "--quiet")
 }
 
@@ -368,6 +385,10 @@ func decodeOptions(raw json.RawMessage) (*Options, error) {
 		return nil, fmt.Errorf("region %q is not a valid region such as us-central1", opts.Region)
 	case opts.Repository != "" && !repositoryRe.MatchString(opts.Repository):
 		return nil, fmt.Errorf("repository %q is not a valid Artifact Registry repository name", opts.Repository)
+	case opts.Configuration != "" && !configurationRe.MatchString(opts.Configuration):
+		return nil, fmt.Errorf("configuration %q is not a valid gcloud configuration name", opts.Configuration)
+	case opts.ServiceAccount != "" && !accountRe.MatchString(opts.ServiceAccount):
+		return nil, fmt.Errorf("serviceAccount %q is not a service account email", opts.ServiceAccount)
 	}
 	return opts, nil
 }
