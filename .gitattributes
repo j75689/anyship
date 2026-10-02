@@ -1,0 +1,4 @@
+# Check every text file out with LF, on Windows too. Tests compare generated
+# text against committed files (schema/anyship.schema.json, examples, testdata),
+# and the shell scripts must stay runnable after a Windows round trip.
+* text=auto eol=lf

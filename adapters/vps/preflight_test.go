@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -116,6 +117,12 @@ func TestHumanBytes(t *testing.T) {
 // docker CLI. Compose validation needs no daemon; the other facts depend on
 // the machine, so only the report's shape is checked.
 func TestPreflightScriptRunsInAShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// The script is the one that runs on the Linux host, so it needs a
+		// POSIX shell, uname, df and /proc. The vps target is reached over ssh,
+		// so nothing here depends on the deployer's own machine.
+		t.Skip("the preflight script needs a POSIX shell")
+	}
 	if err := exec.Command("docker", "compose", "version").Run(); err != nil {
 		t.Skip("docker compose is not available")
 	}
