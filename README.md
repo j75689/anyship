@@ -244,6 +244,10 @@ spec:
   ingress. `replicas` sets the minimum instance count. Services reach each other by URL, not by name.
 - Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports and resources anyship
   would have to provision. `logs -f` points to `gcloud beta run services logs tail`.
+- This target has not been run against a real Google Cloud project yet. Cloud Run itself scales to
+  zero, but `destroy` keeps the pushed image in Artifact Registry and registry storage keeps billing,
+  so read [docs/verified/gcp.md](docs/verified/gcp.md) — the runbook and residual-resource checklist
+  — before you point it at a project you pay for.
 
 ### AWS notes
 
