@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/j75689/anyship/adapter"
 	"github.com/j75689/anyship/detect"
+	"github.com/j75689/anyship/diagnose"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -111,6 +113,17 @@ type logsOutput struct {
 	Truncated bool   `json:"truncated"`
 	// Note explains a partial read, such as a live stream cut off after a while.
 	Note string `json:"note,omitempty"`
+}
+
+type diagnoseContextInput struct {
+	Config string `json:"config,omitempty" jsonschema:"path to anyship.json; defaults to anyship.json in the server's working directory"`
+	Target string `json:"target" jsonschema:"deploy target such as vps or cloudflare"`
+	Note   string `json:"note,omitempty" jsonschema:"what the user saw, such as an error message"`
+}
+
+type diagnoseContextOutput struct {
+	// Context is Markdown with one section per source.
+	Context string `json:"context"`
 }
 
 type applyInput struct {
@@ -249,6 +262,29 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			err = nil
 		}
 		return nil, out, err
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "diagnose_context",
+		Description: "Collect what anyship knows about the spec on a target, with secrets redacted: plan findings, the target's dry-run checks, " +
+			"status, recent logs and generated files. Use it to work out why a deployment fails; propose fixes to anyship.json from it.",
+		Annotations: readsTarget,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in diagnoseContextInput) (*mcp.CallToolResult, diagnoseContextOutput, error) {
+		config := orDefault(in.Config, spec.Filename)
+		d, _, err := a.prepareForMCP(config, in.Target, false)
+		if err != nil {
+			return nil, diagnoseContextOutput{}, err
+		}
+		raw, err := os.ReadFile(config)
+		if err != nil {
+			return nil, diagnoseContextOutput{}, err
+		}
+		collected := diagnose.Collect(ctx, diagnose.Inputs{
+			Spec: d.spec, SpecPath: config, SpecRaw: raw, Adapter: d.adapter,
+			NewEnv: capturingEnv(d.env), Note: in.Note, Checks: true,
+			Redactor: diagnose.NewRedactor(d.spec, os.LookupEnv),
+		})
+		return nil, diagnoseContextOutput{Context: collected.Render()}, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
