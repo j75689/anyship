@@ -80,4 +80,61 @@ step "destroying again is a no-op"
 "$ANYSHIP" destroy -t vps --yes | tee again.out
 grep -q "Nothing to remove" again.out || fail "expected a not-deployed message"
 
+# healthCheck.path becomes a compose healthcheck, and apply only reports success
+# once the container is healthy. nginx:alpine is used because it answers / with
+# 200 and busybox wget is in the image, so the probe really runs.
+mkdir "$work/health"
+cd "$work/health"
+health_spec() {
+  cat > anyship.yaml <<YAML
+apiVersion: anyship/v1alpha1
+kind: App
+metadata:
+  name: anyship-health
+spec:
+  services:
+    probe:
+      kind: server
+      image: nginx:alpine
+      ports:
+        - port: 80
+          exposure: internal
+      healthCheck:
+        path: $1
+  targets:
+    vps:
+      host: localhost
+      dir: anyship-e2e/health
+YAML
+}
+
+step "plan says what healthCheck.path will check"
+health_spec /
+"$ANYSHIP" plan -t vps | tee plan-health.out
+grep -q "checks http://127.0.0.1:80/ every" plan-health.out || fail "plan should say what it will check"
+
+step "apply waits for the health check and succeeds when it passes"
+"$ANYSHIP" apply -t vps --yes | tee healthy.out
+grep -q "Healthy on localhost" healthy.out || fail "apply should report the service healthy"
+grep -q "wget -q -O /dev/null" .anyship/vps/compose.yaml || fail "compose.yaml should carry the generated probe"
+"$ANYSHIP" status -t vps --json | jq -e '.services[0].health == "healthy"' >/dev/null \
+  || fail "status should report the container healthy"
+
+step "a path that 404s makes apply fail and say why"
+health_spec /anyship-e2e-does-not-exist
+if "$ANYSHIP" apply -t vps --yes > unhealthy.out 2>&1; then
+  cat unhealthy.out
+  fail "apply must fail while the health check never passes"
+fi
+cat unhealthy.out
+grep -q "never became healthy" unhealthy.out || fail "expected the unhealthy summary"
+grep -q "health check keeps failing" unhealthy.out || fail "expected a finding pointing at the health check"
+grep -q "last lines from probe" unhealthy.out || fail "expected the container's log tail"
+grep -q "anyship-e2e-does-not-exist" unhealthy.out || fail "the log tail should show the failing request"
+
+step "the failed deployment is left running for inspection"
+"$ANYSHIP" status -t vps --json | jq -e '.deployed and .services[0].health == "unhealthy"' >/dev/null \
+  || fail "status should still find the unhealthy container"
+"$ANYSHIP" destroy -t vps --volumes --yes
+
 printf '\n\033[32mvps end-to-end test passed\033[0m\n'

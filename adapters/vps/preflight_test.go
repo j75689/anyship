@@ -146,7 +146,7 @@ func TestPreflightScriptRunsInAShell(t *testing.T) {
 		t.Errorf("report is missing facts: %+v\nstdout:\n%s", report, stdout.String())
 	}
 	for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
-		if !strings.HasPrefix(line, preflightPrefix) {
+		if !strings.HasPrefix(line, reportPrefix) {
 			t.Errorf("unexpected stdout line %q", line)
 		}
 	}

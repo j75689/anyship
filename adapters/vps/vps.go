@@ -257,6 +257,27 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, s *spec.Spec, e
 	if err := ssh(nil, deployScript(data, docker)); err != nil {
 		return result(false, fmt.Sprintf("docker compose up failed on %s: %v", host, err)), nil
 	}
+
+	// A started container is not a working one, so wait for the health checks
+	// the spec asked for before calling the deploy a success.
+	if waited := healthChecked(s); len(waited) > 0 {
+		env.Logf("$ ssh %s (waiting up to %ds for %s to become healthy)", host, healthWaitSeconds, strings.Join(waited, ", "))
+		var report bytes.Buffer
+		waitOpts := adapter.ExecOptions{Dir: env.Dir, Stdout: &report}
+		if err := env.Exec(ctx, waitOpts, "ssh", append(sshArgs(data.opts), waitScript(data, docker))...); err != nil {
+			checks = append(checks, adapter.Finding{
+				Level:   adapter.Error,
+				Code:    "VPS_HEALTH_UNKNOWN",
+				Message: fmt.Sprintf("Cannot read the health of %s on %s (%v), so the deploy is unverified.", data.project, host, err),
+				Hint:    "Run `anyship status -t vps` to see what the containers are doing.",
+			})
+		} else {
+			checks = append(checks, parseHealth(report.Bytes()).findings(waited, host)...)
+		}
+		if adapter.HasErrors(checks) {
+			return result(false, fmt.Sprintf("%s was started on %s:%s but never became healthy; it is left running so you can inspect it.", data.project, host, data.dir)), nil
+		}
+	}
 	return result(true, fmt.Sprintf("Deployed %s to %s:%s.", data.project, host, data.dir)), nil
 }
 
@@ -424,10 +445,22 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, dir string) chec
 			fmt.Sprintf("%d replicas cannot all publish the same host ports.", svc.Replicas),
 			"Use one replica, or keep these ports internal behind a load balancer service.")
 	}
-	if svc.HealthCheck != nil && svc.HealthCheck.Path != "" && svc.HealthCheck.Command == "" {
-		add(adapter.Warning, "VPS_HEALTH_PATH_IGNORED",
-			"healthCheck.path is not supported on the VPS target and is ignored.",
-			"Use healthCheck.command, e.g. \"wget -qO- http://localhost:8080/health\".")
+	if hc := svc.HealthCheck; hc != nil && hc.Command == "" && hc.Path != "" {
+		port, ok := httpPort(svc)
+		switch {
+		case strings.ContainsAny(hc.Path, " \t\r\n"):
+			add(adapter.Error, "VPS_HEALTH_BAD_PATH",
+				fmt.Sprintf("healthCheck.path %q contains whitespace, so it can't be requested.", hc.Path),
+				"Use a plain URL path such as /health, or set healthCheck.command instead.")
+		case !ok:
+			add(adapter.Warning, "VPS_HEALTH_PATH_NO_PORT",
+				"healthCheck.path needs an http port to probe, and this service declares none, so it gets no health check.",
+				"Add an http port to the service, or set healthCheck.command instead.")
+		default:
+			add(adapter.Info, "VPS_HEALTH_PATH",
+				fmt.Sprintf("The container checks %s every %s with wget or curl, and apply waits until it answers.", healthURL(port, hc.Path), healthInterval),
+				"The image needs wget or curl and a shell; apply says so when they are missing instead of skipping the check quietly.")
+		}
 	}
 	if len(svc.Volumes) > 0 {
 		var sizes []string

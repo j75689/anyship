@@ -12,9 +12,10 @@ import (
 	"github.com/j75689/anyship/spec"
 )
 
-// preflightPrefix marks the machine-readable lines of the preflight script;
-// everything else it prints (like Compose's own errors) is for the user.
-const preflightPrefix = "ANYSHIP "
+// reportPrefix marks the machine-readable lines of the scripts anyship runs on
+// the host; everything else they print (like Compose's own errors) is for the
+// user.
+const reportPrefix = "ANYSHIP "
 
 // preflightScript checks the host before anything is uploaded or started.
 // It reads compose.yaml from stdin into a temporary directory, which is
@@ -58,7 +59,7 @@ func parsePreflight(out []byte) preflight {
 	p := preflight{listening: map[string]bool{}, diskFreeKB: -1}
 	scanner := bufio.NewScanner(bytes.NewReader(out))
 	for scanner.Scan() {
-		line, ok := strings.CutPrefix(strings.TrimSpace(scanner.Text()), preflightPrefix)
+		line, ok := strings.CutPrefix(strings.TrimSpace(scanner.Text()), reportPrefix)
 		if !ok {
 			continue
 		}

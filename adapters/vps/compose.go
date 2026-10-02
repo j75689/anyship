@@ -41,7 +41,11 @@ type composeBuild struct {
 }
 
 type composeHealth struct {
-	Test []string `json:"test"`
+	Test        []string `json:"test"`
+	Interval    string   `json:"interval,omitempty"`
+	Timeout     string   `json:"timeout,omitempty"`
+	Retries     int      `json:"retries,omitempty"`
+	StartPeriod string   `json:"start_period,omitempty"`
 }
 
 type composeDeploy struct {
@@ -139,8 +143,14 @@ func renderService(svc *spec.Service, argv []string, build *composeBuild) compos
 	for _, v := range svc.Volumes {
 		out.Volumes = append(out.Volumes, v.Name+":"+v.MountPath)
 	}
-	if svc.HealthCheck != nil && svc.HealthCheck.Command != "" {
-		out.Healthcheck = &composeHealth{Test: []string{"CMD-SHELL", svc.HealthCheck.Command}}
+	if test := healthTest(svc); test != nil {
+		out.Healthcheck = &composeHealth{
+			Test:        test,
+			Interval:    healthInterval,
+			Timeout:     healthTimeout,
+			Retries:     healthRetries,
+			StartPeriod: healthStartPeriod,
+		}
 	}
 	if svc.Replicas > 1 {
 		out.Deploy = &composeDeploy{Replicas: svc.Replicas}

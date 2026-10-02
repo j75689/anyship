@@ -29,6 +29,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   live in Secrets Manager. `logs` tails CloudWatch Logs, including `-f`.
 - `anyship init` and the MCP `detect` tool write YAML with a `yaml-language-server` schema comment, so
   editors validate and autocomplete the spec.
+- `vps` honours `healthCheck`: `path` becomes a Compose `healthcheck` that requests it with `wget` or
+  `curl`, and `apply` waits for every checked container to report healthy. A service that never does
+  makes `apply` fail with the reason and that container's last log lines, instead of reporting a
+  success. An image with neither `wget` nor `curl` is reported as unchecked rather than skipped
+  quietly.
 
 ### Changed
 

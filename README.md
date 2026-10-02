@@ -150,7 +150,7 @@ has the field-by-field mapping and complete before/after examples.
 | Target | Status | Runs |
 |---|---|---|
 | `cloudflare` | ✅ v0.1 | Workers (edge handlers) and static assets; D1, KV, R2, Hyperdrive bindings; cron triggers; custom domains |
-| `vps` | ✅ v0.2 | any Linux server with Docker, over SSH: images or Dockerfiles, multi-service, volumes, TCP/UDP ports, secrets |
+| `vps` | ✅ v0.2 | any Linux server with Docker, over SSH: images or Dockerfiles, multi-service, volumes, TCP/UDP ports, secrets, health checks |
 | `gcp` | ✅ unreleased | Google Cloud Run: images or Dockerfiles (built locally, pushed to Artifact Registry), HTTP services, secrets in Secret Manager |
 | `aws` | ✅ unreleased | Amazon ECS Express Mode: images or Dockerfiles (built locally, pushed to ECR), HTTP services with a managed load balancer and HTTPS URL, secrets in Secrets Manager |
 | `fly` | planned | containers, volumes, Postgres |
@@ -202,9 +202,33 @@ spec:
   arm64 for image-based services), free disk space is compared with the declared volume sizes, and
   published ports must be free unless the project is already running there. Nothing is uploaded or
   started until the checks pass.
-- Not yet: cron, provisioning databases (declare them as services instead), domains and HTTPS, and
-  generated Dockerfiles for languages other than JavaScript, Go, Python and Rust. `plan` explains
-  each refusal.
+- `healthCheck` becomes a Compose `healthcheck`, and `apply` waits for it before it reports success:
+
+  ```yaml
+  services:
+    web:
+      ports: [{ port: 8080 }]        # the probe uses the first http port
+      healthCheck:
+        path: /healthz               # requested as http://127.0.0.1:8080/healthz
+        # command: curl -fsS http://localhost:8080/healthz   # or run your own check
+  ```
+
+  `path` is turned into a probe that uses `wget` or `curl`, whichever the image has. Static sites
+  are probed on the nginx port. `command` is run as written, by a shell inside the container. Either
+  way the timings are fixed for now: every 5s, 3s per attempt, 5 attempts, after 10s of grace. So a
+  broken service is marked unhealthy about 35 seconds after it starts.
+- `apply` then waits up to 180s for every service with a `healthCheck` to report healthy. If one
+  never does, `apply` fails, prints that container's last 30 log lines, and names the reason
+  (`VPS_HEALTH_UNHEALTHY`, `VPS_HEALTH_TIMEOUT` or `VPS_HEALTH_NOT_RUNNING`). The containers are
+  left running so you can look at them with `anyship status` and `anyship logs`.
+- A `path` probe needs `wget` or `curl` and a shell in the image. An image with neither is reported
+  as `VPS_HEALTH_NO_HTTP_CLIENT`: `apply` still succeeds, but it warns that the service was never
+  actually checked. Use `healthCheck.command`, or add one of the tools to the image.
+- `healthCheck.path` needs an `http` port to probe. A service with none (a worker, or TCP-only
+  ports) gets no health check and a `VPS_HEALTH_PATH_NO_PORT` warning.
+- Not yet: `interval`, `retries` and `timeout` as spec fields; cron; provisioning databases (declare
+  them as services instead); domains and HTTPS; and generated Dockerfiles for languages other than
+  JavaScript, Go, Python and Rust. `plan` explains each refusal.
 
 ### Google Cloud notes
 
