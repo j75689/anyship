@@ -31,8 +31,8 @@ $ anyship apply --target cloudflare
 Every platform has its own config format (`wrangler.jsonc`, `fly.toml`, `vercel.json`, `railway.toml`, ...)
 and its own limits. anyship splits deployment into three layers:
 
-1. **Understand.** Detect the stack and draft `anyship.json`. Rule-based and deterministic; an optional AI
-   layer (planned) only *proposes* edits to the spec for you to review.
+1. **Understand.** Detect the stack and draft `anyship.json`. Rule-based and deterministic; the
+   optional AI layer only *proposes* edits to the spec for you to review.
 2. **Describe.** `anyship.json` is the single source of truth: services, ports, disks, databases, secrets.
    You commit it, and every deploy reads it, so deploys are reproducible.
 3. **Deliver.** Adapters translate the spec into platform config deterministically, with a
@@ -40,6 +40,24 @@ and its own limits. anyship splits deployment into three layers:
 
 AI never sits on the deploy path. It can help you write the spec or diagnose a failed deploy, but what
 ships is always the reviewed file.
+
+## What anyship is, and isn't
+
+anyship takes **an application from source to running** on a platform you pick, and helps you operate
+it there (status, logs, diagnosis). It borrows Terraform's `plan` → `apply` → `destroy` flow because
+reviewing a change before making it is the safe way to deploy, but it is **not infrastructure as
+code**:
+
+- **No state file.** anyship never records what it deployed. Every command asks the platform: Docker on
+  the host, Cloudflare's API. There is nothing to lock, back up, import or drift from. What anyship
+  writes under `.anyship/` is generated output for review, rebuilt on every plan and never read back.
+- **Applications, not infrastructure.** Servers, networks, DNS zones, accounts and managed databases
+  are yours to provide (by hand, or with Terraform or OpenTofu). anyship deploys onto them and binds to
+  what already exists, such as a D1 database id or an external Postgres URL.
+- **One spec for every target.** `anyship.json` describes what the app needs, not how a provider builds
+  it, so the same file deploys to a VPS or to Cloudflare. A target that can't provide a need says so.
+
+If you need to create and track cloud resources, use Terraform or OpenTofu alongside anyship.
 
 ## What `init` detects
 
@@ -284,7 +302,8 @@ returned in the tool result; nothing else touches the protocol's stdin and stdou
   Fly.io adapter.
 - **v0.3** AI layer (bring your own key): ✅ `diagnose` for failed deploys with validated spec fixes.
   Next: `init --ai` to draft specs for unrecognized stacks, and an AI review before deploying.
-- **v0.4** Cloudflare Containers, resource creation during `apply`, Vercel adapter.
+- **v0.4** Cloudflare Containers, Vercel adapter, and creating app-scoped resources (such as a D1
+  database) during `apply` when missing, found by name on the platform rather than tracked in state.
 - **Later** community adapters (Railway, Cloud Run, AWS), recipes with parameters (e.g. N-node RPC clusters).
 
 ## Project layout
