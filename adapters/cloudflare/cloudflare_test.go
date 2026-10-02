@@ -223,33 +223,42 @@ func TestApplyRefusesPlanWithErrors(t *testing.T) {
 	}
 }
 
-func TestLogsTailsTheWorker(t *testing.T) {
+func TestLogsAndDestroyAddressTheWorkerFromTheSpecOnly(t *testing.T) {
 	s := parse(t, `{"version": 1, "name": "api", "services": {"web": {"kind": "server", "entry": "src/index.ts"}},
-		"targets": {"cloudflare": {"name": "api-prod"}}}`)
+		"targets": {"cloudflare": {"name": "api-prod", "accountId": "acc-123"}}}`)
 	env := newEnv()
 	env.OutDir = t.TempDir()
 	var got []string
-	env.Exec = func(_ context.Context, _ adapter.ExecOptions, name string, args ...string) error {
-		got = append([]string{name}, args...)
+	var gotEnv []string
+	env.Exec = func(_ context.Context, opts adapter.ExecOptions, name string, args ...string) error {
+		got, gotEnv = append([]string{name}, args...), opts.Env
 		return nil
+	}
+	// A config left by an earlier apply, under an old Worker name. anyship keeps
+	// no state, so it must never be read back.
+	stale := `{"name": "api-old", "account_id": "acc-old"}`
+	if err := os.WriteFile(filepath.Join(env.OutDir, "wrangler.jsonc"), []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := New().Logs(context.Background(), s, env, adapter.LogOptions{Follow: true}); err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"npx", "wrangler", "tail", "api-prod", "--format", "pretty"}; !slices.Equal(got, want) {
-		t.Errorf("without a generated config: %q, want %q", got, want)
+		t.Errorf("logs ran %q, want %q", got, want)
+	}
+	if !slices.Equal(gotEnv, []string{"CLOUDFLARE_ACCOUNT_ID=acc-123"}) {
+		t.Errorf("logs env = %q", gotEnv)
 	}
 
-	configPath := filepath.Join(env.OutDir, "wrangler.jsonc")
-	if err := os.WriteFile(configPath, []byte("{}"), 0o644); err != nil {
+	if _, err := New().Destroy(context.Background(), s, env, adapter.DestroyOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := New().Logs(context.Background(), s, env, adapter.LogOptions{}); err != nil {
-		t.Fatal(err)
+	if want := []string{"npx", "wrangler", "delete", "--name", "api-prod"}; !slices.Equal(got, want) {
+		t.Errorf("destroy ran %q, want %q", got, want)
 	}
-	if want := []string{"npx", "wrangler", "tail", "--config", configPath, "--format", "pretty"}; !slices.Equal(got, want) {
-		t.Errorf("with a generated config: %q, want %q", got, want)
+	if !slices.Equal(gotEnv, []string{"CLOUDFLARE_ACCOUNT_ID=acc-123"}) {
+		t.Errorf("destroy env = %q", gotEnv)
 	}
 }
 
