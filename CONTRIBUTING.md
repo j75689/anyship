@@ -60,6 +60,10 @@ The spec is the contract between detection and every adapter, so changes need ca
 
 ## Releasing
 
+Before tagging, give the release its section in [CHANGELOG.md](CHANGELOG.md): the version, the date,
+and a `⚠ BREAKING CHANGES` block for anything that breaks an existing spec, with a link to the
+migration steps.
+
 Releases are cut by pushing a version tag on `main`:
 
 ```bash

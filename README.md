@@ -141,6 +141,10 @@ autocomplete against [`schema/anyship.schema.json`](schema/anyship.schema.json) 
 comment, which `anyship init` writes (`anyship schema` prints the schema). `anyship validate` also checks cross-references, such as a service
 using a resource that isn't declared, and rejects unknown fields so typos don't go unnoticed.
 
+Coming from v0.2, where the spec was `anyship.json`? Only the envelope changed; everything under
+`services`, `resources`, `secrets` and `targets` is the same. [docs/MIGRATION.md](docs/MIGRATION.md)
+has the field-by-field mapping and complete before/after examples.
+
 ## Targets
 
 | Target | Status | Runs |
@@ -404,6 +408,12 @@ internal/cli/          the `anyship` command (cobra)
 examples/              sample specs
 schema/                generated JSON Schema
 ```
+
+## Releases
+
+[CHANGELOG.md](CHANGELOG.md) lists what changed in each version, including breaking changes.
+[docs/MIGRATION.md](docs/MIGRATION.md) covers the move from v0.2 (`anyship.json`) to v0.3
+(`anyship.yaml`).
 
 ## Contributing
 
