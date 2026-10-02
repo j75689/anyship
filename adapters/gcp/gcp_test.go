@@ -20,6 +20,7 @@ type call struct {
 	name  string
 	args  []string
 	stdin string
+	env   []string
 }
 
 func (c call) line() string { return c.name + " " + strings.Join(c.args, " ") }
@@ -38,6 +39,8 @@ type fakeCloud struct {
 func newFakeCloud() *fakeCloud {
 	return &fakeCloud{
 		out: map[string]string{
+			"gcloud config get-value account":        "dev@example.com",
+			"gcloud projects describe my-project":    "123456789",
 			"gcloud auth print-access-token":         "ya29.token",
 			"gcloud services list":                   "run.googleapis.com\nartifactregistry.googleapis.com\nsecretmanager.googleapis.com",
 			"gcloud artifacts repositories describe": "DOCKER",
@@ -49,7 +52,7 @@ func newFakeCloud() *fakeCloud {
 }
 
 func (f *fakeCloud) exec(_ context.Context, opts adapter.ExecOptions, name string, args ...string) error {
-	c := call{name: name, args: args}
+	c := call{name: name, args: args, env: opts.Env}
 	if opts.Stdin != nil {
 		data, err := io.ReadAll(opts.Stdin)
 		if err != nil {
@@ -260,6 +263,11 @@ func TestApplyBuildsAndDeploysByDigest(t *testing.T) {
 	if strings.Contains(create.line(), create.stdin) {
 		t.Error("secret value leaked onto the command line")
 	}
+	grant := fc.find("gcloud secrets add-iam-policy-binding shop-SESSION")
+	if grant == nil || !slices.Contains(grant.args, "serviceAccount:123456789-compute@developer.gserviceaccount.com") ||
+		!slices.Contains(grant.args, "roles/secretmanager.secretAccessor") {
+		t.Errorf("secret access not granted to the runtime account: %+v", grant)
+	}
 	login := fc.find("docker login --username oauth2accesstoken --password-stdin https://us-central1-docker.pkg.dev")
 	if login == nil || login.stdin != "ya29.token" {
 		t.Fatalf("docker login = %+v", login)
@@ -348,6 +356,48 @@ func TestApplyPreflight(t *testing.T) {
 			t.Error("dry run deployed")
 		}
 	})
+}
+
+func TestApplyWithServiceAccountAndConfiguration(t *testing.T) {
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx", "secrets": ["TOKEN"]}},
+		"secrets": {"TOKEN": {}}, "targets": {"gcp": {"project": "my-project", "region": "us-central1",
+			"configuration": "anyship-e2e", "serviceAccount": "runner@my-project.iam.gserviceaccount.com"}}}`)
+	env, fc := newEnv(t, t.TempDir(), map[string]string{"TOKEN": "s3cret"})
+	res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+	if err != nil || !res.OK {
+		t.Fatalf("apply: %v %+v", err, res)
+	}
+	for _, c := range fc.calls {
+		if c.name == "gcloud" && !slices.Contains(c.env, "CLOUDSDK_ACTIVE_CONFIG_NAME=anyship-e2e") {
+			t.Errorf("gcloud ran outside the configuration: %s", c.line())
+		}
+	}
+	if grant := fc.find("gcloud secrets add-iam-policy-binding shop-TOKEN"); grant == nil || !slices.Contains(grant.args, "serviceAccount:runner@my-project.iam.gserviceaccount.com") {
+		t.Errorf("grant = %+v", grant)
+	}
+	if fc.find("gcloud run deploy shop-web") == nil || !strings.Contains(fc.find("gcloud run deploy shop-web").line(), "--service-account runner@my-project.iam.gserviceaccount.com") {
+		t.Errorf("deploy doesn't run as the service account: %v", fc.calls)
+	}
+}
+
+func TestPreflightNamesTheAccount(t *testing.T) {
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx"}}, `+target+`}`)
+	env, fc := newEnv(t, t.TempDir(), nil)
+	fc.fail = []string{"gcloud projects describe"}
+	res, _ := New().Apply(context.Background(), plan(t, s, env), s, env)
+	if res.OK || res.Findings[0].Code != "GCP_PREFLIGHT_PROJECT" || !strings.Contains(res.Findings[0].Message, "dev@example.com can't read project my-project") {
+		t.Errorf("findings = %+v", res.Findings)
+	}
+}
+
+func TestGcloudError(t *testing.T) {
+	stderr := "Encryption: Google-managed key\nERROR: (gcloud.artifacts.repositories.describe) NOT_FOUND: Requested entity was not found.\n"
+	if got := gcloudError(stderr); got != "(gcloud.artifacts.repositories.describe) NOT_FOUND: Requested entity was not found." {
+		t.Errorf("gcloudError = %q", got)
+	}
+	if got := gcloudError("network is unreachable\n"); got != "network is unreachable" {
+		t.Errorf("gcloudError = %q", got)
+	}
 }
 
 func TestStatus(t *testing.T) {

@@ -1,12 +1,10 @@
 package gcp
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -34,15 +32,15 @@ type cloudRunService struct {
 
 // deployed lists the project's Cloud Run services, found by label.
 func deployed(ctx context.Context, g gcloud, o Options, project string) (map[string]cloudRunService, error) {
-	var out bytes.Buffer
-	err := g.run(ctx, nil, &out, "run", "services", "list", "--region", o.Region,
+	// A probe, so gcloud's warning about an unmatched filter stays quiet.
+	out, err := g.probe(ctx, "run", "services", "list", "--region", o.Region,
 		"--filter", "metadata.labels."+projectLabel+"="+project, "--format", "json")
 	if err != nil {
 		return nil, fmt.Errorf("listing Cloud Run services in %s/%s failed (%w)", o.Project, o.Region, err)
 	}
 	var list []cloudRunService
-	if trimmed := bytes.TrimSpace(out.Bytes()); len(trimmed) > 0 {
-		if err := json.Unmarshal(trimmed, &list); err != nil {
+	if out != "" {
+		if err := json.Unmarshal([]byte(out), &list); err != nil {
 			return nil, fmt.Errorf("unexpected output from gcloud run services list: %w", err)
 		}
 	}
@@ -58,7 +56,7 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 	if err != nil {
 		return nil, fmt.Errorf("targets.gcp: %w", err)
 	}
-	found, err := deployed(ctx, gcloud{env: env, project: o.Project}, *o, s.Name)
+	found, err := deployed(ctx, newGcloud(env, *o), *o, s.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -95,8 +93,12 @@ func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts
 		return fmt.Errorf("targets.gcp: %w", err)
 	}
 	if opts.Follow {
-		return fmt.Errorf("the gcp target can't follow logs; use `gcloud beta run services logs tail %s --region %s --project %s`",
-			cloudRunName(s.Name, firstOr(opts.Service, s.ServiceNames())), o.Region, o.Project)
+		configuration := ""
+		if o.Configuration != "" {
+			configuration = " --configuration " + o.Configuration
+		}
+		return fmt.Errorf("the gcp target can't follow logs; use `gcloud beta run services logs tail %s --region %s --project %s%s`",
+			cloudRunName(s.Name, firstOr(opts.Service, s.ServiceNames())), o.Region, o.Project, configuration)
 	}
 	if opts.Since != "" {
 		if _, err := time.ParseDuration(opts.Since); err != nil {
@@ -111,7 +113,7 @@ func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts
 	if opts.Service != "" {
 		names = []string{opts.Service}
 	}
-	g := gcloud{env: env, project: o.Project}
+	g := newGcloud(env, *o)
 	for _, name := range names {
 		args := []string{"run", "services", "logs", "read", cloudRunName(s.Name, name), "--region", o.Region, "--limit", strconv.Itoa(limit)}
 		if opts.Since != "" {
@@ -152,7 +154,7 @@ func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, o
 	if err != nil {
 		return nil, fmt.Errorf("targets.gcp: %w", err)
 	}
-	g := gcloud{env: env, project: o.Project}
+	g := newGcloud(env, *o)
 	found, err := deployed(ctx, g, *o, s.Name)
 	if err != nil {
 		return nil, err
@@ -171,7 +173,7 @@ func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, o
 	}
 	if opts.Volumes {
 		for _, id := range secretIDs(s) {
-			if g.run(ctx, nil, io.Discard, "secrets", "describe", id) != nil {
+			if _, err := g.probe(ctx, "secrets", "describe", id); err != nil {
 				continue
 			}
 			env.Logf("$ gcloud secrets delete %s", id)

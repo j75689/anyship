@@ -84,6 +84,9 @@ type ExecOptions struct {
 	Stdin io.Reader
 	// Stdout, when set, captures the command's output instead of showing it.
 	Stdout io.Writer
+	// Stderr, when set, takes the command's error output instead of the
+	// terminal, e.g. io.Discard for probes whose failure is reported anyway.
+	Stderr io.Writer
 	// Env adds KEY=VALUE entries to the deployer's environment for this command.
 	Env []string
 }
