@@ -6,10 +6,11 @@
 > filled in by whoever runs it. Do not mark the `aws` target `verified` in the README until the
 > **Results** and **Residual resources** tables below are filled in.
 >
-> Blocked on: an AWS sandbox account (access key or SSO profile) with ECS, ECR, ELB, IAM,
-> Secrets Manager and CloudWatch Logs permissions.
+> Needs an AWS sandbox account (access key or SSO profile) with the permissions in section 0. No
+> such account exists yet, so the live run is a separate card, opened once credentials are in hand;
+> this file is the finished, ready-to-execute input for it.
 
-Tracking issue: OPE-14.
+Tracking issue: OPE-14 (this runbook). The live run gets its own card.
 
 ## Why this target needs care
 
@@ -29,10 +30,24 @@ The machine running the test needs:
 | `docker` with buildx | `docker buildx version` | only needed because the spec below builds from source |
 | Credentials | `aws sts get-caller-identity` | a sandbox account, never a shared one |
 
-Minimum IAM permissions for the test identity: `ecs:*` (Express Mode subcommands included),
-`ecr:*` on the test repository, `iam:GetRole` / `iam:PassRole` for the two roles below,
-`elasticloadbalancing:Describe*`, `secretsmanager:*` on `anyship/*`, and `logs:*`. The `Describe*`
-ELB permissions are not used by anyship but are needed for the residual-resource audit.
+Minimum IAM permissions for the test identity — per action, not `AdministratorAccess`. The first
+group is what anyship itself calls; the second group is only for the bootstrap and the audit, and a
+reviewer can read the split to see that anyship touches far less than the test identity does:
+
+| Used by | Actions | Resource scope |
+| --- | --- | --- |
+| preflight | `sts:GetCallerIdentity` | `*` |
+| `apply`, `status`, `destroy` | `ecs:CreateExpressGatewayService`, `ecs:UpdateExpressGatewayService`, `ecs:DeleteExpressGatewayService`, `ecs:DescribeExpressGatewayService`, `ecs:DescribeServices`, `ecs:DescribeClusters` | the test cluster |
+| image push | `ecr:GetAuthorizationToken` (must be `*`), `ecr:BatchCheckLayerAvailability`, `ecr:InitiateLayerUpload`, `ecr:UploadLayerPart`, `ecr:CompleteLayerUpload`, `ecr:PutImage`, `ecr:BatchGetImage`, `ecr:DescribeRepositories` | the test repository |
+| task roles | `iam:GetRole`, `iam:PassRole` | the two role ARNs in step 1 only |
+| secrets (unused in round 1) | `secretsmanager:CreateSecret`, `PutSecretValue`, `DescribeSecret`, `DeleteSecret` | `arn:aws:secretsmanager:*:*:secret:anyship/*` |
+| `logs` | `logs:DescribeLogGroups`, `logs:DescribeLogStreams`, `logs:GetLogEvents`, `logs:FilterLogEvents`, `logs:StartLiveTail` | `*` |
+| bootstrap only | `ecs:CreateCluster`, `ecs:DeleteCluster`, `ecr:CreateRepository`, `ecr:DeleteRepository`, `iam:CreateRole`, `iam:DeleteRole`, `iam:AttachRolePolicy`, `iam:DetachRolePolicy`, `logs:DeleteLogGroup` | the named resources in step 1 |
+| audit only (step 7) | `ecs:ListServices`, `ecr:DescribeImages`, `elasticloadbalancing:DescribeLoadBalancers`, `elasticloadbalancing:DescribeTargetGroups`, `ec2:DescribeSecurityGroups`, `ec2:DescribeNetworkInterfaces`, `iam:ListRoles`, `iam:ListRolePolicies`, `iam:ListAttachedRolePolicies`, `iam:ListPolicies`, `secretsmanager:ListSecrets`, `tag:GetResources` | `*`, read-only |
+| cost (step 8) | `ce:GetCostAndUsage` | `*` |
+
+anyship never calls `elasticloadbalancing:*` or `ec2:*` — Express Mode does that work with the
+infrastructure role from step 1. Those entries exist only so the audit can see what was left behind.
 
 Build the binary under test from the commit being verified and record it:
 
@@ -79,6 +94,10 @@ $ aws ecs list-services --cluster anyship-verify                              > 
 First round deploys one hello-world service and nothing else. No secrets, no custom VPC, no
 `cpu`/`memory`/`maxTasks`, no second service — those are a later round, so a failure here is
 unambiguous.
+
+No `resources` either, and that one is not optional: `adapters/aws/aws.go:286` raises an **error**
+finding for any resource that is not marked `external`, because anyship provisions no databases on
+AWS. A spec with a plain `resources` block will not get past `plan`.
 
 `hello/anyship.yaml`:
 
@@ -247,13 +266,37 @@ $ aws ecs describe-services --cluster anyship-verify --services anyship-hello-we
 $ aws elbv2 describe-load-balancers --query 'LoadBalancers[].[LoadBalancerName,State.Code,CreatedTime]'
 $ aws elbv2 describe-target-groups  --query 'TargetGroups[].[TargetGroupName,TargetGroupArn]'
 
+# Security groups: Express Mode creates one for the load balancer and one for the tasks. They cost
+# nothing, but a leftover one means the ENI or load balancer behind it is also still there, so treat
+# any hit here as a reason to re-check the ELB list above.
+$ aws ec2 describe-security-groups \
+    --query 'SecurityGroups[?GroupName!=`default`].[GroupName,GroupId,Description]'
+$ aws ec2 describe-network-interfaces \
+    --filters Name=description,Values='*anyship*','*ECS*','*ELB*' \
+    --query 'NetworkInterfaces[].[NetworkInterfaceId,Description,Status]'
+
 # ECR: the repository survives by design; check which image tags are left and their size
 $ aws ecr describe-images --repository-name anyship-verify \
     --query 'imageDetails[].[imageTags,imageSizeInBytes,imagePushedAt]'
 
-# IAM: the two roles survive by design; check nothing extra was created
+# IAM roles: the two roles survive by design; check nothing extra was created
 $ aws iam list-roles --query 'Roles[?starts_with(RoleName, `ecs`)].RoleName'
 $ aws iam list-roles --query 'Roles[?contains(RoleName, `anyship`)].RoleName'
+
+# IAM policies: only the two AWS-managed policies from step 1 should be attached, and no
+# customer-managed policy should exist at all — anyship never creates one
+$ aws iam list-attached-role-policies --role-name ecsTaskExecutionRole \
+    --query 'AttachedPolicies[].PolicyArn'
+$ aws iam list-attached-role-policies --role-name ecsInfrastructureRoleForExpressServices \
+    --query 'AttachedPolicies[].PolicyArn'
+$ aws iam list-role-policies --role-name ecsTaskExecutionRole                    # inline: expect []
+$ aws iam list-role-policies --role-name ecsInfrastructureRoleForExpressServices  # inline: expect []
+$ aws iam list-policies --scope Local --query 'Policies[].[PolicyName,Arn]'       # expect []
+
+# IAM service-linked roles: Express Mode may create one on first use. It is free and account-wide,
+# so note it rather than delete it, but record that it appeared.
+$ aws iam list-roles --path-prefix /aws-service-role/ \
+    --query 'Roles[?contains(RoleName, `ECS`)].RoleName'
 
 # CloudWatch Logs: log groups survive by design; note them, they bill for storage
 $ aws logs describe-log-groups --query 'logGroups[].[logGroupName,storedBytes]'
@@ -271,9 +314,14 @@ $ aws resourcegroupstaggingapi get-resources --tag-filters Key=anyship-project,V
 | ECS cluster `anyship-verify` | **stays** (pre-existing) | _(pending)_ | _(pending)_ |
 | Application Load Balancer | **gone** — deleted by Express Mode | _(pending)_ | _(pending)_ |
 | Target group | **gone** — deleted by Express Mode | _(pending)_ | _(pending)_ |
+| Security groups (ALB, tasks) | **gone** — deleted with the service | _(pending)_ | _(pending)_ |
+| Network interfaces (ENIs) | **gone** | _(pending)_ | _(pending)_ |
 | ECR image `anyship-hello-web` | **stays** by design — see note below | _(pending)_ | _(pending)_ |
 | ECR repository | **stays** (pre-existing) | _(pending)_ | _(pending)_ |
 | IAM roles (2) | **stays** (pre-existing) | _(pending)_ | _(pending)_ |
+| IAM attached policies | only the 2 AWS-managed ones from step 1 | _(pending)_ | _(pending)_ |
+| IAM customer-managed policies | none — anyship creates none | _(pending)_ | _(pending)_ |
+| IAM service-linked role for ECS | may appear; free, note it | _(pending)_ | _(pending)_ |
 | CloudWatch log group | **stays** by design | _(pending)_ | _(pending)_ |
 | Secrets under `anyship/anyship-hello/` | none created | _(pending)_ | _(pending)_ |
 | Tagged resources | none | _(pending)_ | _(pending)_ |
@@ -311,6 +359,23 @@ substitute for it:
 | CloudWatch Logs | $0.50/GB ingest | <$0.01 |
 | Data transfer, ECR pulls | | <$0.01 |
 | **Total** | | **~$0.05** |
+
+### How to keep that number small
+
+The load balancer is billed by the hour and dwarfs everything else, so the only variable that
+matters is how long the service is alive:
+
+- **Run `destroy` the moment step 5 is recorded.** Do not leave the service up overnight to "look at
+  it tomorrow" — that is ~$0.54 of ALB time instead of ~$0.03.
+- **`us-east-1`.** It is the cheapest region for all four line items here, and the Express Mode
+  subcommands land there first.
+- **Leave `cpu`, `memory` and `maxTasks` unset.** The adapter then uses the Express Mode default of
+  one 0.25 vCPU / 0.5 GB task. Raising any of them multiplies the Fargate line.
+- **One service, no resources, no secrets.** A second service means a second load balancer.
+- **Do the bootstrap teardown in step 7 even if the test fails.** A leftover ECR repository with an
+  image costs cents a month, but a leftover load balancer is ~$16/month.
+- If `apply` fails halfway, run `destroy` anyway before debugging — `destroy` on a service that was
+  never created is free, and a half-created Express Mode service can still have a load balancer.
 
 | | |
 | --- | --- |
@@ -370,3 +435,9 @@ One issue per bug, per the acceptance criteria.
 | --- | --- | --- |
 | OPE-19 | `destroy` on a `DRAINING` service says "Nothing to remove", while the load balancer is still billing | static review + fake CLI, no account needed |
 | _(pending)_ | anything the live run turns up | |
+
+---
+
+**When the run is finished, open the AWS Billing console and reconcile the bill by hand once.** The
+CLI checks in step 7 only look where this runbook expects resources to be; the billing page is the
+only view that shows a charge for something nobody thought to query.
