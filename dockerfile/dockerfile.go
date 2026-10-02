@@ -165,9 +165,13 @@ func compiled(w *writer, svc *spec.Service, builder, buildEnv string) error {
 func static(w *writer, svc *spec.Service, ctx buildContext) error {
 	output := "."
 	if svc.Build != nil && svc.Build.Output != "" {
-		output = path.Clean(filepath.ToSlash(svc.Build.Output))
+		// The path goes into a COPY line that runs inside a Linux image, so it
+		// has to be slash-separated whatever the deployer runs. Spec.Normalize
+		// already did this; repeat it because Generate takes a Service from any
+		// caller, and filepath.ToSlash would only help on Windows.
+		output = path.Clean(strings.ReplaceAll(svc.Build.Output, `\`, "/"))
 	}
-	if path.IsAbs(output) || output == ".." || strings.HasPrefix(output, "../") {
+	if path.IsAbs(output) || hasDriveLetter(output) || output == ".." || strings.HasPrefix(output, "../") {
 		return unsupported("build.output %q must stay inside the service directory", output)
 	}
 
@@ -186,6 +190,18 @@ func static(w *writer, svc *spec.Service, ctx buildContext) error {
 	}
 	w.line(fmt.Sprintf("EXPOSE %d", StaticPort))
 	return nil
+}
+
+// hasDriveLetter reports whether p names a Windows drive, as in "C:/dist" or
+// the drive-relative "C:dist". path.IsAbs doesn't see either one, so without
+// this check a Windows path escaped the service directory. It is refused on
+// every platform, so a spec is accepted or rejected the same way everywhere.
+func hasDriveLetter(p string) bool {
+	if len(p) < 2 || p[1] != ':' {
+		return false
+	}
+	c := p[0] | 0x20 // lower-case ASCII letters
+	return c >= 'a' && c <= 'z'
 }
 
 // expose declares the service's ports and passes the first TCP one as $PORT,

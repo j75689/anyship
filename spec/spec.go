@@ -223,6 +223,13 @@ func (svc *Service) Framework() string {
 	return svc.Runtime.Framework
 }
 
+// slashPath rewrites a path field written with Windows separators. Spec paths
+// are always slash-separated, so the same spec means the same thing on every
+// machine. filepath.ToSlash can't do this job: on Linux it is a no-op, which
+// would leave "src\index.ts" as one long file name there and split it into two
+// components on Windows.
+func slashPath(p string) string { return strings.ReplaceAll(p, `\`, "/") }
+
 // Normalize fills in defaults so adapters never have to.
 func (s *Spec) Normalize() {
 	if s.Resources == nil {
@@ -237,6 +244,12 @@ func (s *Spec) Normalize() {
 	for _, svc := range s.Services {
 		if svc == nil {
 			continue
+		}
+		svc.Path = slashPath(svc.Path)
+		svc.Dockerfile = slashPath(svc.Dockerfile)
+		svc.Entry = slashPath(svc.Entry)
+		if svc.Build != nil {
+			svc.Build.Output = slashPath(svc.Build.Output)
 		}
 		if svc.Path == "" {
 			svc.Path = "."
