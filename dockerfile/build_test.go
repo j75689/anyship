@@ -2,7 +2,6 @@ package dockerfile_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -80,7 +79,7 @@ func detectService(t *testing.T, dir string) *spec.Service {
 	if adapter.HasErrors(d.Findings) {
 		t.Fatalf("detection failed: %+v", d.Findings)
 	}
-	data, err := json.Marshal(d.Spec)
+	data, err := spec.Marshal(d.Spec)
 	if err != nil {
 		t.Fatal(err)
 	}

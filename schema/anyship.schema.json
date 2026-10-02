@@ -42,6 +42,20 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Metadata": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$",
+          "description": "Lowercase letters, digits and dashes, starting with a letter."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
     "Port": {
       "properties": {
         "name": {
@@ -220,6 +234,47 @@
         "kind"
       ]
     },
+    "Spec": {
+      "properties": {
+        "services": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Service"
+          },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Resource"
+          },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "type": "object"
+        },
+        "secrets": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Secret"
+          },
+          "propertyNames": {
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "type": "object"
+        },
+        "targets": {
+          "additionalProperties": true,
+          "type": "object",
+          "description": "Per-platform overrides keyed by adapter name."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "services"
+      ]
+    },
     "Volume": {
       "properties": {
         "name": {
@@ -253,57 +308,28 @@
     }
   },
   "properties": {
-    "$schema": {
-      "type": "string"
-    },
-    "version": {
-      "type": "integer",
-      "const": 1
-    },
-    "name": {
+    "apiVersion": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{0,62}$",
-      "description": "Lowercase letters, digits and dashes, starting with a letter."
+      "const": "anyship/v1alpha1"
     },
-    "services": {
-      "additionalProperties": {
-        "$ref": "#/$defs/Service"
-      },
-      "propertyNames": {
-        "pattern": "^[a-z][a-z0-9-]{0,62}$"
-      },
-      "type": "object"
+    "kind": {
+      "type": "string",
+      "const": "App"
     },
-    "resources": {
-      "additionalProperties": {
-        "$ref": "#/$defs/Resource"
-      },
-      "propertyNames": {
-        "pattern": "^[a-z][a-z0-9-]{0,62}$"
-      },
-      "type": "object"
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
     },
-    "secrets": {
-      "additionalProperties": {
-        "$ref": "#/$defs/Secret"
-      },
-      "propertyNames": {
-        "pattern": "^[A-Z][A-Z0-9_]*$"
-      },
-      "type": "object"
-    },
-    "targets": {
-      "additionalProperties": true,
-      "type": "object",
-      "description": "Per-platform overrides keyed by adapter name."
+    "spec": {
+      "$ref": "#/$defs/Spec"
     }
   },
   "additionalProperties": false,
   "type": "object",
   "required": [
-    "version",
-    "name",
-    "services"
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
   ],
   "title": "anyship deploy spec"
 }

@@ -20,12 +20,12 @@ func (a *app) diagnoseCommand() *cobra.Command {
 	var showContext, noChecks, yes, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "diagnose",
-		Short: "Ask Claude why a deployment fails, and how to fix anyship.json",
+		Short: "Ask Claude why a deployment fails, and how to fix anyship.yaml",
 		Long: `Collect what anyship knows about this spec on a target (plan findings,
 the target's dry-run checks, status, recent logs and the generated files),
 redact secrets, and ask Claude for the root cause and a fix.
 
-A proposed change to anyship.json is shown only if it applies and the patched
+A proposed change to anyship.yaml is shown only if it applies and the patched
 spec plans cleanly, and it is written only when you confirm.
 
 Needs Claude API credentials: ANTHROPIC_API_KEY, or ` + "`ant auth login`" + `.
@@ -87,7 +87,7 @@ Needs Claude API credentials: ANTHROPIC_API_KEY, or ` + "`ant auth login`" + `.
 					return err
 				}
 				if !ok {
-					fmt.Fprintln(a.out, "Left anyship.json unchanged.")
+					fmt.Fprintln(a.out, "Left anyship.yaml unchanged.")
 					return nil
 				}
 			}
@@ -108,7 +108,7 @@ Needs Claude API credentials: ANTHROPIC_API_KEY, or ` + "`ant auth login`" + `.
 	cmd.Flags().StringVar(&note, "note", "", "what went wrong, in your words (an error message, a symptom)")
 	cmd.Flags().BoolVar(&showContext, "show-context", false, "print what would be sent to Claude and stop")
 	cmd.Flags().BoolVar(&noChecks, "no-checks", false, "skip the target's dry-run checks")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "apply a validated anyship.json change without asking")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "apply a validated anyship.yaml change without asking")
 	cmd.Flags().StringVar(&model, "model", "", "Claude model (default "+diagnose.DefaultModel+")")
 	cmd.Flags().StringVar(&effort, "effort", "", "low, medium, high, xhigh or max (default "+diagnose.DefaultEffort+")")
 	return cmd
@@ -172,16 +172,16 @@ func printDiagnosis(w io.Writer, s styler, r *diagnose.Result, raw []byte) {
 		}
 	}
 	if strings.TrimSpace(d.CodeChange) != "" {
-		fmt.Fprintf(w, "%s\n%s\n", s.bold("\nOutside anyship.json"), d.CodeChange)
+		fmt.Fprintf(w, "%s\n%s\n", s.bold("\nOutside anyship.yaml"), d.CodeChange)
 	}
 	switch {
 	case r.Patched != nil:
-		fmt.Fprintln(w, s.bold("\nProposed change to anyship.json")+s.dim(" (applies cleanly and plans without errors)"))
+		fmt.Fprintln(w, s.bold("\nProposed change to anyship.yaml")+s.dim(" (applies cleanly and plans without errors)"))
 		for _, line := range diagnose.DescribePatch(raw, d.SpecPatch) {
 			fmt.Fprintf(w, "  %s\n", line)
 		}
 	case r.PatchProblem != "":
-		fmt.Fprintln(w, s.yellow(fmt.Sprintf("\nClaude proposed a change to anyship.json, but it didn't validate after %d attempts: %s", diagnose.MaxAttempts, r.PatchProblem)))
+		fmt.Fprintln(w, s.yellow(fmt.Sprintf("\nClaude proposed a change to anyship.yaml, but it didn't validate after %d attempts: %s", diagnose.MaxAttempts, r.PatchProblem)))
 	}
 }
 

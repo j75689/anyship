@@ -31,7 +31,7 @@ var (
 
 type problems []string
 
-// add records a problem at a dotted path such as services.web.ports.0.port.
+// add records a problem at a dotted path such as spec.services.web.ports.0.port.
 func (p *problems) add(path []any, format string, args ...any) {
 	parts := make([]string, len(path))
 	for i, part := range path {
@@ -45,18 +45,15 @@ func (p *problems) add(path []any, format string, args ...any) {
 func (s *Spec) Validate() []string {
 	var p problems
 
-	if s.Version != Version {
-		p.add([]any{"version"}, "must be %d", Version)
-	}
 	if !nameRe.MatchString(s.Name) {
-		p.add([]any{"name"}, nameHint)
+		p.add([]any{"metadata", "name"}, nameHint)
 	}
 	if len(s.Services) == 0 {
-		p.add([]any{"services"}, "at least one service is required")
+		p.add([]any{"spec", "services"}, "at least one service is required")
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(s.Resources)) {
-		at := []any{"resources", name}
+		at := []any{"spec", "resources", name}
 		if !nameRe.MatchString(name) {
 			p.add(at, "invalid resource name: %s", nameHint)
 		}
@@ -69,7 +66,7 @@ func (s *Spec) Validate() []string {
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(s.Secrets)) {
-		at := []any{"secrets", name}
+		at := []any{"spec", "secrets", name}
 		if !secretNameRe.MatchString(name) {
 			p.add(at, "invalid secret name: %s", secretNameHint)
 		}
@@ -85,7 +82,7 @@ func (s *Spec) Validate() []string {
 }
 
 func (s *Spec) validateService(name string, p *problems) {
-	at := func(path ...any) []any { return append([]any{"services", name}, path...) }
+	at := func(path ...any) []any { return append([]any{"spec", "services", name}, path...) }
 
 	if !nameRe.MatchString(name) {
 		p.add(at(), "invalid service name: %s", nameHint)
@@ -145,7 +142,7 @@ func (s *Spec) validateService(name string, p *problems) {
 		if !secretNameRe.MatchString(secret) {
 			p.add(at("secrets", i), secretNameHint)
 		} else if _, ok := s.Secrets[secret]; !ok {
-			p.add(at("secrets", i), "secret %q is not declared in top-level secrets", secret)
+			p.add(at("secrets", i), "secret %q is not declared in spec.secrets", secret)
 		}
 	}
 	for i, resource := range svc.Uses {

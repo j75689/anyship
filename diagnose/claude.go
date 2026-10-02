@@ -109,15 +109,15 @@ func explainAPIError(err error) error {
 	}
 }
 
-const instructions = `You diagnose failed or unhealthy deployments made with anyship, a CLI that deploys an app described by anyship.json to a target platform (vps: Docker Compose over SSH; cloudflare: Workers).
+const instructions = `You diagnose failed or unhealthy deployments made with anyship, a CLI that deploys an app described by anyship.yaml to a target platform (vps: Docker Compose over SSH; cloudflare: Workers; gcp: Cloud Run).
 
-You get the user's anyship.json, anyship's plan findings, the files anyship generated (compose.yaml, Dockerfiles, wrangler config), the target's dry-run checks, the current status and recent logs. Secrets are redacted.
+You get the user's anyship.yaml, anyship's plan findings, the files anyship generated (compose.yaml, Dockerfiles, wrangler config), the target's dry-run checks, the current status and recent logs. Secrets are redacted.
 
 Find the most likely root cause and ground it in the evidence: quote the log lines, finding codes or config that show it. If the evidence doesn't settle it, say so, lower your confidence, and say what to check next.
 
-Propose a spec_patch only when the fix belongs in anyship.json. Paths are JSON Pointers into the anyship.json shown, and each value is the new value encoded as JSON (a JSON string value needs its quotes, like "\"8080\""; remove takes ""). Never invent secret values. Put changes needed elsewhere (application code, a hand-written Dockerfile, the host) in code_change, and keep steps short and concrete.
+Propose a spec_patch only when the fix belongs in anyship.yaml. Paths are JSON Pointers into the anyship.yaml shown, read as JSON (for example /spec/services/web/ports/0/port), and each value is the new value encoded as JSON (a JSON string value needs its quotes, like "\"8080\""; remove takes ""). Never invent secret values. Put changes needed elsewhere (application code, a hand-written Dockerfile, the host) in code_change, and keep steps short and concrete.
 
-The anyship.json JSON Schema follows.
+The anyship.yaml JSON Schema follows.
 `
 
 func systemPrompt() (string, error) {
@@ -137,7 +137,7 @@ func userPrompt(req Request) string {
 		fmt.Fprintf(&b, "\nYour proposed spec_patch #%d was rejected and was not applied:\n%s\nReason: %s\n", i+1, patch, a.Problem)
 	}
 	if len(req.Rejected) > 0 {
-		b.WriteString("\nPropose a corrected spec_patch, or an empty one if the fix doesn't belong in anyship.json.\n")
+		b.WriteString("\nPropose a corrected spec_patch, or an empty one if the fix doesn't belong in anyship.yaml.\n")
 	}
 	return b.String()
 }
@@ -162,11 +162,11 @@ var diagnosisSchema = map[string]any{
 				"required":             []string{"op", "path", "value"},
 				"properties": map[string]any{
 					"op":    map[string]any{"type": "string", "enum": []string{"add", "replace", "remove"}},
-					"path":  map[string]any{"type": "string", "description": "JSON Pointer into anyship.json"},
+					"path":  map[string]any{"type": "string", "description": "JSON Pointer into anyship.yaml"},
 					"value": map[string]any{"type": "string", "description": "The new value encoded as JSON; empty for remove"},
 				},
 			},
 		},
-		"code_change": map[string]any{"type": "string", "description": "Changes needed outside anyship.json, or empty."},
+		"code_change": map[string]any{"type": "string", "description": "Changes needed outside anyship.yaml, or empty."},
 	},
 }

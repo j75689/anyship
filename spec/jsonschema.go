@@ -6,13 +6,14 @@ import (
 	"github.com/invopop/jsonschema"
 )
 
-// JSONSchema returns a JSON Schema for anyship.json, so editors can validate
-// and autocomplete it via "$schema". Cross-field rules (unknown resources and
-// the like) are only enforced by Validate.
+// JSONSchema returns a JSON Schema for anyship.yaml, so editors can validate
+// and autocomplete it (see the yaml-language-server comment Marshal writes).
+// Cross-field rules (unknown resources and the like) are only enforced by
+// Validate.
 func JSONSchema() ([]byte, error) {
 	r := &jsonschema.Reflector{ExpandedStruct: true}
-	schema := r.Reflect(&Spec{})
-	schema.ID = "https://raw.githubusercontent.com/j75689/anyship/main/schema/anyship.schema.json"
+	schema := r.Reflect(&Manifest{})
+	schema.ID = SchemaURL
 	schema.Title = "anyship deploy spec"
 	out, err := json.MarshalIndent(schema, "", "  ")
 	if err != nil {
@@ -22,13 +23,22 @@ func JSONSchema() ([]byte, error) {
 }
 
 // JSONSchemaExtend adds the constraints struct tags can't express.
-func (Spec) JSONSchemaExtend(s *jsonschema.Schema) {
-	if version, ok := s.Properties.Get("version"); ok {
-		version.Const = Version
+func (Manifest) JSONSchemaExtend(s *jsonschema.Schema) {
+	if v, ok := s.Properties.Get("apiVersion"); ok {
+		v.Const = APIVersion
 	}
+	if k, ok := s.Properties.Get("kind"); ok {
+		k.Const = Kind
+	}
+}
+
+func (Metadata) JSONSchemaExtend(s *jsonschema.Schema) {
 	if name, ok := s.Properties.Get("name"); ok {
 		name.Pattern = NamePattern
 	}
+}
+
+func (Spec) JSONSchemaExtend(s *jsonschema.Schema) {
 	for prop, pattern := range map[string]string{"services": NamePattern, "resources": NamePattern, "secrets": SecretNamePattern} {
 		if p, ok := s.Properties.Get(prop); ok {
 			p.PropertyNames = &jsonschema.Schema{Pattern: pattern}

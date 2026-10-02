@@ -191,7 +191,7 @@ func (d *Detection) detectJavaScriptServer(p project, pkg *packageJSON, pm strin
 			Code:    "DETECT_NO_START",
 			Message: "No start script, main field or entry module found.",
 			Service: ServiceName,
-			Hint:    `Add a "start" script to package.json or set services.web.start in anyship.json.`,
+			Hint:    `Add a "start" script to package.json or set services.web.start in anyship.yaml.`,
 		})
 	}
 }

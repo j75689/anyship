@@ -1,4 +1,4 @@
-// Package detect drafts an anyship.json from a project's files.
+// Package detect drafts an anyship.yaml from a project's files.
 //
 // Detection is rule-based and deterministic: the same repo always yields the
 // same draft. It only drafts the spec — the user reviews and commits it, and
@@ -41,7 +41,7 @@ func Project(dir string) (*Detection, error) {
 	}
 
 	p := project{dir: dir}
-	d := &Detection{Spec: &spec.Spec{Version: spec.Version, Name: specName(filepath.Base(dir)), Resources: map[string]*spec.Resource{}}}
+	d := &Detection{Spec: &spec.Spec{Name: specName(filepath.Base(dir)), Resources: map[string]*spec.Resource{}}}
 	var svc *spec.Service
 	switch {
 	case p.has("package.json"):
@@ -62,7 +62,7 @@ func Project(dir string) (*Detection, error) {
 			Level:   adapter.Error,
 			Code:    "DETECT_UNKNOWN",
 			Message: "Could not work out how to build or start this project.",
-			Hint:    "Add a Dockerfile, or fill in services.web in anyship.json. Auto-detection covers JavaScript, Go, Python and Rust.",
+			Hint:    "Add a Dockerfile, or fill in services.web in anyship.yaml. Auto-detection covers JavaScript, Go, Python and Rust.",
 		})
 		svc = &spec.Service{Kind: spec.KindServer}
 	}

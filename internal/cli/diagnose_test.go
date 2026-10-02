@@ -51,7 +51,7 @@ func TestDiagnoseShowContextDoesNotCallTheModel(t *testing.T) {
 	if model.calls != 0 {
 		t.Error("--show-context must not call the model")
 	}
-	for _, want := range []string{"## anyship.json", "502 from the proxy", "## Target checks (dry run)", "from-stdout", "log line for"} {
+	for _, want := range []string{"## anyship.yaml", "502 from the proxy", "## Target checks (dry run)", "from-stdout", "log line for"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("context is missing %q:\n%s", want, out)
 		}
@@ -63,20 +63,20 @@ func TestDiagnoseAppliesAValidatedPatch(t *testing.T) {
 	model := &cannedModel{answer: &diagnose.Diagnosis{
 		Summary: "The image tag is wrong.", RootCause: "nginx:latest moved", Confidence: "medium",
 		Evidence: []string{"pull error"}, Steps: []string{"pin the tag"},
-		SpecPatch: []diagnose.PatchOp{{Op: "replace", Path: "/services/web/image", Value: `"nginx:1.27"`}},
+		SpecPatch: []diagnose.PatchOp{{Op: "replace", Path: "/spec/services/web/image", Value: `"nginx:1.27"`}},
 	}}
 	out, err := runCLI(t, model, "diagnose", "-t", "fake", "-c", config, "--yes")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Diagnosis: The image tag is wrong.", "Root cause (medium confidence)", "1. pin the tag", `replace /services/web/image: "nginx" → "nginx:1.27"`, "✔ Updated"} {
+	for _, want := range []string{"Diagnosis: The image tag is wrong.", "Root cause (medium confidence)", "1. pin the tag", `replace /spec/services/web/image: "nginx" → "nginx:1.27"`, "✔ Updated"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output is missing %q:\n%s", want, out)
 		}
 	}
 	data, _ := os.ReadFile(config)
-	if !strings.Contains(string(data), `"image": "nginx:1.27"`) {
-		t.Errorf("anyship.json was not updated:\n%s", data)
+	if !strings.Contains(string(data), "image: nginx:1.27") {
+		t.Errorf("anyship.yaml was not updated:\n%s", data)
 	}
 }
 
@@ -85,7 +85,7 @@ func TestDiagnoseNeverWritesAnInvalidPatch(t *testing.T) {
 	before, _ := os.ReadFile(config)
 	model := &cannedModel{answer: &diagnose.Diagnosis{
 		Summary:   "x",
-		SpecPatch: []diagnose.PatchOp{{Op: "replace", Path: "/services/web/kind", Value: `"lambda"`}},
+		SpecPatch: []diagnose.PatchOp{{Op: "replace", Path: "/spec/services/web/kind", Value: `"lambda"`}},
 	}}
 	out, err := runCLI(t, model, "diagnose", "-t", "fake", "-c", config, "--yes")
 	if err != nil {

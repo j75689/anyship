@@ -1,5 +1,5 @@
 // Package diagnose explains why a deployment fails and proposes a fix to
-// anyship.json.
+// anyship.yaml.
 //
 // It collects deterministic facts first (plan findings, the target's checks,
 // status, logs, generated files), redacts secrets, then asks a model. The
@@ -21,7 +21,7 @@ type Diagnosis struct {
 	Evidence   []string  `json:"evidence"`
 	Steps      []string  `json:"steps"`
 	SpecPatch  []PatchOp `json:"spec_patch"`
-	// CodeChange describes changes needed outside anyship.json, if any.
+	// CodeChange describes changes needed outside anyship.yaml, if any.
 	CodeChange string `json:"code_change"`
 }
 
@@ -44,16 +44,16 @@ type Attempt struct {
 }
 
 // Result is the final diagnosis and, when the model proposed a usable spec
-// change, the patched anyship.json.
+// change, the patched anyship.yaml.
 type Result struct {
 	Diagnosis *Diagnosis
-	// Patched is the proposed anyship.json; nil without a valid proposal.
+	// Patched is the proposed anyship.yaml; nil without a valid proposal.
 	Patched []byte
 	// PatchProblem explains why the last proposed change was unusable.
 	PatchProblem string
 }
 
-// Validator checks a patched anyship.json, for example by parsing and
+// Validator checks a patched anyship.yaml, for example by parsing and
 // planning it for the target.
 type Validator func(patched []byte) error
 

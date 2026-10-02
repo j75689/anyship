@@ -2,7 +2,7 @@
 
 **Describe your app once. Deploy it anywhere.**
 
-anyship reads your project, drafts a platform-neutral deploy spec (`anyship.json`), and turns that one
+anyship reads your project, drafts a platform-neutral deploy spec (`anyship.yaml`), and turns that one
 spec into a deployment on whichever platform you pick. Each platform adapter either satisfies every
 need in the spec or tells you exactly which need it can't meet and why. It never quietly drops one.
 
@@ -15,7 +15,7 @@ Detected:
   • package manager: npm
   • dependency "hono" → hono (server)
   • edge entry module: src/index.ts
-✔ wrote anyship.json
+✔ wrote anyship.yaml
 
 $ anyship plan --target cloudflare
 Plan for cloudflare
@@ -31,9 +31,9 @@ $ anyship apply --target cloudflare
 Every platform has its own config format (`wrangler.jsonc`, `fly.toml`, `vercel.json`, `railway.toml`, ...)
 and its own limits. anyship splits deployment into three layers:
 
-1. **Understand.** Detect the stack and draft `anyship.json`. Rule-based and deterministic; the
+1. **Understand.** Detect the stack and draft `anyship.yaml`. Rule-based and deterministic; the
    optional AI layer only *proposes* edits to the spec for you to review.
-2. **Describe.** `anyship.json` is the single source of truth: services, ports, disks, databases, secrets.
+2. **Describe.** `anyship.yaml` is the single source of truth: services, ports, disks, databases, secrets.
    You commit it, and every deploy reads it, so deploys are reproducible.
 3. **Deliver.** Adapters translate the spec into platform config deterministically, with a
    Terraform-style `plan` before `apply`.
@@ -54,7 +54,7 @@ code**:
 - **Applications, not infrastructure.** Servers, networks, DNS zones, accounts and managed databases
   are yours to provide (by hand, or with Terraform or OpenTofu). anyship deploys onto them and binds to
   what already exists, such as a D1 database id or an external Postgres URL.
-- **One spec for every target.** `anyship.json` describes what the app needs, not how a provider builds
+- **One spec for every target.** `anyship.yaml` describes what the app needs, not how a provider builds
   it, so the same file deploys to a VPS or to Cloudflare. A target that can't provide a need says so.
 
 If you need to create and track cloud resources, use Terraform or OpenTofu alongside anyship.
@@ -107,31 +107,38 @@ Credentials stay on your machine; anyship has no server.
 
 ## The spec
 
-```jsonc
-{
-  "version": 1,
-  "name": "my-api",
-  "services": {
-    "web": {
-      "kind": "server",              // static | server | worker (background)
-      "entry": "src/index.ts",       // edge runtimes: module exporting fetch()
-      "start": "node dist/server.js",// process-based platforms
-      "ports": [{ "port": 3000 }],   // protocol: http|tcp|udp|tcp+udp, exposure: public|internal
-      "uses": ["db"],
-      "secrets": ["JWT_SECRET"],
-      "cron": [{ "schedule": "0 * * * *" }]
-    }
-  },
-  "resources": { "db": { "type": "sqlite" } },   // postgres | mysql | sqlite | redis | bucket | kv
-  "secrets": { "JWT_SECRET": { "generate": "hex32" } },
-  "targets": {
-    "cloudflare": { "bindings": { "db": { "id": "<d1-database-id>" } } }
-  }
-}
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/j75689/anyship/main/schema/anyship.schema.json
+apiVersion: anyship/v1alpha1
+kind: App
+metadata:
+  name: my-api
+spec:
+  services:
+    web:
+      kind: server               # static | server | worker (background)
+      entry: src/index.ts        # edge runtimes: module exporting fetch()
+      start: node dist/server.js # process-based platforms
+      ports:
+        - port: 3000             # protocol: http|tcp|udp|tcp+udp, exposure: public|internal
+      uses: [db]
+      secrets: [JWT_SECRET]
+      cron:
+        - schedule: "0 * * * *"
+  resources:
+    db: {type: sqlite}           # postgres | mysql | sqlite | redis | bucket | kv
+  secrets:
+    JWT_SECRET: {generate: hex32}
+  targets:
+    cloudflare:
+      bindings:
+        db: {id: <d1-database-id>}
 ```
 
-Editors can validate and autocomplete against [`schema/anyship.schema.json`](schema/anyship.schema.json)
-(`anyship schema` prints it). `anyship validate` also checks cross-references, such as a service
+The layout follows Kubernetes manifests: `apiVersion` and `kind` say what the file is, `metadata.name`
+names the app, and `spec` describes it. Editors with the YAML language server validate and
+autocomplete against [`schema/anyship.schema.json`](schema/anyship.schema.json) through the first-line
+comment, which `anyship init` writes (`anyship schema` prints the schema). `anyship validate` also checks cross-references, such as a service
 using a resource that isn't declared, and rejects unknown fields so typos don't go unnoticed.
 
 ## Targets
@@ -158,16 +165,15 @@ using a resource that isn't declared, and rejects unknown fields so typos don't 
 
 ### VPS notes
 
-```jsonc
-"targets": {
-  "vps": {
-    "host": "deploy@203.0.113.10", // ssh destination or ~/.ssh/config alias
-    "port": 22,                     // optional
-    "identityFile": "~/.ssh/id_ed25519", // optional
-    "dir": "anyship/my-app",        // optional; relative to the login user's home
-    "sudo": false                   // run docker via `sudo -n`
-  }
-}
+```yaml
+spec:
+  targets:
+    vps:
+      host: deploy@203.0.113.10        # ssh destination or ~/.ssh/config alias
+      port: 22                         # optional
+      identityFile: ~/.ssh/id_ed25519  # optional
+      dir: anyship/my-app              # optional; relative to the login user's home
+      sudo: false                      # run docker via `sudo -n`
 ```
 
 - The spec becomes a Docker Compose project (`.anyship/vps/compose.yaml`, kept locally for review).
@@ -198,15 +204,14 @@ using a resource that isn't declared, and rejects unknown fields so typos don't 
 
 ### Google Cloud notes
 
-```jsonc
-"targets": {
-  "gcp": {
-    "project": "my-project",   // Google Cloud project id
-    "region": "us-central1",
-    "repository": "apps",      // existing Artifact Registry Docker repository; needed to build from source
-    "private": false           // true: public services require authentication
-  }
-}
+```yaml
+spec:
+  targets:
+    gcp:
+      project: my-project   # Google Cloud project id
+      region: us-central1
+      repository: apps      # existing Artifact Registry Docker repository; needed to build from source
+      private: false        # true: public services require authentication
 ```
 
 - anyship drives your installed `gcloud` with its current login, and `docker buildx` for builds. It
@@ -271,19 +276,19 @@ Diagnosis: lighthouse can't authenticate to reth's engine API.
 
 Root cause (high confidence)
 ...
-Proposed change to anyship.json (applies cleanly and plans without errors)
+Proposed change to anyship.yaml (applies cleanly and plans without errors)
   add /services/lighthouse/secrets: ["JWT_SECRET"]
 
-Apply this change to anyship.json? [y/N]
+Apply this change to anyship.yaml? [y/N]
 ```
 
 `diagnose` collects what anyship already knows (plan findings, the target's dry-run checks, status,
 recent logs and the generated compose.yaml or Dockerfiles) and asks Claude for the root cause, the
 evidence for it, next steps, and a fix. The rules:
 
-- **Nothing is written unless you confirm.** A proposed `anyship.json` change is shown only if it
+- **Nothing is written unless you confirm.** A proposed `anyship.yaml` change is shown only if it
   applies and the patched spec plans cleanly; otherwise the rejection goes back to Claude, up to three
-  times. Fixes outside `anyship.json` (your code, a hand-written Dockerfile, the host) are described,
+  times. Fixes outside `anyship.yaml` (your code, a hand-written Dockerfile, the host) are described,
   never applied.
 - **Secrets are redacted before anything is sent:** values of the spec's secrets found in your
   environment, credential-like keys (`*_KEY`, `*_TOKEN`, `*PASSWORD*`, ...), API tokens, passwords in
@@ -308,8 +313,8 @@ claude mcp add anyship -- anyship mcp --allow-deploy   # also real deploys and d
 | Tool | Does | Changes anything |
 |---|---|---|
 | `targets` | list targets and what each supports | no |
-| `detect` | draft an `anyship.json` for a directory (returned, not written) | no |
-| `validate` | check `anyship.json` | no |
+| `detect` | draft an `anyship.yaml` for a directory (returned, not written) | no |
+| `validate` | check `anyship.yaml` | no |
 | `plan` | what a deploy would do, and every unmet need | no |
 | `status`, `logs` | what runs on the target, and its recent logs | no |
 | `diagnose_context` | everything above plus dry-run checks, redacted, for diagnosing a failure | no |
@@ -346,7 +351,7 @@ AWS target.
 
 ```
 cmd/anyship/           main package
-spec/                  anyship.json types, validation, JSON Schema
+spec/                  anyship.yaml types, validation, JSON Schema
 adapter/               adapter contract and registry
 adapters/cloudflare/   Cloudflare Workers adapter
 adapters/vps/          Docker Compose over SSH adapter

@@ -4,7 +4,6 @@ package cli
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -169,11 +168,10 @@ func (a *app) initCommand() *cobra.Command {
 				printFindings(a.out, a.style, d.Findings)
 			}
 
-			data, err := json.MarshalIndent(d.Spec, "", "  ")
+			data, err := spec.Marshal(d.Spec)
 			if err != nil {
 				return err
 			}
-			data = append(data, '\n')
 			if err := os.WriteFile(file, data, 0o644); err != nil {
 				return err
 			}

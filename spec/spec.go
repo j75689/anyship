@@ -1,4 +1,4 @@
-// Package spec defines anyship.json: a platform-neutral description of what an
+// Package spec defines anyship.yaml: a platform-neutral description of what an
 // app needs (processes, ports, disks, databases, secrets), not how a given
 // platform provides it. Adapters translate it into platform config and either
 // satisfy each need or report that they can't.
@@ -9,23 +9,43 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/j75689/anyship/internal/yamljson"
 )
 
 const (
-	// Version is the spec format version this package reads and writes.
-	Version = 1
+	// APIVersion is the manifest version this package reads and writes.
+	APIVersion = "anyship/v1alpha1"
+	// Kind is the manifest kind for an app.
+	Kind = "App"
 	// Filename is the conventional spec file name.
-	Filename = "anyship.json"
+	Filename       = "anyship.yaml"
+	legacyFilename = "anyship.json"
+	// SchemaURL is where editors find the JSON Schema for anyship.yaml.
+	SchemaURL = "https://raw.githubusercontent.com/j75689/anyship/main/schema/anyship.schema.json"
 )
 
+// Manifest is the file format, a Kubernetes-style envelope around the app.
+type Manifest struct {
+	APIVersion string   `json:"apiVersion"`
+	Kind       string   `json:"kind"`
+	Metadata   Metadata `json:"metadata"`
+	Spec       *Spec    `json:"spec"`
+}
+
+type Metadata struct {
+	Name string `json:"name" jsonschema_description:"Lowercase letters, digits and dashes, starting with a letter."`
+}
+
+// Spec is the app: what adapters deploy. Name comes from metadata.name.
 type Spec struct {
-	Schema    string               `json:"$schema,omitempty"`
-	Version   int                  `json:"version"`
-	Name      string               `json:"name" jsonschema_description:"Lowercase letters, digits and dashes, starting with a letter."`
+	Name      string               `json:"-"`
 	Services  map[string]*Service  `json:"services"`
 	Resources map[string]*Resource `json:"resources,omitempty"`
 	Secrets   map[string]*Secret   `json:"secrets,omitempty"`
@@ -219,28 +239,67 @@ func (e *ValidationError) Error() string {
 	return "invalid spec:\n  " + strings.Join(e.Problems, "\n  ")
 }
 
-// Parse decodes, normalizes and validates a spec. Unknown fields are rejected
-// so typos surface instead of being ignored.
+// Parse decodes, normalizes and validates a spec from YAML (or JSON, which
+// is YAML too). Unknown fields are rejected so typos surface instead of being
+// ignored.
 func Parse(data []byte) (*Spec, error) {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	var s Spec
-	if err := dec.Decode(&s); err != nil {
+	js, err := yamljson.ToJSON(data)
+	if err != nil {
 		return nil, fmt.Errorf("not a valid spec: %w", err)
 	}
-	if dec.More() {
-		return nil, errors.New("not a valid spec: unexpected data after the top-level object")
+	dec := json.NewDecoder(bytes.NewReader(js))
+	dec.DisallowUnknownFields()
+	var m Manifest
+	if err := dec.Decode(&m); err != nil {
+		return nil, fmt.Errorf("not a valid spec: %w", err)
 	}
+	var p problems
+	if m.APIVersion != APIVersion {
+		p.add([]any{"apiVersion"}, "must be %s", APIVersion)
+	}
+	if m.Kind != Kind {
+		p.add([]any{"kind"}, "must be %s", Kind)
+	}
+	if m.Spec == nil {
+		p.add([]any{"spec"}, "is required")
+	}
+	if len(p) > 0 {
+		return nil, &ValidationError{Problems: p}
+	}
+	s := m.Spec
+	s.Name = m.Metadata.Name
 	s.Normalize()
 	if problems := s.Validate(); len(problems) > 0 {
 		return nil, &ValidationError{Problems: problems}
 	}
-	return &s, nil
+	return s, nil
+}
+
+// Marshal renders a spec as anyship.yaml, with a schema hint for editors.
+func Marshal(s *Spec) ([]byte, error) {
+	js, err := json.Marshal(Manifest{APIVersion: APIVersion, Kind: Kind, Metadata: Metadata{Name: s.Name}, Spec: s})
+	if err != nil {
+		return nil, err
+	}
+	n, err := yamljson.FromJSON(js)
+	if err != nil {
+		return nil, err
+	}
+	out, err := yamljson.Encode(n)
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte("# yaml-language-server: $schema="+SchemaURL+"\n"), out...), nil
 }
 
 // Load reads and parses a spec file.
 func Load(path string) (*Spec, error) {
 	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) && filepath.Base(path) == Filename {
+		if _, jsonErr := os.Stat(filepath.Join(filepath.Dir(path), legacyFilename)); jsonErr == nil {
+			return nil, fmt.Errorf("%s not found, but %s is: specs are YAML manifests now (apiVersion: %s); run `anyship init --force` or convert it by hand", Filename, legacyFilename, APIVersion)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}

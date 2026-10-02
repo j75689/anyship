@@ -18,8 +18,9 @@ cd "$work/app"
 
 step "init detects the Flask app"
 "$ANYSHIP" init
-jq '.targets = {"vps": {"host": "localhost", "dir": "anyship-e2e/flask"}}' anyship.json > spec.tmp && mv spec.tmp anyship.json
-cat anyship.json
+# spec is the last top-level key that init writes, so targets can be appended to it.
+printf '  targets:\n    vps:\n      host: localhost\n      dir: anyship-e2e/flask\n' >> anyship.yaml
+cat anyship.yaml
 
 step "plan generates a Dockerfile"
 "$ANYSHIP" plan -t vps
