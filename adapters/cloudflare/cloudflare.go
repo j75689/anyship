@@ -339,18 +339,9 @@ func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts
 		return fmt.Errorf("targets.cloudflare: %w", err)
 	}
 
-	args := []string{"wrangler", "tail"}
-	// The config written by apply carries the account id; without it, wrangler
-	// finds the Worker by name in the logged-in account.
-	if configPath := filepath.Join(env.OutDir, "wrangler.jsonc"); fileExists(configPath) {
-		args = append(args, "--config", configPath)
-	} else {
-		args = append(args, cmp(o.Name, s.Name))
-	}
-	args = append(args, "--format", "pretty")
-
+	args := []string{"wrangler", "tail", cmp(o.Name, s.Name), "--format", "pretty"}
 	env.Logf("$ npx %s", strings.Join(args, " "))
-	if err := env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir}, "npx", args...); err != nil {
+	if err := env.Exec(ctx, workerExecOptions(o, env), "npx", args...); err != nil {
 		return fmt.Errorf("wrangler tail failed (%w); is the Worker deployed and are you logged in (`npx wrangler login`)?", err)
 	}
 	return nil
@@ -383,22 +374,23 @@ func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, o
 		return nil, fmt.Errorf("targets.cloudflare: %w", err)
 	}
 	name := cmp(o.Name, s.Name)
-	args := []string{"wrangler", "delete"}
-	if configPath := filepath.Join(env.OutDir, "wrangler.jsonc"); fileExists(configPath) {
-		args = append(args, "--config", configPath)
-	} else {
-		args = append(args, "--name", name)
-	}
+	args := []string{"wrangler", "delete", "--name", name}
 	env.Logf("$ npx %s", strings.Join(args, " "))
-	if err := env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir}, "npx", args...); err != nil {
+	if err := env.Exec(ctx, workerExecOptions(o, env), "npx", args...); err != nil {
 		return &adapter.Result{Messages: []string{"wrangler delete failed: " + err.Error()}}, nil
 	}
 	return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Deleted the Worker %q; bound resources were kept.", name)}}, nil
 }
 
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular()
+// workerExecOptions addresses the Worker from the spec alone. anyship keeps no
+// state: files left in .anyship/ by an earlier apply may be stale, so they are
+// never read back.
+func workerExecOptions(o *Options, env *adapter.Env) adapter.ExecOptions {
+	opts := adapter.ExecOptions{Dir: env.Dir}
+	if o.AccountID != "" {
+		opts.Env = []string{"CLOUDFLARE_ACCOUNT_ID=" + o.AccountID}
+	}
+	return opts
 }
 
 func checkService(name string, svc *spec.Service, s *spec.Spec) []adapter.Finding {

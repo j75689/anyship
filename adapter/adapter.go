@@ -84,6 +84,8 @@ type ExecOptions struct {
 	Stdin io.Reader
 	// Stdout, when set, captures the command's output instead of showing it.
 	Stdout io.Writer
+	// Env adds KEY=VALUE entries to the deployer's environment for this command.
+	Env []string
 }
 
 // ExitCode returns the exit status carried by an error from Env.Exec.
@@ -100,6 +102,8 @@ type Env struct {
 	// Dir is the directory containing anyship.json.
 	Dir string
 	// OutDir is scratch space for generated platform config, e.g. <Dir>/.anyship/<target>.
+	// It is write-only: anyship keeps no state, so adapters must never read it
+	// back to learn what is deployed. Ask the platform instead.
 	OutDir string
 	DryRun bool
 	Logf   func(format string, args ...any)
