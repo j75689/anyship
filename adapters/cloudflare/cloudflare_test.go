@@ -92,8 +92,9 @@ func TestRendersWorkerForEdgeServer(t *testing.T) {
 	if len(p.Findings) != 0 {
 		t.Errorf("findings = %v", codes(p))
 	}
-	if p.Files[0].Path != "/work/app/.anyship/cloudflare/wrangler.jsonc" {
-		t.Errorf("path = %s", p.Files[0].Path)
+	// A generated file's path is a local path, so it uses the local separator.
+	if want := filepath.Join(dir, ".anyship", "cloudflare", "wrangler.jsonc"); p.Files[0].Path != want {
+		t.Errorf("path = %s, want %s", p.Files[0].Path, want)
 	}
 	jsonEqual(t, rendered(t, p), `{
 		"name": "api",

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -32,14 +33,16 @@ func (*fakeAdapter) Plan(context.Context, *spec.Spec, *adapter.Env) (*adapter.Pl
 
 func (*fakeAdapter) Apply(ctx context.Context, _ *adapter.Plan, _ *spec.Spec, env *adapter.Env) (*adapter.Result, error) {
 	env.Logf("$ deploying")
-	if err := env.Exec(ctx, adapter.ExecOptions{}, "sh", "-c", "echo from-stdout; echo from-stderr >&2; cat"); err != nil {
+	execOpts, name, args := helper("streams")
+	if err := env.Exec(ctx, execOpts, name, args...); err != nil {
 		return &adapter.Result{Messages: []string{err.Error()}}, nil
 	}
 	return &adapter.Result{OK: true, Messages: []string{"deployed"}}, nil
 }
 
 func (*fakeAdapter) Logs(ctx context.Context, _ *spec.Spec, env *adapter.Env, opts adapter.LogOptions) error {
-	return env.Exec(ctx, adapter.ExecOptions{}, "sh", "-c", "echo log line for "+opts.Service)
+	execOpts, name, args := helper("print", "log line for "+opts.Service)
+	return env.Exec(ctx, execOpts, name, args...)
 }
 
 func (f *fakeAdapter) DestroySummary(*spec.Spec, adapter.DestroyOptions) ([]string, error) {
@@ -268,7 +271,12 @@ func TestTailBufferKeepsTheEnd(t *testing.T) {
 // TestMCPOverStdio runs the real binary as an MCP server, the way an agent
 // host does, and checks the protocol works end to end over stdin/stdout.
 func TestMCPOverStdio(t *testing.T) {
+	// go build -o uses the name as given, and Windows only runs a file that
+	// carries an executable extension.
 	bin := filepath.Join(t.TempDir(), "anyship")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
 	build := exec.Command("go", "build", "-o", bin, "../../cmd/anyship")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
