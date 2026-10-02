@@ -9,6 +9,9 @@ quote is copied from a real response.
 - **Verdict:** the server works. Setup is one command and needs no fixing. The problems are all in the
   *wording*: three stale hints send an agent to the wrong place, and two tools write files while
   claiming to be read-only.
+- **Still open:** host behaviour in a live session — whether Claude Code prompts before the
+  destructive tools, and which tool the model reaches for from ordinary language. That is
+  [the checklist at the end](#your-turn-the-host-behaviour-checklist), with blanks to fill in.
 
 ## Setup
 
@@ -56,6 +59,35 @@ the order:
 
 > Typical flow: detect (draft a spec for a directory) → write anyship.yaml → validate → plan → apply
 > with dry_run → apply.
+
+### The two ways to start the server
+
+| Command | `apply` / `destroy` for real | Everything else |
+|---|---|---|
+| `claude mcp add anyship -- anyship mcp` | refused, with the message in [the gate check](#your-turn-the-host-behaviour-checklist) | works |
+| `claude mcp add anyship -- anyship mcp --allow-deploy` | allowed | works |
+
+To switch, replace the entry — `claude mcp remove anyship`, then add it again with the flag. Nothing
+else about the server changes; the tool list and the schemas are identical either way.
+
+### Tools and parameters
+
+Read from `internal/cli/mcp.go`. `config` always defaults to `anyship.yaml` in the server's working
+directory, and `target` is always required where it appears.
+
+| Tool | Parameters | Annotations |
+|---|---|---|
+| `targets` | none | `readOnlyHint` |
+| `detect` | `dir` | `readOnlyHint` |
+| `validate` | `config` | `readOnlyHint` |
+| `plan` | `config`, **`target`** | `readOnlyHint` |
+| `status` | `config`, **`target`** | `readOnlyHint` |
+| `logs` | `config`, **`target`**, `service`, `tail` (int), `since` (`10m` or RFC 3339) | `readOnlyHint` |
+| `diagnose_context` | `config`, **`target`**, `note` | `readOnlyHint` (but it writes — [Finding 2](#finding-2-plan-points-at-generated-files-that-do-not-exist-and-dry_run-writes-them-anyway)) |
+| `apply` | `config`, **`target`**, `dry_run` | `destructiveHint` |
+| `destroy` | `config`, **`target`**, `dry_run`, `volumes`, `confirm_project` | `destructiveHint`, `idempotentHint` |
+
+`confirm_project` is required whenever `volumes` is true, and must equal the spec's `name`.
 
 ## What was exercised
 
@@ -288,3 +320,116 @@ twice is as idempotent as anything gets. Cosmetic, but it is wrong in every sche
   prompts before `apply` and `destroy`, and how it renders the refusals.
 - **No successful deploy**, so `logs` with a live stream, the 20s window `note`, and `truncated`
   output were never seen in a passing state. `vps` deploys are covered by the `vps-e2e` CI job.
+
+## Your turn: the host-behaviour checklist
+
+Everything above was driven tool-by-tool. What is left is the part only a person in a real session can
+see: whether Claude Code **prompts** before the destructive tools, and whether the model **picks the
+right tool** from ordinary language. Work through this and fill in each `Actual:` line. Each problem
+you hit wants its own issue, not a line in this file.
+
+**Before you start.** Copy a throwaway app somewhere outside this repo and start Claude Code in that
+directory — the server inherits that working directory, and `anyship` must already be on `PATH`:
+
+```console
+$ cd <anyship-checkout> && go install ./cmd/anyship   # or the install step in the README
+$ cp -r <anyship-checkout>/dockerfile/testdata/apps/node /tmp/mcp-check && cd /tmp/mcp-check
+$ claude mcp add anyship -- anyship mcp
+$ claude
+```
+
+Nothing below deploys anything real. Section C points at an ssh host that does not exist on purpose,
+so the gate opens but the deploy still cannot happen.
+
+Record once, before the checks: anyship version `__________`, Claude Code version `__________`,
+date `__________`.
+
+### A. Without `--allow-deploy`, the read side works
+
+- [ ] **A1 — targets.** Say: *"Use anyship to list the deploy targets and what each one supports."*
+      Expect: `mcp__anyship__targets`, four targets — `aws`, `cloudflare`, `gcp`, `vps` — each with
+      capabilities. Actual: `__________`
+- [ ] **A2 — detect and write the spec.** Say: *"Detect this project with anyship and save the spec it
+      drafts as anyship.yaml."* Expect: `mcp__anyship__detect`, then the agent writes the file itself —
+      `detect` returns the YAML as text and writes nothing. Actual: `__________`
+- [ ] **A3 — validate.** Say: *"Validate anyship.yaml."* Expect: `mcp__anyship__validate`,
+      `valid: true`, the spec name and the service names. Actual: `__________`
+- [ ] **A4 — plan.** Say: *"What would deploying this to a vps do?"* Expect: `mcp__anyship__plan`. With
+      no `host` set it reports `VPS_BAD_OPTIONS` and tells you what is missing; with a `host` it
+      returns actions and file paths. Watch where the agent puts the `host` — the hint sends it to the
+      wrong depth, in JSON
+      ([Finding 1](#finding-1-three-adapters-hint-json-into-a-yaml-file-at-two-different-nesting-depths)).
+      The right shape, which the rest of this checklist assumes — the address is unroutable on purpose:
+
+      ```yaml
+      spec:
+        targets:
+          vps:
+            host: deploy@203.0.113.10
+      ```
+
+      Actual: `__________`
+- [ ] **A5 — dry run.** Say: *"Do a dry run of the vps deploy."* Expect: `mcp__anyship__apply` with
+      `dry_run: true`, which is **not** blocked, and which **writes two files into `.anyship/`**.
+      Actual: `__________`
+- [ ] **A6 — status.** Say: *"Is anything running on the vps target?"* Expect: `mcp__anyship__status`.
+      Against an unreachable host it gives a bare `exit status 255` with no cause
+      ([Finding 6](#finding-6-status-throws-away-the-cause-that-every-other-tool-keeps)) — note what
+      the agent does next with that. Actual: `__________`
+- [ ] **A7 — logs.** Say: *"Show me the last 50 log lines from the vps target."* Expect:
+      `mcp__anyship__logs` with `tail: 50`. Actual: `__________`
+- [ ] **A8 — diagnose.** Say: *"The vps deploy is not working. Find out why."* Expect
+      `mcp__anyship__diagnose_context` — the tool meant for this. If the agent instead strings together
+      `plan` + `status` + `logs`, write that down; it means the description is not reaching it.
+      Actual: `__________`
+
+### B. Without `--allow-deploy`, a real deploy is refused
+
+- [ ] **B1 — real deploy.** Say: *"Deploy this to the vps for real, not a dry run."* Expect the call to
+      fail with exactly this text, from `internal/cli/mcp.go:293`:
+
+      > this anyship MCP server only allows dry runs; restart it with `anyship mcp --allow-deploy` to deploy
+
+      Actual message: `__________`
+- [ ] **B2 — real destroy.** Say: *"Tear down the vps deployment."* Expect the same refusal with the
+      last word changed, from `internal/cli/mcp.go:320`:
+
+      > this anyship MCP server only allows dry runs; restart it with `anyship mcp --allow-deploy` to destroy
+
+      Actual message: `__________`
+- [ ] **B3 — how the agent reacts.** Does it tell you to restart the server with the flag, or does it
+      try to run `anyship apply` in a terminal instead? The second is
+      [Finding 7](#finding-7-error-messages-tell-an-mcp-agent-to-run-cli-commands). Actual: `__________`
+- [ ] **B4 — did the host prompt?** Did Claude Code ask for your approval before calling `apply` and
+      `destroy` (both carry `destructiveHint`), or did it call them straight away? **This is the one
+      thing no amount of scripting could check.** Actual: `__________`
+
+### C. With `--allow-deploy`, the gate is open
+
+Swap the server, then restart Claude Code so it picks up the new command:
+
+```console
+$ claude mcp remove anyship
+$ claude mcp add anyship -- anyship mcp --allow-deploy
+```
+
+- [ ] **C1 — the refusal is gone.** With `host` still at the unroutable `deploy@203.0.113.10`, say:
+      *"Deploy this to the vps for real."* Expect **no** "only allows dry runs" message — it should get
+      past the gate and fail at ssh instead. Actual: `__________`
+- [ ] **C2 — destroy runs.** Say: *"Tear down the vps deployment."* Expect no gate refusal.
+      Actual: `__________`
+- [ ] **C3 — deleting data still needs confirmation.** Say: *"Tear down the vps deployment and delete
+      the volumes too."* Expect a refusal naming the exact value it wants, even with `--allow-deploy`.
+      The value is the spec's `name`, which `detect` takes from the directory — `mcp-check` if you
+      followed the setup above:
+
+      > deleting data needs confirm_project set to "mcp-check", confirmed with the user
+
+      Then check: did the agent **ask you** for the project name, or did it guess and retry on its own?
+      Actual: `__________`
+
+### D. Anything else you noticed
+
+- Tools the agent reached for and should not have: `__________`
+- Error messages you had to read the source to understand: `__________`
+- Places the agent got stuck and gave up: `__________`
