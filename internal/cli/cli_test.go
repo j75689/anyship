@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"bytes"
+	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -48,6 +51,28 @@ func TestPrintStatus(t *testing.T) {
 	printStatus(&buf, styler{}, "app", &adapter.Status{Target: "vps", Location: "h:x"})
 	if !strings.Contains(buf.String(), "Not deployed.") {
 		t.Errorf("output:\n%s", buf.String())
+	}
+}
+
+// TestRunWithPassesArgumentsThrough guards the Windows path through runWith:
+// it used to wrap every command in `cmd /C`, which let cmd.exe re-parse the
+// arguments. These are the characters cmd.exe treats as special, and adapters
+// really send them: the vps target hands ssh a whole shell script, and the aws
+// target passes JSON on the command line.
+func TestRunWithPassesArgumentsThrough(t *testing.T) {
+	want := []string{
+		`cd app && docker compose -f "compose.yaml" up -d`,
+		`[{"Key":"anyship","Value":"shop & co"}]`,
+		"a^b|c<d>e%f",
+	}
+	opts, name, args := helper("echo-args", want...)
+	var out bytes.Buffer
+	if err := runWith(context.Background(), opts, stdio{in: bytes.NewReader(nil), out: &out, err: &out}, name, args...); err != nil {
+		t.Fatalf("runWith: %v\n%s", err, out.String())
+	}
+	got := strings.Split(strings.TrimSuffix(strings.ReplaceAll(out.String(), "\r\n", "\n"), "\n"), "\n")
+	if !slices.Equal(got, want) {
+		t.Errorf("the child received\n%q\nwant\n%q", got, want)
 	}
 }
 
