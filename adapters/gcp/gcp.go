@@ -126,7 +126,7 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 	data := &planData{opts: *opts, project: s.Name}
 	used := map[string]bool{}
 	dependsNoted := false
-	for _, name := range deployOrder(s) {
+	for _, name := range s.DeployOrder() {
 		svc := s.Services[name]
 		sv, findings := checkService(name, svc, s, opts, env.Dir)
 		plan.Findings = append(plan.Findings, findings...)
@@ -344,37 +344,6 @@ func quoteArgs(args []string) string {
 		quoted[i] = shellwords.Quote(a)
 	}
 	return strings.Join(quoted, " ")
-}
-
-// deployOrder lists services so each comes after the services it depends on.
-func deployOrder(s *spec.Spec) []string {
-	var order []string
-	placed := map[string]bool{}
-	for len(order) < len(s.Services) {
-		progressed := false
-		for _, name := range s.ServiceNames() {
-			if placed[name] {
-				continue
-			}
-			ready := true
-			for _, dep := range s.Services[name].DependsOn {
-				if !placed[dep] {
-					ready = false
-				}
-			}
-			if ready {
-				order, placed[name], progressed = append(order, name), true, true
-			}
-		}
-		if !progressed { // a dependency cycle; deploy the rest in name order
-			for _, name := range s.ServiceNames() {
-				if !placed[name] {
-					order, placed[name] = append(order, name), true
-				}
-			}
-		}
-	}
-	return order
 }
 
 func decodeOptions(raw json.RawMessage) (*Options, error) {

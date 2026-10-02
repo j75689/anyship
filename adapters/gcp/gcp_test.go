@@ -229,7 +229,7 @@ func TestDeployOrderFollowsDependsOn(t *testing.T) {
 		"a": {"kind": "server", "image": "x", "dependsOn": ["b"]},
 		"b": {"kind": "server", "image": "x", "dependsOn": ["c"]},
 		"c": {"kind": "server", "image": "x"}}, `+target+`}`)
-	if got := deployOrder(s); !slices.Equal(got, []string{"c", "b", "a"}) {
+	if got := s.DeployOrder(); !slices.Equal(got, []string{"c", "b", "a"}) {
 		t.Errorf("order = %v", got)
 	}
 }
