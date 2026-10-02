@@ -441,10 +441,12 @@ func runWith(ctx context.Context, opts adapter.ExecOptions, std stdio, name stri
 		cmd = exec.CommandContext(ctx, "cmd", "/C", strings.Join(append([]string{name}, args...), " "))
 	case opts.Shell:
 		cmd = exec.CommandContext(ctx, "sh", "-c", strings.Join(append([]string{name}, args...), " "))
-	case runtime.GOOS == "windows":
-		// npx and friends are .cmd shims on Windows, which only run through cmd.
-		cmd = exec.CommandContext(ctx, "cmd", append([]string{"/C", name}, args...)...)
 	default:
+		// Windows used to go through `cmd /C` here, for .cmd shims like npx.
+		// os/exec already finds those through PATHEXT and quotes arguments the
+		// way cmd.exe reads them, while the wrapper made cmd.exe re-parse every
+		// argument and mangled the ones holding a quote, & or ^ — such as the
+		// remote script the vps target hands to ssh.
 		cmd = exec.CommandContext(ctx, name, args...)
 	}
 	cmd.Dir = opts.Dir
