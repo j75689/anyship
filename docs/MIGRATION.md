@@ -5,7 +5,8 @@ load in v0.3, and `anyship` says so instead of guessing:
 
 ```
 anyship.yaml not found, but anyship.json is: specs are YAML manifests now
-(apiVersion: anyship/v1alpha1); docs/MIGRATION.md says how to convert it
+(apiVersion: anyship/v1alpha1); run `anyship migrate` to convert it, or read
+docs/MIGRATION.md: https://github.com/j75689/anyship/blob/main/docs/MIGRATION.md
 ```
 
 **Only the envelope changed.** Everything under `services`, `resources`, `secrets` and `targets` is
@@ -39,6 +40,37 @@ Nothing else. These all keep the names and the meanings they had in v0.2:
 - targets: each adapter's own block, unchanged
 
 ## How to migrate
+
+Run `anyship migrate` in the directory that holds `anyship.json`:
+
+```bash
+anyship migrate              # writes anyship.yaml next to anyship.json
+anyship migrate --dry-run    # prints the manifest instead of writing it
+anyship migrate --force      # replaces an anyship.yaml that is already there
+anyship migrate path/to/dir  # migrates another directory
+```
+
+It applies exactly the table above: your `services`, `resources`, `secrets` and `targets` move under
+`spec` unchanged, and the envelope is written for you, schema comment included. It then validates the
+result and prints any problem the spec already had, so you fix it in the new format rather than the
+old one. `anyship.json` is left alone; delete it once you are happy with `anyship.yaml`.
+
+`migrate` converts `version: 1` files only, and refuses anything it does not recognize instead of
+dropping it:
+
+```
+error: anyship.json cannot be migrated:
+  ✖ region: unknown field; known fields are $schema, version, name, services, resources, secrets, targets
+  ✖ spec.services.web.healthcheck: unknown field; did you mean "healthCheck"?
+```
+
+A field anyship never had is a field it never deployed, so fix the typo (or delete the field) and run
+`migrate` again. The only thing `migrate` does not keep is the order of your keys: it writes them in
+the canonical order, the same one `anyship init` uses.
+
+### By hand
+
+The conversion is small enough to do in an editor:
 
 1. `git mv anyship.json anyship.yaml`.
 2. Delete `$schema`, `version` and `name` from the top of the file.
