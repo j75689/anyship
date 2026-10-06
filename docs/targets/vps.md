@@ -27,7 +27,9 @@ spec:
   (`VPS_MUTABLE_TAG`). Such a deploy needs the registry to be reachable. A versioned tag or a digest
   is pulled once, and `--image <service>=<image>` deploys another image for one run.
 - `public` ports are published on the host (`tcp+udp` publishes both); `internal` ports are only
-  reachable by other services, by service name.
+  reachable by other services, by service name. `${services.<name>.url}` in `env` becomes
+  `http://<name>:<port>` on the compose network, with the service's first HTTP port; a service
+  without one has no address (`VPS_SERVICE_URL`).
 - `start` runs as the container's command, exactly as written and without a shell; wrap it in
   `sh -c '...'` if you need pipes or variables.
 - `memory` and `cpu` become limits on the container (`deploy.resources.limits` in the compose file):

@@ -285,6 +285,10 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	case svc.Kind == spec.KindServer:
 		add(adapter.Info, "AWS_PORT_ASSUMED", fmt.Sprintf("No port in the spec; the load balancer will send traffic to port %d.", defaultPort), "Add a port if the app listens elsewhere.")
 	}
+	if refs := svc.RefersTo(); len(refs) > 0 {
+		add(adapter.Error, "AWS_SERVICE_URL", fmt.Sprintf("env refers to ${services.%s.url}, but Express Mode assigns a service its URL on the first deploy, so anyship can't fill it in.", refs[0]),
+			"Deploy the other service first, then put the URL from `anyship status` in env.")
+	}
 	if svc.CPU != 0 && !slices.Contains(taskCPUs, svc.CPU) {
 		add(adapter.Error, "AWS_CPU", fmt.Sprintf("cpu %v: Fargate tasks have 0.25, 0.5, 1, 2, 4, 8 or 16 CPUs.", svc.CPU), "")
 	}

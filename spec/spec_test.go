@@ -96,6 +96,28 @@ func TestParseRejectsBadNamesAndDuplicatePorts(t *testing.T) {
 	}
 }
 
+func TestParseServiceURLRefs(t *testing.T) {
+	s := mustParse(t, app("app", "  services:\n    web: {kind: server, start: x, env: {API: \"${services.api.url}/v1\", BOTH: \"${services.api.url},${services.web.url}\", PLAIN: \"${HOME}\"}}\n    api: {kind: server, start: x}\n"))
+	if got := s.Services["web"].RefersTo(); !slices.Equal(got, []string{"api", "web"}) {
+		t.Errorf("RefersTo = %v", got)
+	}
+	if got := s.Services["api"].RefersTo(); got != nil {
+		t.Errorf("api RefersTo = %v", got)
+	}
+	url := func(name string) string { return "http://" + name + ":8080" }
+	if got := ExpandServiceURLs(s.Services["web"].Env["BOTH"], url); got != "http://api:8080,http://web:8080" {
+		t.Errorf("expanded = %q", got)
+	}
+	if got := ExpandServiceURLs("${HOME}/x", url); got != "${HOME}/x" {
+		t.Errorf("a plain variable was touched: %q", got)
+	}
+
+	got := problemsOf(t, app("app", "  services:\n    web: {kind: server, start: x, env: {API: \"${services.api.url}\"}}\n"))
+	if want := `spec.services.web.env.API: refers to ${services.api.url}, but the spec has no service "api"`; !slices.Contains(got, want) {
+		t.Errorf("problems = %q, want %q", got, want)
+	}
+}
+
 func TestParseCron(t *testing.T) {
 	cron := func(entries string) []byte {
 		return app("app", "  services:\n    web: {kind: server, start: x, cron: ["+entries+"]}\n")

@@ -173,6 +173,14 @@ func (s *Spec) validateService(name string, claimedDomains map[string]string, p 
 		p.add(at("cpu"), "must be greater than 0, like 0.5, 1 or 2")
 	}
 
+	for _, key := range slices.Sorted(maps.Keys(svc.Env)) {
+		for _, ref := range ServiceRefs(svc.Env[key]) {
+			if _, ok := s.Services[ref]; !ok {
+				p.add(at("env", key), "refers to ${services.%s.url}, but the spec has no service %q", ref, ref)
+			}
+		}
+	}
+
 	for i, c := range svc.Cron {
 		if strings.TrimSpace(c.Schedule) == "" {
 			p.add(at("cron", i, "schedule"), "is required")

@@ -59,13 +59,15 @@ spec:
   8), and `plan` refuses a pair that doesn't fit. Less than one CPU (0.08 and up) carries at most
   1GB, or 512MB below half a CPU. A service that names neither gets Cloud Run's defaults, 512MB and
   1 CPU.
-- A service with an `internal` port is deployed with internal ingress and requires authentication.
-  anyship stops there, so as deployed the spec's other services can't call it, and `plan` warns
-  about it (`GCP_INTERNAL_CALLERS`). Each caller needs three things set up by hand: a
-  [route through a VPC network](https://cloud.google.com/run/docs/securing/private-networking),
-  `roles/run.invoker` on the service for the account it runs as, and code that
-  [attaches an identity token](https://cloud.google.com/run/docs/authenticating/service-to-service).
-  The alternative is a public port and a token checked by the app.
+- A service with an `internal` port is guarded by identity, not by network: it is deployed
+  reachable from anywhere but answering only requests that carry an identity token, and each
+  `apply` lets the accounts the spec's other services run as send them (`roles/run.invoker`). The
+  calling app has to
+  [attach the token](https://cloud.google.com/run/docs/authenticating/service-to-service), with the
+  service's URL as audience; `plan` says so (`GCP_INTERNAL`). Bindings are added, never removed.
+- `${services.<name>.url}` in `env` becomes that service's Cloud Run URL
+  (`https://<spec name>-<name>-<project number>.<region>.run.app`), which follows from the names,
+  so it is known before the first deploy and the same on every one.
 - `healthCheck.path` becomes the service's startup probe: a new revision gets traffic only once that
   path answers with a 2xx or 3xx status, and a deploy whose revision doesn't answer within 4 minutes
   fails and leaves the previous revision serving. The probe sends no credentials, so the path must
