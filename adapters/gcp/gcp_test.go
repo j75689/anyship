@@ -404,6 +404,23 @@ func TestApplyRemovesStaleCronJobs(t *testing.T) {
 	if call := fc.find("gcloud scheduler"); call != nil {
 		t.Errorf("a project without the API was asked for jobs: %s", call.line())
 	}
+
+	// A dropped entry stops firing as soon as its service is deployed,
+	// even when a later service's deploy fails.
+	two := parse(t, `{"name": "shop", "services": {
+		"api": {"kind": "server", "image": "api:1", "ports": [{"port": 80}], "dependsOn": ["web"]},
+		"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}], "cron": [{"schedule": "* * * * *", "path": "/tick"}]}},
+		"targets": {"gcp": {"project": "my-project", "region": "us-central1"}}}`)
+	env, fc = newEnv(t, t.TempDir(), nil)
+	schedulerEnabled(fc)
+	fc.out["gcloud scheduler jobs list"] = existing
+	fc.fail = []string{"gcloud run deploy shop-api"}
+	if res, err := New().Apply(context.Background(), plan(t, two, env), two, env); err != nil || res.OK {
+		t.Fatalf("apply: %v %+v", err, res)
+	}
+	if got, want := deleted(fc), []string{"anyship_shop_web_1"}; !slices.Equal(got, want) {
+		t.Errorf("deleted = %q, want %q", got, want)
+	}
 }
 
 func TestApplyCronNeedsTheSchedulerAPI(t *testing.T) {
