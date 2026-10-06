@@ -1,10 +1,22 @@
-# anyship
+<p align="center">
+  <img src="docs/assets/banner.svg" width="100%" alt="anyship: describe your app once, deploy it anywhere. One anyship.yaml is deployed to Cloudflare, a VPS, Google Cloud or AWS, with more platforms to come.">
+</p>
 
-**Describe your app once. Deploy it anywhere.**
+# anyship: describe your app once, deploy it anywhere
 
-anyship reads your project, drafts a platform-neutral deploy spec (`anyship.yaml`), and turns that one
-spec into a deployment on whichever platform you pick. Each platform adapter either satisfies every
-need in the spec or tells you exactly which need it can't meet and why. It never quietly drops one.
+anyship is an open source CLI that reads your project, drafts a platform-neutral deploy spec
+(`anyship.yaml`), and turns that one spec into a deployment on whichever platform you pick: Cloudflare,
+a VPS of your own, Google Cloud or AWS today, and more platforms as adapters are added. Each adapter
+either satisfies every need in the spec or tells you exactly which need it can't meet and why. It
+never quietly drops one.
+
+anyship is a single Go binary. It drives the tools you already use (`wrangler`, `ssh`, `gcloud`,
+`aws`) with your own logins, has no server, and keeps no state.
+
+[![Release](https://img.shields.io/github/v/release/j75689/anyship)](https://github.com/j75689/anyship/releases/latest)
+[![CI](https://github.com/j75689/anyship/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/j75689/anyship/actions/workflows/ci.yml)
+[![Go version](https://img.shields.io/github/go-mod/go-version/j75689/anyship)](go.mod)
+[![License](https://img.shields.io/github/license/j75689/anyship)](LICENSE)
 
 > **Status: early (v0.3).** The spec, rule-based detection, the CLI, the MCP server and four targets
 > are implemented: Cloudflare Workers, VPS (Docker over SSH), Google Cloud Run and Amazon ECS Express

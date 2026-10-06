@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" role="img" aria-label="anyship. Describe your app once, deploy it anywhere. One anyship.yaml file is deployed to Cloudflare, a VPS, Google Cloud or AWS, with more platforms to come.">
+  <style>
+    svg { --bg:#f4f6f8; --panel:#ffffff; --fg:#15202b; --muted:#556270; --line:#c3ccd5; --accent:#b8430f; --accent-soft:#fbe7dc; }
+    @media (prefers-color-scheme: dark) { svg { --bg:#0f151b; --panel:#161e27; --fg:#e2e8ee; --muted:#94a2b0; --line:#344250; --accent:#f08a4b; --accent-soft:#3a2418; } }
+    .bg { fill:var(--bg); stroke:var(--line); }
+    .word { fill:var(--fg); font:700 104px system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; letter-spacing:-3.5px; }
+    .word .ship { fill:var(--accent); }
+    .tag { fill:var(--muted); font:500 29px system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .tag.strong { fill:var(--fg); }
+    .rule { stroke:var(--accent); stroke-width:4; stroke-linecap:round; }
+    .dots { stroke:var(--line); stroke-width:4; stroke-linecap:round; stroke-dasharray:0.1 12; }
+    .note { fill:var(--muted); font:15px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .card { fill:var(--panel); stroke:var(--line); stroke-width:1.25; }
+    .sep { stroke:var(--line); stroke-width:1.25; }
+    .file { fill:var(--fg); font:600 15px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .dot { fill:var(--line); }
+    .yaml { fill:var(--muted); font:15px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; white-space:pre; }
+    .yaml .v { fill:var(--fg); }
+    .wire { fill:none; stroke:var(--accent); stroke-width:1.75; }
+    .tip { fill:var(--accent); }
+    .target { fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.5; }
+    .name { fill:var(--fg); font:600 16px system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .wire.soon { stroke:var(--muted); stroke-dasharray:5 5; }
+    .tip.soon { fill:var(--muted); }
+    .later { fill:var(--panel); stroke:var(--muted); stroke-width:1.25; stroke-dasharray:5 4; }
+    .later.l1 { opacity:0.7; }
+    .later.l2 { opacity:0.45; }
+    .later.l3 { opacity:0.25; }
+    .more { fill:var(--muted); font:600 16px system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  </style>
+
+  <rect class="bg" x="0.75" y="0.75" width="1278.5" height="398.5" rx="14"/>
+
+  <!-- Name and tagline -->
+  <text class="word" x="68" y="172">any<tspan class="ship">ship</tspan></text>
+  <text class="tag" x="74" y="232">Describe your app once.</text>
+  <text class="tag strong" x="74" y="272">Deploy it anywhere.</text>
+  <path class="rule" d="M76 312h30"/>
+  <path class="dots" d="M122 312h220"/>
+  <text class="note" x="74" y="348">plan → apply → destroy · no state file</text>
+
+  <!-- The one spec -->
+  <rect class="card" x="620" y="62" width="278" height="276" rx="10"/>
+  <circle class="dot" cx="642" cy="86" r="5"/>
+  <circle class="dot" cx="660" cy="86" r="5"/>
+  <circle class="dot" cx="678" cy="86" r="5"/>
+  <text class="file" x="764" y="91" text-anchor="middle">anyship.yaml</text>
+  <path class="sep" d="M620 110h278"/>
+  <text class="yaml" x="644" y="144" xml:space="preserve">kind: <tspan class="v">App</tspan></text>
+  <text class="yaml" x="644" y="170" xml:space="preserve">spec:</text>
+  <text class="yaml" x="644" y="196" xml:space="preserve">  services:</text>
+  <text class="yaml" x="644" y="222" xml:space="preserve">    web:</text>
+  <text class="yaml" x="644" y="248" xml:space="preserve">      kind: <tspan class="v">server</tspan></text>
+  <text class="yaml" x="644" y="274" xml:space="preserve">      ports:</text>
+  <text class="yaml" x="644" y="300" xml:space="preserve">        - port: <tspan class="v">3000</tspan></text>
+
+  <!-- One spec, every target: four today, more behind them -->
+  <path class="wire" d="M898 200C946 200 946 84 990 84"/>
+  <path class="wire" d="M898 200C946 200 946 142 990 142"/>
+  <path class="wire" d="M898 200H990"/>
+  <path class="wire" d="M898 200C946 200 946 258 990 258"/>
+  <path class="wire soon" d="M898 200C946 200 946 316 990 316"/>
+  <path class="tip" d="M1000 84l-11-6v12zM1000 142l-11-6v12zM1000 200l-11-6v12zM1000 258l-11-6v12z"/>
+  <path class="tip soon" d="M1000 316l-11-6v12z"/>
+
+  <rect class="target" x="1002" y="62" width="200" height="44" rx="8"/>
+  <text class="name" x="1022" y="90">Cloudflare</text>
+
+  <rect class="target" x="1002" y="120" width="200" height="44" rx="8"/>
+  <text class="name" x="1022" y="148">VPS</text>
+
+  <rect class="target" x="1002" y="178" width="200" height="44" rx="8"/>
+  <text class="name" x="1022" y="206">Google Cloud</text>
+
+  <rect class="target" x="1002" y="236" width="200" height="44" rx="8"/>
+  <text class="name" x="1022" y="264">AWS</text>
+
+  <!-- A stack of cards still to be dealt -->
+  <rect class="later l3" x="1026" y="318" width="200" height="44" rx="8"/>
+  <rect class="later l2" x="1018" y="310" width="200" height="44" rx="8"/>
+  <rect class="later l1" x="1010" y="302" width="200" height="44" rx="8"/>
+  <rect class="later" x="1002" y="294" width="200" height="44" rx="8"/>
+  <text class="more" x="1022" y="322">more platforms</text>
+</svg>
