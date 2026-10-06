@@ -8,7 +8,7 @@
 
 ## Checklist
 
-- [ ] `go test ./...` passes
+- [ ] `make check` passes (or at least `make test`)
 - [ ] Commits follow [Conventional Commits](https://github.com/j75689/anyship/blob/main/CONTRIBUTING.md#commit-style)
 - [ ] `schema/anyship.schema.json` is regenerated if the spec changed
 - [ ] README and CHANGELOG are updated if behaviour changed

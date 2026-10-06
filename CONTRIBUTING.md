@@ -9,10 +9,14 @@ not a public issue.
 Go 1.26+ is required.
 
 ```bash
-go test ./...
-go run ./cmd/anyship --help
-golangci-lint run ./...   # optional locally; CI runs it
+make build    # ./anyship
+make test     # unit tests with the race detector
+make check    # everything CI checks on Linux: gofmt, vet, go mod tidy, lint, tests, build
+make help     # the other targets
 ```
+
+`make check` needs [golangci-lint](https://golangci-lint.run/docs/welcome/install/) v2, built with
+the Go version you run; CI lints every pull request either way, so `make test` is enough to start.
 
 ## Writing an adapter
 
@@ -57,8 +61,7 @@ The spec is the contract between detection and every adapter, so changes need ca
 
 - Prefer adding optional fields over changing existing ones.
 - Describe *needs*, not platform features (`volumes`, not `ebs`).
-- Regenerate the JSON Schema: `go run ./cmd/anyship schema > schema/anyship.schema.json`. A test fails
-  if you forget.
+- Regenerate the JSON Schema with `make schema`. A test fails if you forget.
 
 ## Releasing
 
