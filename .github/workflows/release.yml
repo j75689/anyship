@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # GoReleaser reads the tags, and the check below needs main
+          fetch-depth: 0 # the check below needs main
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -25,9 +25,13 @@ jobs:
         run: scripts/release-notes.sh "$GITHUB_REF_NAME" | tee "$RUNNER_TEMP/release-notes.md"
       - name: Test before publishing
         run: make test
-      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
-        with:
-          version: "~> v2"
-          args: release --clean --release-notes ${{ runner.temp }}/release-notes.md
+      - name: Build the archives
+        run: make dist VERSION="$GITHUB_REF_NAME"
+      # Tags like v1.0.0-rc.1 become pre-releases.
+      - name: Publish the release
+        run: |
+          case "$GITHUB_REF_NAME" in *-*) prerelease=--prerelease ;; *) prerelease= ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag $prerelease \
+            --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}

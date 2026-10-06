@@ -4,11 +4,12 @@
 
 BIN           := anyship
 GOLANGCI_LINT ?= golangci-lint
-GORELEASER    ?= goreleaser
-# The platforms release archives are built for (.goreleaser.yaml).
+# What `make dist` stamps into the binaries; the Release workflow passes the tag.
+VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.0.0)-next
+# The platforms release archives are built for (scripts/dist.sh).
 PLATFORMS     := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
-.PHONY: help check build build-all test vet fmt fmt-check lint tidy-check schema test-images e2e-vps snapshot release-notes clean
+.PHONY: help check build build-all test vet fmt fmt-check lint tidy-check schema test-images e2e-vps dist release-notes clean
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z0-9-]+:.*## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -52,8 +53,8 @@ test-images: ## Build and run an image for every sample app (needs Docker)
 e2e-vps: build ## Deploy a sample app to localhost over ssh and remove it (needs Docker and sshd)
 	ANYSHIP=./$(BIN) scripts/e2e-vps.sh
 
-snapshot: ## Build every release archive into dist/ without publishing
-	$(GORELEASER) release --snapshot --clean
+dist: ## Build every release archive and checksums.txt into dist/
+	scripts/dist.sh $(VERSION)
 
 release-notes: ## Print the release notes for VERSION from CHANGELOG.md (make release-notes VERSION=0.3.0)
 	@ALLOW_UNRELEASED=1 scripts/release-notes.sh $(VERSION)

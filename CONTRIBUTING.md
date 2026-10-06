@@ -81,10 +81,10 @@ git push origin v0.3.0
 ```
 
 The `Release` workflow refuses a tag that is not on `main` or has no dated changelog section, runs
-the tests, then GoReleaser builds the archives for every OS and CPU, writes `checksums.txt`, and
-publishes the GitHub release with the changelog section as its notes. Tags with a suffix such as
+the tests, builds the archives for every OS and CPU with `make dist`, which also writes
+`checksums.txt`, and publishes the GitHub release with the changelog section as its notes. Tags with a suffix such as
 `v1.0.0-rc.1` become pre-releases. Release tags can't be moved or deleted once pushed, so check the
-commit before you push one. Every pull request already builds the same archives in snapshot mode,
+commit before you push one. Every pull request already builds the same archives with `make dist`,
 installs one with `install.sh` and reads the latest changelog section, so a broken release config
 fails CI before anything is tagged.
 
