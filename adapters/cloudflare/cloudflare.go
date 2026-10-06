@@ -147,7 +147,7 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 
 	opts, err := decodeOptions(s.Targets["cloudflare"])
 	if err != nil {
-		addError("CF_BAD_OPTIONS", "", "targets.cloudflare: "+err.Error(), "")
+		addError("CF_BAD_OPTIONS", "", "spec.targets.cloudflare: "+err.Error(), "")
 		return plan, nil
 	}
 
@@ -352,7 +352,7 @@ func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts
 	}
 	o, err := decodeOptions(s.Targets["cloudflare"])
 	if err != nil {
-		return fmt.Errorf("targets.cloudflare: %w", err)
+		return fmt.Errorf("spec.targets.cloudflare: %w", err)
 	}
 
 	args := []string{"wrangler", "tail", cmp(o.Name, s.Name), "--format", "pretty"}
@@ -371,7 +371,7 @@ func (a *Adapter) DestroySummary(s *spec.Spec, opts adapter.DestroyOptions) ([]s
 	}
 	o, err := decodeOptions(s.Targets["cloudflare"])
 	if err != nil {
-		return nil, fmt.Errorf("targets.cloudflare: %w", err)
+		return nil, fmt.Errorf("spec.targets.cloudflare: %w", err)
 	}
 	return []string{
 		fmt.Sprintf("Delete the Worker %q from Cloudflare.", cmp(o.Name, s.Name)),
@@ -387,7 +387,7 @@ func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, o
 	}
 	o, err := decodeOptions(s.Targets["cloudflare"])
 	if err != nil {
-		return nil, fmt.Errorf("targets.cloudflare: %w", err)
+		return nil, fmt.Errorf("spec.targets.cloudflare: %w", err)
 	}
 	name := cmp(o.Name, s.Name)
 	args := []string{"wrangler", "delete", "--name", name}

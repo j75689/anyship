@@ -139,8 +139,8 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 	opts, err := decodeOptions(s.Targets[Name])
 	if err != nil {
 		plan.Findings = append(plan.Findings, adapter.Finding{
-			Level: adapter.Error, Code: "GCP_BAD_OPTIONS", Message: "targets.gcp: " + err.Error(),
-			Hint: `Set targets.gcp, e.g. {"gcp": {"project": "my-project", "region": "us-central1", "repository": "apps"}}.`,
+			Level: adapter.Error, Code: "GCP_BAD_OPTIONS", Message: "spec.targets.gcp: " + err.Error(),
+			Hint: adapter.OptionsHint(Name, "`project: my-project` and `region: us-central1`, plus `repository: apps` to build from source"),
 		})
 		return plan, nil
 	}

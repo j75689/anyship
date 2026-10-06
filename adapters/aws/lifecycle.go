@@ -101,7 +101,7 @@ func specNames(s *spec.Spec) []string {
 func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*adapter.Status, error) {
 	o, err := decodeOptions(s.Targets[Name])
 	if err != nil {
-		return nil, fmt.Errorf("targets.aws: %w", err)
+		return nil, fmt.Errorf("spec.targets.aws: %w", err)
 	}
 	c := cli{env: env, opts: *o}
 	found, err := describeServices(ctx, c, *o, specNames(s))
@@ -156,7 +156,7 @@ func serviceState(svc *ecsService) string {
 func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts adapter.LogOptions) error {
 	o, err := decodeOptions(s.Targets[Name])
 	if err != nil {
-		return fmt.Errorf("targets.aws: %w", err)
+		return fmt.Errorf("spec.targets.aws: %w", err)
 	}
 	names := s.ServiceNames()
 	if opts.Service != "" {
@@ -213,7 +213,7 @@ func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts
 func (a *Adapter) DestroySummary(s *spec.Spec, opts adapter.DestroyOptions) ([]string, error) {
 	o, err := decodeOptions(s.Targets[Name])
 	if err != nil {
-		return nil, fmt.Errorf("targets.aws: %w", err)
+		return nil, fmt.Errorf("spec.targets.aws: %w", err)
 	}
 	lines := []string{fmt.Sprintf("Delete the ECS Express Mode services %s in cluster %s (%s), with their load balancers and autoscaling.",
 		strings.Join(specNames(s), ", "), o.cluster(), o.Region)}
@@ -230,7 +230,7 @@ func (a *Adapter) DestroySummary(s *spec.Spec, opts adapter.DestroyOptions) ([]s
 func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, opts adapter.DestroyOptions) (*adapter.Result, error) {
 	o, err := decodeOptions(s.Targets[Name])
 	if err != nil {
-		return nil, fmt.Errorf("targets.aws: %w", err)
+		return nil, fmt.Errorf("spec.targets.aws: %w", err)
 	}
 	c := cli{env: env, opts: *o}
 	found, err := describeServices(ctx, c, *o, specNames(s))

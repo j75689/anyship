@@ -17,6 +17,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `aws`: `destroy` no longer answers "Nothing to remove" while a service from an earlier destroy is
   still draining. It names the services still being deleted and says their load balancers bill
   until that finishes.
+- `vps`, `gcp`, `aws`: the hint for a missing or wrong target block showed JSON to paste into what is
+  now a YAML file. Hints and messages name the block's path (`spec.targets.<name>`), show the fields
+  as they are written in `anyship.yaml`, and link the target's page.
 
 ## [0.3.0] - 2026-10-06
 

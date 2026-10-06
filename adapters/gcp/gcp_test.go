@@ -511,3 +511,24 @@ func TestTimeoutNeedsAUnit(t *testing.T) {
 		t.Errorf("error = %v, want it to ask for a unit", err)
 	}
 }
+
+// The spec is YAML: the hint for a missing target block names the path in
+// anyship.yaml and shows fields as they are written there, never as JSON.
+func TestMissingOptionsHint(t *testing.T) {
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx"}}}`)
+	env, _ := newEnv(t, t.TempDir(), nil)
+	p := plan(t, s, env)
+	if len(p.Findings) != 1 || p.Findings[0].Code != "GCP_BAD_OPTIONS" {
+		t.Fatalf("findings = %+v", p.Findings)
+	}
+	f := p.Findings[0]
+	if !strings.HasPrefix(f.Message, "spec.targets."+Name+": ") {
+		t.Errorf("message %q does not name the path in anyship.yaml", f.Message)
+	}
+	if !strings.HasPrefix(f.Hint, "Under spec.targets."+Name+" in anyship.yaml, set `") || strings.ContainsAny(f.Hint, "{}") {
+		t.Errorf("hint %q", f.Hint)
+	}
+	if _, err := os.Stat(filepath.Join("..", "..", "docs", "targets", Name+".md")); err != nil {
+		t.Errorf("the hint links to a page that does not exist: %v", err)
+	}
+}
