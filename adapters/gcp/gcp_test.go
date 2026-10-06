@@ -532,3 +532,37 @@ func TestMissingOptionsHint(t *testing.T) {
 		t.Errorf("the hint links to a page that does not exist: %v", err)
 	}
 }
+
+// A tag that moves can deploy a stale image and still report success, so the
+// plan says so; a version or a digest is taken at its word.
+func TestPlanWarnsAboutMovingTags(t *testing.T) {
+	for image, tag := range map[string]string{
+		"nginx":                  "latest",
+		"ghcr.io/acme/shop:main": "main",
+		"nginx:1.27":             "",
+		"ghcr.io/acme/shop@sha256:0000000000000000000000000000000000000000000000000000000000000000": "",
+	} {
+		s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "`+image+`"}}, "targets": {"gcp": {"project": "my-project", "region": "us-central1"}}}`)
+		env, _ := newEnv(t, t.TempDir(), nil)
+		p := plan(t, s, env)
+		var warning *adapter.Finding
+		for i, f := range p.Findings {
+			if f.Code == "GCP_MUTABLE_TAG" {
+				warning = &p.Findings[i]
+			}
+		}
+		switch {
+		case tag == "" && warning != nil:
+			t.Errorf("%s: unexpected warning %q", image, warning.Message)
+		case tag != "" && warning == nil:
+			t.Errorf("%s: no GCP_MUTABLE_TAG warning in %v", image, codes(p, adapter.Warning))
+		case tag != "":
+			if warning.Level != adapter.Warning || !strings.Contains(warning.Message, `the tag "`+tag+`"`) || !strings.Contains(warning.Hint, "--image web=<ref>") {
+				t.Errorf("%s: %+v", image, *warning)
+			}
+		}
+		if adapter.HasErrors(p.Findings) {
+			t.Errorf("%s: a moving tag is a warning, not a refusal: %v", image, codes(p, adapter.Error))
+		}
+	}
+}

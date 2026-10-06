@@ -23,6 +23,7 @@ import (
 
 	"github.com/j75689/anyship/adapter"
 	"github.com/j75689/anyship/dockerfile"
+	"github.com/j75689/anyship/image"
 	"github.com/j75689/anyship/internal/shellwords"
 	"github.com/j75689/anyship/internal/yamljson"
 	"github.com/j75689/anyship/spec"
@@ -283,6 +284,11 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 
 	if svc.Image != "" {
 		sv.image = svc.Image
+		if tag, moving := image.MovingTag(svc.Image); moving {
+			add(adapter.Warning, "GCP_MUTABLE_TAG",
+				fmt.Sprintf("image %s is deployed by the tag %q, which can move: Cloud Run runs whatever it points at when pulled, and behind a caching registry that can be an older image.", svc.Image, tag),
+				fmt.Sprintf("Pin it by digest in anyship.yaml (image: name@sha256:…), or override it for one deploy: `anyship apply --image %s=<ref>`.", name))
+		}
 		return sv, findings
 	}
 	if opts.Repository == "" {

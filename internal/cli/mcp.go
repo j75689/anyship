@@ -82,6 +82,8 @@ func agentText(text string) string {
 			return tool(m[1]) + " with volumes=true"
 		case strings.Contains(m[2], "--dry-run"):
 			return tool(m[1]) + " with dry_run=true"
+		case strings.Contains(m[2], "--image"):
+			return tool(m[1]) + " with its images argument"
 		}
 		return tool(m[1])
 	})
@@ -149,6 +151,12 @@ type configInput struct {
 type targetInput struct {
 	Config string `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
 	Target string `json:"target" jsonschema:"deploy target such as vps or cloudflare; the targets tool lists them"`
+}
+
+type planInput struct {
+	Config string            `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
+	Target string            `json:"target" jsonschema:"deploy target such as vps or cloudflare; the targets tool lists them"`
+	Images map[string]string `json:"images,omitempty" jsonschema:"image to deploy per service instead of the one in the spec, for this call only"`
 }
 
 type targetsOutput struct {
@@ -226,9 +234,10 @@ type diagnoseContextOutput struct {
 }
 
 type applyInput struct {
-	Config string `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
-	Target string `json:"target" jsonschema:"deploy target such as vps or cloudflare"`
-	DryRun bool   `json:"dry_run,omitempty" jsonschema:"only run the target's checks and write the generated files under .anyship/; deploy nothing"`
+	Config string            `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
+	Target string            `json:"target" jsonschema:"deploy target such as vps or cloudflare"`
+	DryRun bool              `json:"dry_run,omitempty" jsonschema:"only run the target's checks and write the generated files under .anyship/; deploy nothing"`
+	Images map[string]string `json:"images,omitempty" jsonschema:"image to deploy per service instead of the one in the spec, for this call only"`
 }
 
 type destroyInput struct {
@@ -308,9 +317,12 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		Description: "Show what deploying to a target would do, and every need the target can't meet. Changes nothing: " +
 			"the files the target would generate come back with their contents, so review them here instead of reading their paths.",
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in targetInput) (*mcp.CallToolResult, planOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in planInput) (*mcp.CallToolResult, planOutput, error) {
 		d, _, err := a.prepareForMCP(in.Config, in.Target, false)
 		if err != nil {
+			return nil, planOutput{}, err
+		}
+		if err := overrideImages(d.spec, in.Images); err != nil {
 			return nil, planOutput{}, err
 		}
 		p, err := d.adapter.Plan(ctx, d.spec, d.env)
@@ -417,6 +429,9 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		}
 		d, output, err := a.prepareForMCP(in.Config, in.Target, in.DryRun)
 		if err != nil {
+			return nil, resultOutput{}, err
+		}
+		if err := overrideImages(d.spec, in.Images); err != nil {
 			return nil, resultOutput{}, err
 		}
 		p, err := d.adapter.Plan(ctx, d.spec, d.env)

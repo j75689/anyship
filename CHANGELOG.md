@@ -11,6 +11,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `gcp`: `targets.gcp.timeout` sets Cloud Run's request timeout (for example `10m`, up to `1h`)
   for every service; without it a deploy keeps the current one.
+- `plan` and `apply` take `--image <service>=<image>` (and the MCP tools an `images` argument) to
+  deploy a different image than the spec names, for that run only, so a pipeline can deploy the
+  digest it just built without editing `anyship.yaml`.
+- `gcp`, `aws`: `plan` warns when a service is deployed by a tag that moves (`GCP_MUTABLE_TAG`,
+  `AWS_MUTABLE_TAG`). Such a tag can resolve to a stale image behind a caching registry while the
+  deploy reports success.
 
 ### Fixed
 

@@ -22,6 +22,11 @@ spec:
   `anyship-project=<spec name>`; `status`, `logs` and `destroy` find it by that label, with no local state.
 - Services that build from source are built for `linux/amd64`, pushed, and deployed by digest, so a
   deploy runs exactly the image it built. Generated Dockerfiles are kept in `.anyship/gcp/` for review.
+- A service that sets `image` is deployed from exactly that reference. A tag that moves (`:latest`,
+  `:main`, no tag at all) is pulled again on every deploy, and behind a caching registry it can
+  resolve to an older image while the deploy reports success, so `plan` warns about it
+  (`GCP_MUTABLE_TAG`). Pin the image by digest, or pass the one to deploy with
+  `--image <service>=<image>`.
 - Every `apply` first checks the login, the project, the required APIs (`run`, `artifactregistry`,
   `secretmanager`) and the repository; `apply --dry-run` stops after the checks. Errors name the
   gcloud account in use, which matters when you have several (`gcloud auth list`).

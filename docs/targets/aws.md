@@ -35,6 +35,11 @@ spec:
 - Each service becomes the Express Mode service `<spec name>-<service>`, tagged
   `anyship-project=<spec name>`; `status`, `logs` and `destroy` find it by name, with no local state.
   Built images are tagged with the service name in the repository and deployed by digest.
+- A service that sets `image` is deployed from exactly that reference. A tag that moves (`:latest`,
+  `:main`, no tag at all) is pulled again on every deploy, and behind a caching registry it can
+  resolve to an older image while the deploy reports success, so `plan` warns about it
+  (`AWS_MUTABLE_TAG`). Pin the image by digest, or pass the one to deploy with
+  `--image <service>=<image>`.
 - Secrets live in Secrets Manager as `anyship/<spec name>/<NAME>` and reach the container as environment
   variables. The execution role needs `secretsmanager:GetSecretValue` on them (`plan` warns). Values are
   handed to the aws CLI through a private temporary file, never on the command line.
