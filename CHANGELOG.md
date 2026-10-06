@@ -18,6 +18,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `gcp`: `plan` refuses an image on a registry Cloud Run can't pull from, such as `ghcr.io`
   (`GCP_UNPULLABLE_IMAGE`), and says how to reach it through Artifact Registry. It used to pass and
   fail in `gcloud run deploy`.
+- `gcp`: `plan` warns that a service with an `internal` port can't be called by the spec's other
+  services as deployed (`GCP_INTERNAL_CALLERS`), and lists what a caller needs: a route through a
+  VPC network, `roles/run.invoker`, and an identity token. It used to say nothing.
 
 ## [0.3.1] - 2026-10-06
 
