@@ -42,6 +42,11 @@ spec:
   images stay in the registry.
 - One HTTP port per service (default 8080, also passed as `$PORT`). `replicas` sets the minimum
   instance count. Services reach each other by URL, not by name.
+- `memory` and `cpu` set the instance size. Cloud Run takes 1, 2, 4, 6 or 8 CPUs and ties memory to
+  them (up to 4GB with 1 CPU, 8GB with 2, 2GB to 16GB with 4, 4GB to 24GB with 6, 4GB to 32GB with
+  8); `plan` refuses a pair that doesn't fit, and a fraction of a CPU, which Cloud Run only runs
+  with one request per instance. The spec decides: a service that names neither is deployed with
+  Cloud Run's defaults, 512MB and 1 CPU, so a size set by hand is replaced on the next deploy.
 - A service with an `internal` port is deployed with internal ingress and requires authentication.
   anyship stops there, so as deployed the spec's other services can't call it, and `plan` warns
   about it (`GCP_INTERNAL_CALLERS`). Each caller needs three things set up by hand: a

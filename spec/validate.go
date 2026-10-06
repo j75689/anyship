@@ -12,6 +12,7 @@ const (
 	NamePattern       = `^[a-z][a-z0-9-]{0,62}$`
 	SecretNamePattern = `^[A-Z][A-Z0-9_]*$`
 	SizePattern       = `^\d+(GB|TB)$`
+	MemoryPattern     = `^([1-9]\d{0,5})(MB|GB)$`
 	// DomainPattern matches a fully qualified domain name. It accepts either
 	// case, because Normalize lowercases domains; wildcards are left out on
 	// purpose, since no target attaches them.
@@ -28,6 +29,7 @@ var (
 	nameRe       = regexp.MustCompile(NamePattern)
 	secretNameRe = regexp.MustCompile(SecretNamePattern)
 	sizeRe       = regexp.MustCompile(SizePattern)
+	memoryRe     = regexp.MustCompile(MemoryPattern)
 	domainRe     = regexp.MustCompile(DomainPattern)
 
 	serviceKinds  = []ServiceKind{KindStatic, KindServer, KindWorker}
@@ -161,6 +163,13 @@ func (s *Spec) validateService(name string, claimedDomains map[string]string, p 
 		if !slices.Contains(volumeClasses, v.Class) {
 			p.add(at("volumes", i, "class"), "must be one of %s", quoted(volumeClasses))
 		}
+	}
+
+	if svc.Memory != "" && !memoryRe.MatchString(svc.Memory) {
+		p.add(at("memory"), `use a size like "512MB" or "4GB"`)
+	}
+	if svc.CPU < 0 {
+		p.add(at("cpu"), "must be greater than 0, like 0.5, 1 or 2")
 	}
 
 	for i, c := range svc.Cron {

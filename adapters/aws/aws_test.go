@@ -217,6 +217,34 @@ func TestPlanImageService(t *testing.T) {
 	}
 }
 
+// A service's memory and cpu are passed in ECS's units and win over the
+// target's defaults.
+func TestPlanMemoryAndCPU(t *testing.T) {
+	s := parse(t, `{"name": "shop",
+		"services": {
+			"api": {"kind": "server", "image": "api:1", "ports": [{"port": 8080}], "memory": "4GB", "cpu": 0.5},
+			"web": {"kind": "server", "image": "web:1", "ports": [{"port": 8080}]}},
+		"targets": {"aws": {"region": "us-east-1", "cpu": "1024", "memory": "2048"}}}`)
+	env, _ := newEnv(t, t.TempDir(), nil)
+	p := plan(t, s, env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	data := p.Data.(*planData)
+	for _, sv := range data.services {
+		want := map[string][2]string{"api": {"512", "4096"}, "web": {"1024", "2048"}}[sv.name]
+		c := call{name: "aws", args: createArgs(data, sv, sv.image, nil, account, "aws")}
+		if cpu, memory := c.flag("--cpu"), c.flag("--memory"); cpu != want[0] || memory != want[1] {
+			t.Errorf("%s: --cpu %s --memory %s, want %s and %s", sv.name, cpu, memory, want[0], want[1])
+		}
+	}
+
+	odd := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "web:1", "ports": [{"port": 8080}], "cpu": 3}}, `+target+`}`)
+	if errs := codes(plan(t, odd, env), adapter.Error); !slices.Contains(errs, "AWS_CPU") {
+		t.Errorf("cpu 3: errors = %v, want AWS_CPU", errs)
+	}
+}
+
 func TestPlanRefusesUnsupported(t *testing.T) {
 	s := parse(t, `{"name": "shop",
 		"services": {

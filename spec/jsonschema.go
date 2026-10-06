@@ -50,6 +50,12 @@ func (Service) JSONSchemaExtend(s *jsonschema.Schema) {
 	if domains, ok := s.Properties.Get("domains"); ok && domains.Items != nil {
 		domains.Items.Pattern = DomainPattern
 	}
+	if memory, ok := s.Properties.Get("memory"); ok {
+		memory.Pattern = MemoryPattern
+	}
+	if cpu, ok := s.Properties.Get("cpu"); ok {
+		cpu.ExclusiveMinimum = "0"
+	}
 }
 
 func (Volume) JSONSchemaExtend(s *jsonschema.Schema) {

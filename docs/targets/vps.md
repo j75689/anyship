@@ -30,6 +30,8 @@ spec:
   reachable by other services, by service name.
 - `start` runs as the container's command, exactly as written and without a shell; wrap it in
   `sh -c '...'` if you need pipes or variables.
+- `memory` and `cpu` become limits on the container (`deploy.resources.limits` in the compose file):
+  Docker stops it from using more and reserves nothing on the host for it.
 - Secrets are mounted at `/run/secrets/<NAME>`. `generate: "hex32"` secrets are created on the host
   on first deploy and kept; others come from the same-named environment variable at `apply` time,
   or stay as set by a previous deploy.

@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/j75689/anyship/adapter"
@@ -95,6 +96,12 @@ func (*Adapter) Description() string {
 }
 
 // service is one Express Mode service to deploy.
+// cpuUnits is one CPU in the units ECS counts in.
+const cpuUnits = 1024
+
+// taskCPUs are the CPU counts a Fargate task can have.
+var taskCPUs = []float64{0.25, 0.5, 1, 2, 4, 8, 16}
+
 type service struct {
 	name    string // spec service name
 	express string // ECS service name
@@ -278,6 +285,9 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	case svc.Kind == spec.KindServer:
 		add(adapter.Info, "AWS_PORT_ASSUMED", fmt.Sprintf("No port in the spec; the load balancer will send traffic to port %d.", defaultPort), "Add a port if the app listens elsewhere.")
 	}
+	if svc.CPU != 0 && !slices.Contains(taskCPUs, svc.CPU) {
+		add(adapter.Error, "AWS_CPU", fmt.Sprintf("cpu %v: Fargate tasks have 0.25, 0.5, 1, 2, 4, 8 or 16 CPUs.", svc.CPU), "")
+	}
 	if svc.HealthCheck != nil && svc.HealthCheck.Path != "" {
 		sv.health = svc.HealthCheck.Path
 	} else if svc.Kind == spec.KindServer {
@@ -386,11 +396,19 @@ func settingArgs(d *planData, sv service, image string, secretARNs map[string]st
 	if len(o.Subnets) > 0 {
 		args = append(args, "--network-configuration", mustJSON(map[string][]string{"subnets": o.Subnets, "securityGroups": nonNil(o.SecurityGroups)}))
 	}
-	if o.CPU != "" {
-		args = append(args, "--cpu", o.CPU)
+	// A service's own memory and cpu win over the target's defaults.
+	cpu, memory := o.CPU, o.Memory
+	if sv.svc.CPU != 0 {
+		cpu = strconv.Itoa(int(sv.svc.CPU * cpuUnits))
 	}
-	if o.Memory != "" {
-		args = append(args, "--memory", o.Memory)
+	if mb := sv.svc.MemoryMB(); mb != 0 {
+		memory = strconv.Itoa(mb)
+	}
+	if cpu != "" {
+		args = append(args, "--cpu", cpu)
+	}
+	if memory != "" {
+		args = append(args, "--memory", memory)
 	}
 	return args
 }

@@ -62,6 +62,24 @@ type Options struct {
 // maxTimeout is Cloud Run's longest request timeout.
 const maxTimeout = time.Hour
 
+// What Cloud Run gives an instance when a deploy doesn't say. A spec that
+// names no memory or cpu deploys with these, so taking either out of the spec
+// takes effect.
+const (
+	defaultMemoryMB = 512
+	defaultCPU      = 1
+)
+
+// cpuMemory is the least and the most memory, in MB, that Cloud Run allows
+// for a CPU count.
+var cpuMemory = map[float64][2]int{
+	1: {128, 4 * 1024},
+	2: {128, 8 * 1024},
+	4: {2 * 1024, 16 * 1024},
+	6: {4 * 1024, 24 * 1024},
+	8: {4 * 1024, 32 * 1024},
+}
+
 // The startup probe made from healthCheck.path asks every probePeriod seconds
 // and gives up after probeFailures tries: 4 minutes, which is also how long
 // Cloud Run's default check lets a container take to start.
@@ -110,6 +128,8 @@ type service struct {
 	port     int
 	internal bool
 	argv     []string
+	cpu      float64
+	memoryMB int
 	// image is the image to deploy; for builds it is filled in by Apply.
 	image string
 	build *build
@@ -295,6 +315,17 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	if svc.Replicas > 1 {
 		add(adapter.Info, "GCP_REPLICAS", fmt.Sprintf("Cloud Run scales automatically; replicas keeps %d instances warm (min instances).", svc.Replicas), "")
 	}
+	sv.cpu, sv.memoryMB = defaultCPU, defaultMemoryMB
+	if svc.CPU != 0 {
+		sv.cpu = svc.CPU
+	}
+	if mb := svc.MemoryMB(); mb != 0 {
+		sv.memoryMB = mb
+	}
+	if finding := checkSize(sv.cpu, sv.memoryMB); finding != nil {
+		finding.Service = name
+		findings = append(findings, *finding)
+	}
 	if hc := svc.HealthCheck; hc != nil {
 		switch {
 		case hc.Path != "" && !strings.HasPrefix(hc.Path, "/"):
@@ -350,6 +381,49 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	return sv, findings
 }
 
+// checkSize refuses a CPU count Cloud Run doesn't offer and memory that
+// doesn't go with the CPU count.
+func checkSize(cpu float64, memoryMB int) *adapter.Finding {
+	limits, ok := cpuMemory[cpu]
+	switch {
+	case cpu < 1:
+		return &adapter.Finding{Level: adapter.Error, Code: "GCP_FRACTIONAL_CPU",
+			Message: fmt.Sprintf("cpu %v: Cloud Run runs less than one CPU only with one request per instance, which anyship can't set yet.", cpu),
+			Hint:    "Use cpu: 1."}
+	case !ok:
+		return &adapter.Finding{Level: adapter.Error, Code: "GCP_CPU",
+			Message: fmt.Sprintf("cpu %v: Cloud Run instances have 1, 2, 4, 6 or 8 CPUs.", cpu)}
+	case memoryMB >= limits[0] && memoryMB <= limits[1]:
+		return nil
+	}
+	hint := "Cloud Run instances have 128MB to 32GB of memory."
+	for _, fits := range []float64{1, 2, 4, 6, 8} {
+		if memoryMB >= cpuMemory[fits][0] && memoryMB <= cpuMemory[fits][1] {
+			hint = fmt.Sprintf("Set cpu: %v, or memory between %s and %s.", fits, specMemory(limits[0]), specMemory(limits[1]))
+			break
+		}
+	}
+	return &adapter.Finding{Level: adapter.Error, Code: "GCP_MEMORY",
+		Message: fmt.Sprintf("memory %s doesn't go with cpu %v: Cloud Run allows %s to %s there.", specMemory(memoryMB), cpu, specMemory(limits[0]), specMemory(limits[1])),
+		Hint:    hint}
+}
+
+// specMemory writes megabytes the way the spec does: "512MB", "4GB".
+func specMemory(mb int) string {
+	if mb%1024 == 0 {
+		return strconv.Itoa(mb/1024) + "GB"
+	}
+	return strconv.Itoa(mb) + "MB"
+}
+
+// gcloudMemory writes megabytes the way gcloud takes them: "512Mi", "4Gi".
+func gcloudMemory(mb int) string {
+	if mb%1024 == 0 {
+		return strconv.Itoa(mb/1024) + "Gi"
+	}
+	return strconv.Itoa(mb) + "Mi"
+}
+
 // pullable reports whether Cloud Run pulls images from a registry. It takes
 // Artifact Registry, Container Registry and Docker Hub, and refuses a deploy
 // from anywhere else.
@@ -359,12 +433,13 @@ func pullable(registry string) bool {
 }
 
 // deployArgs is the gcloud command that makes the service match the spec.
-// Env vars, secrets and the startup probe are always set or cleared, so
-// removals in the spec take effect.
+// Env vars, secrets, the startup probe, memory and cpu are always set or put
+// back to their defaults, so removals in the spec take effect.
 func deployArgs(d *planData, sv service, image string) []string {
 	o := d.opts
 	args := []string{"run", "deploy", sv.cloudRun, "--image", image, "--region", o.Region, "--project", o.Project,
-		"--port", strconv.Itoa(sv.port), "--labels", fmt.Sprintf("%s=%s,%s=%s", projectLabel, d.project, serviceLabel, sv.name)}
+		"--port", strconv.Itoa(sv.port), "--labels", fmt.Sprintf("%s=%s,%s=%s", projectLabel, d.project, serviceLabel, sv.name),
+		"--memory", gcloudMemory(sv.memoryMB), "--cpu", strconv.FormatFloat(sv.cpu, 'f', -1, 64)}
 	switch {
 	case sv.internal:
 		args = append(args, "--ingress", "internal", "--no-allow-unauthenticated")

@@ -472,6 +472,10 @@ func checkService(name string, svc *spec.Service, s *spec.Spec) []adapter.Findin
 				"Use an HTTP-based external service, or KV for simple caching.")
 		}
 	}
+	if svc.CPU != 0 || svc.Memory != "" {
+		findings = append(findings, adapter.Finding{Level: adapter.Warning, Code: "CF_RESOURCES_IGNORED", Service: name,
+			Message: "memory and cpu aren't applied: Cloudflare gives every Worker the same limits (128 MB of memory), whatever the spec asks for."})
+	}
 	if svc.Replicas > 1 {
 		findings = append(findings, adapter.Finding{Level: adapter.Info, Code: "CF_REPLICAS_IGNORED", Service: name, Message: "Workers scale automatically; replicas is ignored."})
 	}

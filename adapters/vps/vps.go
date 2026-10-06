@@ -430,6 +430,10 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, dir string) chec
 			fmt.Sprintf("%d replicas cannot all publish the same host ports.", svc.Replicas),
 			"Use one replica, or keep these ports internal behind a load balancer service.")
 	}
+	if svc.CPU != 0 || svc.Memory != "" {
+		add(adapter.Info, "VPS_RESOURCE_LIMITS",
+			"memory and cpu are limits on the container: Docker stops it from using more, and reserves nothing on the host for it.", "")
+	}
 	if svc.HealthCheck != nil && svc.HealthCheck.Path != "" && svc.HealthCheck.Command == "" {
 		add(adapter.Warning, "VPS_HEALTH_PATH_IGNORED",
 			"healthCheck.path is not supported on the VPS target and is ignored.",
