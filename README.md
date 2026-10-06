@@ -141,7 +141,7 @@ spec:
       uses: [db]
       secrets: [JWT_SECRET]
       cron:
-        - schedule: "0 * * * *"
+        - schedule: "0 * * * *"  # with path: /tick (an HTTP call to the service) or command: ./job
   resources:
     db: {type: sqlite}           # postgres | mysql | sqlite | redis | bucket | kv
   secrets:

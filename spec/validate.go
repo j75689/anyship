@@ -36,6 +36,7 @@ var (
 	protocols     = []Protocol{ProtocolHTTP, ProtocolTCP, ProtocolUDP, ProtocolTCPUDP}
 	exposures     = []Exposure{ExposurePublic, ExposureInternal}
 	volumeClasses = []string{"standard", "nvme"}
+	cronMethods   = []string{"GET", "POST", "PUT", "DELETE", "HEAD"}
 	resourceTypes = []ResourceType{ResourcePostgres, ResourceMySQL, ResourceSQLite, ResourceRedis, ResourceBucket, ResourceKV}
 )
 
@@ -175,6 +176,17 @@ func (s *Spec) validateService(name string, claimedDomains map[string]string, p 
 	for i, c := range svc.Cron {
 		if strings.TrimSpace(c.Schedule) == "" {
 			p.add(at("cron", i, "schedule"), "is required")
+		}
+		switch {
+		case c.Path != "" && c.Command != "":
+			p.add(at("cron", i), "set command or path, not both")
+		case c.Path != "" && !strings.HasPrefix(c.Path, "/"):
+			p.add(at("cron", i, "path"), "must start with a slash, like \"/internal/tick\"")
+		case c.Path == "" && c.Method != "":
+			p.add(at("cron", i, "method"), "needs a path to call")
+		}
+		if c.Method != "" && !slices.Contains(cronMethods, c.Method) {
+			p.add(at("cron", i, "method"), "must be one of %s", quoted(cronMethods))
 		}
 	}
 

@@ -22,6 +22,21 @@
         },
         "command": {
           "type": "string"
+        },
+        "path": {
+          "type": "string",
+          "description": "Path of this service to call over HTTP when the schedule fires, e.g. \"/internal/tick\". Instead of command."
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "DELETE",
+            "HEAD"
+          ],
+          "description": "HTTP method for path; POST by default."
         }
       },
       "additionalProperties": false,

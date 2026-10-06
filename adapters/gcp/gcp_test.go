@@ -235,6 +235,237 @@ func TestPlanMemoryAndCPU(t *testing.T) {
 	}
 }
 
+// cronSpec is one service with cron entries and the given gcp options next to
+// project and region.
+func cronSpec(cron, options string) string {
+	return `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}], "cron": [` + cron + `]}},
+		"targets": {"gcp": {"project": "my-project", "region": "us-central1"` + options + `}}}`
+}
+
+const twoSchedules = `{"schedule": "* * * * *", "path": "/internal/tick"}, {"schedule": "0 3 * * *", "path": "/internal/sweep", "method": "GET"}`
+
+func TestPlanCron(t *testing.T) {
+	env, _ := newEnv(t, t.TempDir(), nil)
+	p := plan(t, parse(t, cronSpec(twoSchedules, "")), env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", p.Findings)
+	}
+	var jobs []string
+	for _, a := range p.Actions {
+		if a.Kind == "Cloud Scheduler job" {
+			jobs = append(jobs, a.Name+": "+a.Detail)
+		}
+	}
+	want := []string{
+		`anyship_shop_web_0: "* * * * *" calls POST /internal/tick on shop-web`,
+		`anyship_shop_web_1: "0 3 * * *" calls GET /internal/sweep on shop-web`,
+	}
+	if !slices.Equal(jobs, want) {
+		t.Errorf("jobs = %q, want %q", jobs, want)
+	}
+	note := func(p *adapter.Plan) string {
+		for _, f := range p.Findings {
+			if f.Code == "GCP_CRON_HTTP" {
+				return f.Message
+			}
+		}
+		return ""
+	}
+	if m := note(p); !strings.Contains(m, "UTC") || !strings.Contains(m, "has to check that token itself") {
+		t.Errorf("note on a public service = %q", m)
+	}
+	private := plan(t, parse(t, cronSpec(twoSchedules, `, "private": true`)), env)
+	if m := note(private); m == "" || strings.Contains(m, "check that token itself") {
+		t.Errorf("note on a private service = %q", m)
+	}
+
+	// A command has nothing to run on, and neither has an entry that names
+	// nothing; each is refused by its schedule.
+	refused := plan(t, parse(t, cronSpec(`{"schedule": "0 * * * *", "command": "./job"}, {"schedule": "5 * * * *"}, {"schedule": "9 * * * *", "path": "/tick"}`, "")), env)
+	var messages []string
+	for _, f := range refused.Findings {
+		if f.Code == "GCP_CRON" && f.Level == adapter.Error {
+			messages = append(messages, f.Message)
+		}
+	}
+	if len(messages) != 2 || !strings.Contains(messages[0], `"0 * * * *"`) || !strings.Contains(messages[1], `"5 * * * *"`) {
+		t.Errorf("GCP_CRON errors = %q", messages)
+	}
+}
+
+// schedulerEnabled is the fake project with the Cloud Scheduler API on.
+func schedulerEnabled(fc *fakeCloud) {
+	fc.out["gcloud services list"] += "\ncloudscheduler.googleapis.com"
+}
+
+func TestApplyCreatesAndUpdatesCronJobs(t *testing.T) {
+	s := parse(t, cronSpec(twoSchedules, `, "timeout": "10m", "serviceAccount": "runner@my-project.iam.gserviceaccount.com"`))
+	env, fc := newEnv(t, t.TempDir(), nil)
+	schedulerEnabled(fc)
+	// The second entry's job is new; the first one's exists already.
+	fc.fail = []string{"gcloud scheduler jobs describe anyship_shop_web_1"}
+	res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+	if err != nil || !res.OK {
+		t.Fatalf("apply: %v %+v", err, res)
+	}
+	const url = "https://shop-web-abc.a.run.app"
+	update := fc.find("gcloud scheduler jobs update http anyship_shop_web_0")
+	if update == nil {
+		t.Fatalf("the existing job was not updated: %v", fc.calls)
+	}
+	for _, want := range []string{
+		"--location us-central1 --schedule * * * * * --time-zone Etc/UTC",
+		"--uri " + url + "/internal/tick --http-method post",
+		"--attempt-deadline 600s",
+		"--oidc-service-account-email runner@my-project.iam.gserviceaccount.com --oidc-token-audience " + url,
+		"--clear-headers --clear-message-body",
+	} {
+		if !strings.Contains(update.line(), want) {
+			t.Errorf("update %q lacks %q", update.line(), want)
+		}
+	}
+	create := fc.find("gcloud scheduler jobs create http anyship_shop_web_1")
+	if create == nil {
+		t.Fatalf("the new job was not created: %v", fc.calls)
+	}
+	if line := create.line(); !strings.Contains(line, "--uri "+url+"/internal/sweep --http-method get") || strings.Contains(line, "--clear-headers") {
+		t.Errorf("create = %q", line)
+	}
+	// A public service takes the call as it is; nothing to grant.
+	if grant := fc.find("gcloud run services add-iam-policy-binding"); grant != nil {
+		t.Errorf("unexpected grant on a public service: %s", grant.line())
+	}
+	if !slices.ContainsFunc(res.Messages, func(m string) bool { return strings.Contains(m, "2 cron schedule(s)") }) {
+		t.Errorf("messages = %q", res.Messages)
+	}
+}
+
+// A service that asks for authentication lets the jobs' account in, and the
+// project's default account stands in when the spec names none.
+func TestApplyLetsCronCallAPrivateService(t *testing.T) {
+	s := parse(t, cronSpec(`{"schedule": "* * * * *", "path": "/tick"}`, `, "private": true`))
+	env, fc := newEnv(t, t.TempDir(), nil)
+	schedulerEnabled(fc)
+	res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+	if err != nil || !res.OK {
+		t.Fatalf("apply: %v %+v", err, res)
+	}
+	const account = "123456789-compute@developer.gserviceaccount.com"
+	grant := fc.find("gcloud run services add-iam-policy-binding shop-web")
+	if grant == nil || !slices.Contains(grant.args, "serviceAccount:"+account) || !slices.Contains(grant.args, "roles/run.invoker") {
+		t.Errorf("grant = %+v", grant)
+	}
+	if job := fc.find("gcloud scheduler jobs update http anyship_shop_web_0"); job == nil || !strings.Contains(job.line(), "--oidc-service-account-email "+account) {
+		t.Errorf("job = %+v", job)
+	}
+}
+
+// An entry taken out of the spec stops firing: its job is deleted, and jobs
+// that belong to another spec or to nobody are left alone.
+func TestApplyRemovesStaleCronJobs(t *testing.T) {
+	deleted := func(fc *fakeCloud) []string {
+		var ids []string
+		for _, c := range fc.calls {
+			if strings.HasPrefix(c.line(), "gcloud scheduler jobs delete ") {
+				ids = append(ids, c.args[3])
+			}
+		}
+		return ids
+	}
+	const existing = "anyship_shop_web_0\nanyship_shop_web_1\nanyship_shop_api_0\nanyship_shop-admin_web_0\nnightly-backup"
+
+	s := parse(t, cronSpec(`{"schedule": "* * * * *", "path": "/tick"}`, ""))
+	env, fc := newEnv(t, t.TempDir(), nil)
+	schedulerEnabled(fc)
+	fc.out["gcloud scheduler jobs list"] = existing
+	if res, err := New().Apply(context.Background(), plan(t, s, env), s, env); err != nil || !res.OK {
+		t.Fatalf("apply: %v %+v", err, res)
+	}
+	if got, want := deleted(fc), []string{"anyship_shop_web_1", "anyship_shop_api_0"}; !slices.Equal(got, want) {
+		t.Errorf("deleted = %q, want %q", got, want)
+	}
+
+	// No cron left in the spec: the jobs go, as long as the API is there to ask.
+	none := parse(t, cronSpec("", ""))
+	env, fc = newEnv(t, t.TempDir(), nil)
+	schedulerEnabled(fc)
+	fc.out["gcloud scheduler jobs list"] = existing
+	if res, err := New().Apply(context.Background(), plan(t, none, env), none, env); err != nil || !res.OK {
+		t.Fatalf("apply: %v %+v", err, res)
+	}
+	if got, want := deleted(fc), []string{"anyship_shop_web_0", "anyship_shop_web_1", "anyship_shop_api_0"}; !slices.Equal(got, want) {
+		t.Errorf("deleted = %q, want %q", got, want)
+	}
+
+	env, fc = newEnv(t, t.TempDir(), nil)
+	if res, err := New().Apply(context.Background(), plan(t, none, env), none, env); err != nil || !res.OK {
+		t.Fatalf("apply: %v %+v", err, res)
+	}
+	if call := fc.find("gcloud scheduler"); call != nil {
+		t.Errorf("a project without the API was asked for jobs: %s", call.line())
+	}
+}
+
+func TestApplyCronNeedsTheSchedulerAPI(t *testing.T) {
+	s := parse(t, cronSpec(`{"schedule": "* * * * *", "path": "/tick"}`, ""))
+	env, fc := newEnv(t, t.TempDir(), nil)
+	res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+	if err != nil || res.OK {
+		t.Fatalf("apply: %v %+v", err, res)
+	}
+	if got := codesOf(res.Findings, adapter.Error); !slices.Equal(got, []string{"GCP_PREFLIGHT_API"}) || !strings.Contains(res.Findings[0].Hint, "gcloud services enable cloudscheduler.googleapis.com") {
+		t.Errorf("findings = %+v", res.Findings)
+	}
+	if fc.find("gcloud run deploy") != nil {
+		t.Error("deployed without the Cloud Scheduler API")
+	}
+}
+
+func codesOf(findings []adapter.Finding, level adapter.Level) []string {
+	var out []string
+	for _, f := range findings {
+		if f.Level == level {
+			out = append(out, f.Code)
+		}
+	}
+	return out
+}
+
+func TestDestroyRemovesCronJobs(t *testing.T) {
+	s := parse(t, cronSpec(`{"schedule": "* * * * *", "path": "/tick"}`, ""))
+	env, fc := newEnv(t, t.TempDir(), nil)
+	fc.out["gcloud run services list"] = `[{"metadata": {"name": "shop-web"}}]`
+	fc.out["gcloud scheduler jobs list"] = "anyship_shop_web_0\nanyship_shop_web_4\nanyship_shop-admin_web_0"
+	lines, err := New().DestroySummary(s, adapter.DestroyOptions{})
+	if err != nil || !slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "Cloud Scheduler jobs anyship_shop_*") }) {
+		t.Errorf("summary = %q, %v", lines, err)
+	}
+	res, err := New().Destroy(context.Background(), s, env, adapter.DestroyOptions{})
+	if err != nil || !res.OK {
+		t.Fatalf("destroy: %v %+v", err, res)
+	}
+	for id, want := range map[string]bool{"anyship_shop_web_0": true, "anyship_shop_web_4": true, "anyship_shop-admin_web_0": false} {
+		if got := fc.find("gcloud scheduler jobs delete "+id+" ") != nil; got != want {
+			t.Errorf("deleted %s = %v, want %v", id, got, want)
+		}
+	}
+
+	// The list fails where the API is off. With cron in the spec that is
+	// worth a line; without, there was nothing to look for.
+	env, fc = newEnv(t, t.TempDir(), nil)
+	fc.out["gcloud run services list"] = `[{"metadata": {"name": "shop-web"}}]`
+	fc.fail = []string{"gcloud scheduler jobs list"}
+	res, err = New().Destroy(context.Background(), s, env, adapter.DestroyOptions{})
+	if err != nil || !res.OK || !slices.ContainsFunc(res.Messages, func(m string) bool { return strings.Contains(m, "Cloud Scheduler jobs were not removed") }) {
+		t.Errorf("destroy with a failing list: %v %+v", err, res)
+	}
+	plain := parse(t, cronSpec("", ""))
+	res, err = New().Destroy(context.Background(), plain, env, adapter.DestroyOptions{})
+	if err != nil || !res.OK || len(res.Messages) != 1 {
+		t.Errorf("destroy without cron: %v %+v", err, res)
+	}
+}
+
 func TestPlanHealthCheck(t *testing.T) {
 	tests := map[string]struct {
 		healthCheck string
