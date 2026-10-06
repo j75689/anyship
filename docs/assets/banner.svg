@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" role="img" aria-label="anyship. Describe your app once, deploy it anywhere. One anyship.yaml file is deployed to Cloudflare Workers, a VPS with Docker, Google Cloud Run or AWS ECS.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" role="img" aria-label="anyship. Describe your app once, deploy it anywhere. One anyship.yaml file is deployed to Cloudflare, a VPS, Google Cloud or AWS, with more platforms to come.">
   <style>
     svg { --bg:#f4f6f8; --panel:#ffffff; --fg:#15202b; --muted:#556270; --line:#c3ccd5; --accent:#b8430f; --accent-soft:#fbe7dc; }
     @media (prefers-color-scheme: dark) { svg { --bg:#0f151b; --panel:#161e27; --fg:#e2e8ee; --muted:#94a2b0; --line:#344250; --accent:#f08a4b; --accent-soft:#3a2418; } }
@@ -20,7 +20,13 @@
     .tip { fill:var(--accent); }
     .target { fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.5; }
     .name { fill:var(--fg); font:600 16px system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
-    .how { fill:var(--muted); font:13px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .wire.soon { stroke:var(--muted); stroke-dasharray:5 5; }
+    .tip.soon { fill:var(--muted); }
+    .later { fill:var(--panel); stroke:var(--muted); stroke-width:1.25; stroke-dasharray:5 4; }
+    .later.l1 { opacity:0.7; }
+    .later.l2 { opacity:0.45; }
+    .later.l3 { opacity:0.25; }
+    .more { fill:var(--muted); font:600 16px system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
   </style>
 
   <rect class="bg" x="0.75" y="0.75" width="1278.5" height="398.5" rx="14"/>
@@ -48,26 +54,31 @@
   <text class="yaml" x="644" y="274" xml:space="preserve">      ports:</text>
   <text class="yaml" x="644" y="300" xml:space="preserve">        - port: <tspan class="v">3000</tspan></text>
 
-  <!-- One spec, four targets -->
-  <path class="wire" d="M898 200C946 200 946 91 990 91"/>
-  <path class="wire" d="M898 200C946 200 946 164 990 164"/>
-  <path class="wire" d="M898 200C946 200 946 236 990 236"/>
-  <path class="wire" d="M898 200C946 200 946 309 990 309"/>
-  <path class="tip" d="M1000 91l-11-6v12zM1000 164l-11-6v12zM1000 236l-11-6v12zM1000 309l-11-6v12z"/>
+  <!-- One spec, every target: four today, more behind them -->
+  <path class="wire" d="M898 200C946 200 946 84 990 84"/>
+  <path class="wire" d="M898 200C946 200 946 142 990 142"/>
+  <path class="wire" d="M898 200H990"/>
+  <path class="wire" d="M898 200C946 200 946 258 990 258"/>
+  <path class="wire soon" d="M898 200C946 200 946 316 990 316"/>
+  <path class="tip" d="M1000 84l-11-6v12zM1000 142l-11-6v12zM1000 200l-11-6v12zM1000 258l-11-6v12z"/>
+  <path class="tip soon" d="M1000 316l-11-6v12z"/>
 
-  <rect class="target" x="1002" y="64" width="210" height="54" rx="8"/>
-  <text class="name" x="1022" y="87">Cloudflare Workers</text>
-  <text class="how" x="1022" y="106">wrangler</text>
+  <rect class="target" x="1002" y="62" width="200" height="44" rx="8"/>
+  <text class="name" x="1022" y="90">Cloudflare</text>
 
-  <rect class="target" x="1002" y="137" width="210" height="54" rx="8"/>
-  <text class="name" x="1022" y="160">Any VPS</text>
-  <text class="how" x="1022" y="179">docker over ssh</text>
+  <rect class="target" x="1002" y="120" width="200" height="44" rx="8"/>
+  <text class="name" x="1022" y="148">VPS</text>
 
-  <rect class="target" x="1002" y="209" width="210" height="54" rx="8"/>
-  <text class="name" x="1022" y="232">Google Cloud Run</text>
-  <text class="how" x="1022" y="251">gcloud</text>
+  <rect class="target" x="1002" y="178" width="200" height="44" rx="8"/>
+  <text class="name" x="1022" y="206">Google Cloud</text>
 
-  <rect class="target" x="1002" y="282" width="210" height="54" rx="8"/>
-  <text class="name" x="1022" y="305">AWS ECS</text>
-  <text class="how" x="1022" y="324">aws cli, Express Mode</text>
+  <rect class="target" x="1002" y="236" width="200" height="44" rx="8"/>
+  <text class="name" x="1022" y="264">AWS</text>
+
+  <!-- A stack of cards still to be dealt -->
+  <rect class="later l3" x="1026" y="318" width="200" height="44" rx="8"/>
+  <rect class="later l2" x="1018" y="310" width="200" height="44" rx="8"/>
+  <rect class="later l1" x="1010" y="302" width="200" height="44" rx="8"/>
+  <rect class="later" x="1002" y="294" width="200" height="44" rx="8"/>
+  <text class="more" x="1022" y="322">more platforms</text>
 </svg>
