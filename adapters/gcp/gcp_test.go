@@ -251,6 +251,45 @@ func TestPlanHealthCheck(t *testing.T) {
 	}
 }
 
+func TestPlanImageRegistry(t *testing.T) {
+	digest := "@sha256:" + strings.Repeat("a", 64)
+	for image, pulls := range map[string]bool{
+		"nginx:1.27":                                true,
+		"acme/shop:v2":                              true,
+		"docker.io/acme/shop:v2":                    true,
+		"gcr.io/my-project/shop:v2":                 true,
+		"asia.gcr.io/my-project/shop:v2":            true,
+		"us-docker.pkg.dev/my-project/apps/shop:v2": true,
+		"us-central1-docker.pkg.dev/my-project/ghcr/acme/shop" + digest: true,
+		"ghcr.io/acme/shop" + digest:                                    false,
+		"quay.io/acme/shop:v2":                                          false,
+		"public.ecr.aws/acme/shop:v2":                                   false,
+		"registry.example.com:5000/shop:v2":                             false,
+		"evil-gcr.io/acme/shop:v2":                                      false,
+	} {
+		s := parse(t, `{"name": "shop",
+			"services": {"web": {"kind": "server", "image": "`+image+`", "ports": [{"port": 80}]}}, `+target+`}`)
+		env, _ := newEnv(t, t.TempDir(), nil)
+		p := plan(t, s, env)
+		if refused := slices.Contains(codes(p, adapter.Error), "GCP_UNPULLABLE_IMAGE"); refused == pulls {
+			t.Errorf("image %s: refused = %v, want %v (%v)", image, refused, !pulls, p.Findings)
+		}
+	}
+
+	s := parse(t, `{"name": "shop",
+		"services": {"web": {"kind": "server", "image": "ghcr.io/acme/shop:v2", "ports": [{"port": 80}]}}, `+target+`}`)
+	env, _ := newEnv(t, t.TempDir(), nil)
+	for _, f := range plan(t, s, env).Findings {
+		if f.Code == "GCP_UNPULLABLE_IMAGE" {
+			if want := "us-central1-docker.pkg.dev/my-project/<remote repository>/acme/shop:v2"; !strings.Contains(f.Hint, want) {
+				t.Errorf("hint %q lacks %q", f.Hint, want)
+			}
+			return
+		}
+	}
+	t.Error("no GCP_UNPULLABLE_IMAGE finding")
+}
+
 func TestPlanRefusesUnsupported(t *testing.T) {
 	s := parse(t, `{"name": "shop",
 		"services": {
@@ -606,10 +645,10 @@ func TestMissingOptionsHint(t *testing.T) {
 // plan says so; a version or a digest is taken at its word.
 func TestPlanWarnsAboutMovingTags(t *testing.T) {
 	for image, tag := range map[string]string{
-		"nginx":                  "latest",
-		"ghcr.io/acme/shop:main": "main",
-		"nginx:1.27":             "",
-		"ghcr.io/acme/shop@sha256:0000000000000000000000000000000000000000000000000000000000000000": "",
+		"nginx": "latest",
+		"us-docker.pkg.dev/my-project/ghcr/acme/shop:main": "main",
+		"nginx:1.27": "",
+		"us-docker.pkg.dev/my-project/ghcr/acme/shop@sha256:0000000000000000000000000000000000000000000000000000000000000000": "",
 	} {
 		s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "`+image+`"}}, "targets": {"gcp": {"project": "my-project", "region": "us-central1"}}}`)
 		env, _ := newEnv(t, t.TempDir(), nil)

@@ -15,6 +15,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   next deploy: the path has to answer with a 2xx or 3xx status, without credentials, within 4
   minutes, or the deploy fails and the previous revision keeps serving. A spec without a path
   removes the service's startup probe, so one set by hand needs `healthCheck.path` to stay.
+- `gcp`: `plan` refuses an image on a registry Cloud Run can't pull from, such as `ghcr.io`
+  (`GCP_UNPULLABLE_IMAGE`), and says how to reach it through Artifact Registry. It used to pass and
+  fail in `gcloud run deploy`.
 
 ## [0.3.1] - 2026-10-06
 
