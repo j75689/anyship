@@ -152,11 +152,19 @@ type Volume struct {
 	Class     string `json:"class,omitempty" jsonschema:"enum=standard,enum=nvme"`
 }
 
+// Cron is one schedule of a service. An entry names what runs when it fires:
+// a command, or a path of the service to call over HTTP. An entry with
+// neither fires the platform's own handler, as edge runtimes do.
 type Cron struct {
 	Schedule string `json:"schedule"`
 	// Command runs on process-based platforms. Edge platforms invoke their
 	// scheduled handler instead.
 	Command string `json:"command,omitempty"`
+	// Path is called on the service when the schedule fires, on platforms
+	// that schedule HTTP calls.
+	Path string `json:"path,omitempty" jsonschema_description:"Path of this service to call over HTTP when the schedule fires, e.g. \"/internal/tick\". Instead of command."`
+	// Method is the HTTP method for Path; POST when empty.
+	Method string `json:"method,omitempty" jsonschema:"enum=GET,enum=POST,enum=PUT,enum=DELETE,enum=HEAD" jsonschema_description:"HTTP method for path; POST by default."`
 }
 
 type Runtime struct {
@@ -304,6 +312,12 @@ func (s *Spec) Normalize() {
 		for i := range svc.Volumes {
 			if svc.Volumes[i].Class == "" {
 				svc.Volumes[i].Class = "standard"
+			}
+		}
+		for i := range svc.Cron {
+			svc.Cron[i].Method = strings.ToUpper(svc.Cron[i].Method)
+			if svc.Cron[i].Path != "" && svc.Cron[i].Method == "" {
+				svc.Cron[i].Method = "POST"
 			}
 		}
 		// Domains are case-insensitive and may be written with the root dot.

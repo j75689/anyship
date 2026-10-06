@@ -30,6 +30,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `gcp`: `targets.gcp.services.<name>` holds the Cloud Run settings of one service: `maxInstances`,
   `concurrency`, `timeout`, `serviceAccount` and `executionEnvironment`. With `concurrency: 1` a
   service can run on less than one `cpu`.
+- A `cron` entry can call the service over HTTP instead of running a command: `path` (and `method`,
+  `POST` by default). `gcp` runs these on Cloud Scheduler, with an identity token for the account
+  the service runs as; jobs are found by name, an entry taken out of the spec loses its job on the
+  next `apply`, and `destroy` removes them. `cloudflare` warns that cron triggers call
+  `scheduled()`, not a path.
 
 ### Changed
 

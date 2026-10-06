@@ -39,9 +39,10 @@ spec:
   another registry, pull it through an Artifact Registry
   [remote repository](https://cloud.google.com/artifact-registry/docs/repositories/remote-repo)
   and name it by that path, or push it to Artifact Registry.
-- Every `apply` first checks the login, the project, the required APIs (`run`, `artifactregistry`,
-  `secretmanager`) and the repository; `apply --dry-run` stops after the checks. Errors name the
-  gcloud account in use, which matters when you have several (`gcloud auth list`).
+- Every `apply` first checks the login, the project, the required APIs (`run`, and
+  `artifactregistry`, `secretmanager` or `cloudscheduler` when the spec needs them) and the
+  repository; `apply --dry-run` stops after the checks. Errors name the gcloud account in use,
+  which matters when you have several (`gcloud auth list`).
 - Secrets live in Secret Manager as `<spec name>-<NAME>` and reach the container as environment
   variables. A value in the deployer's environment adds a new version; `generate: "hex32"` secrets
   are created once and kept. Each apply lets the account a service runs as read the secrets that
@@ -79,7 +80,16 @@ spec:
 - `timeout` and `serviceAccount` under `services.<name>` override the target's for that service.
   `maxInstances` can't be below `replicas`. A service with less than one `cpu` needs
   `concurrency: 1` and runs in the first generation environment, and `gen2` needs at least 512MB.
-- Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports, `domains`
+- A `cron` entry with a `path` becomes a Cloud Scheduler job that calls that path on the service
+  (`method`, `POST` by default) when the schedule fires, in UTC. The call carries an identity token
+  for the account the service runs as, made out to the service's URL; a service that requires
+  authentication lets that account in (`roles/run.invoker`), and a public one has to check the
+  token itself. The call waits as long as the service's `timeout`, 30 minutes at most. Jobs are
+  named `anyship_<spec name>_<service>_<n>` and found by that name: an entry taken out of the spec
+  loses its job on the next `apply`, and `destroy` removes them all. Needs the `cloudscheduler` API.
+  An entry with a `command`, or with neither, is refused (`GCP_CRON`): nothing on this target runs
+  a command on a schedule.
+- Refused with a reason: static sites, workers, volumes, TCP/UDP ports, `domains`
   (`GCP_DOMAIN_UNSUPPORTED`; map them with `gcloud beta run domain-mappings` or a load balancer) and
   resources anyship would have to provision. `logs -f` points to `gcloud beta run services logs tail`.
 

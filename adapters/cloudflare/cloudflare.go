@@ -488,6 +488,16 @@ func checkService(name string, svc *spec.Service, s *spec.Spec) []adapter.Findin
 			break
 		}
 	}
+	for _, c := range svc.Cron {
+		if c.Path != "" {
+			findings = append(findings, adapter.Finding{
+				Level: adapter.Warning, Code: "CF_CRON_PATH", Service: name,
+				Message: "Cron triggers call the Worker's scheduled() handler, not a path; the path of a cron entry is ignored.",
+				Hint:    "Do the work in scheduled(), or have it call the path's handler.",
+			})
+			break
+		}
+	}
 	return findings
 }
 

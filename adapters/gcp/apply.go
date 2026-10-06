@@ -161,8 +161,25 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		if err := g.env.Exec(ctx, g.options(nil, nil, nil), "gcloud", deployArgs(data, sv, sv.image)...); err != nil {
 			return result(false, fmt.Sprintf("gcloud run deploy %s failed: %v", sv.cloudRun, err)), nil
 		}
-		if url, err := g.output(ctx, "run", "services", "describe", sv.cloudRun, "--region", data.opts.Region, "--format", "value(status.url)"); err == nil && url != "" {
+		url, err := g.output(ctx, "run", "services", "describe", sv.cloudRun, "--region", data.opts.Region, "--format", "value(status.url)")
+		if err == nil && url != "" {
 			messages = append(messages, fmt.Sprintf("%s: %s", sv.name, url))
+		}
+		if len(sv.jobs) == 0 {
+			continue
+		}
+		if url == "" {
+			return result(false, fmt.Sprintf("%s is deployed, but its URL couldn't be read to schedule its cron entries (%v).", sv.cloudRun, err)), nil
+		}
+		if err := applyJobs(ctx, g, data, sv, url); err != nil {
+			return result(false, err.Error()), nil
+		}
+		messages = append(messages, fmt.Sprintf("%s: %d cron schedule(s) on Cloud Scheduler", sv.name, len(sv.jobs)))
+	}
+	// Without the API there can be no jobs to clear away.
+	if data.scheduler {
+		if err := removeStaleJobs(ctx, g, data); err != nil {
+			return result(false, err.Error()), nil
 		}
 	}
 	return result(true, messages...), nil
@@ -172,6 +189,7 @@ var requiredAPIs = map[string]string{
 	"run":      "run.googleapis.com",
 	"registry": "artifactregistry.googleapis.com",
 	"secrets":  "secretmanager.googleapis.com",
+	"cron":     "cloudscheduler.googleapis.com",
 }
 
 // preflight checks the login, project, APIs and registry before anything
@@ -213,7 +231,11 @@ func preflight(ctx context.Context, g gcloud, d *planData) (string, []adapter.Fi
 	if len(d.secrets) > 0 {
 		needed = append(needed, requiredAPIs["secrets"])
 	}
+	if slices.ContainsFunc(d.services, func(sv service) bool { return len(sv.jobs) > 0 }) {
+		needed = append(needed, requiredAPIs["cron"])
+	}
 	apis := strings.Fields(enabled)
+	d.scheduler = slices.Contains(apis, requiredAPIs["cron"])
 	for _, api := range needed {
 		if !slices.Contains(apis, api) {
 			add(adapter.Error, "GCP_PREFLIGHT_API", fmt.Sprintf("The %s API isn't enabled in %s.", api, d.opts.Project),

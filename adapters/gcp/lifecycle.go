@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -139,6 +140,9 @@ func (a *Adapter) DestroySummary(s *spec.Spec, opts adapter.DestroyOptions) ([]s
 		names = append(names, cloudRunName(s.Name, name))
 	}
 	lines := []string{fmt.Sprintf("Delete the Cloud Run services %s in %s/%s.", strings.Join(names, ", "), o.Project, o.Region)}
+	if slices.ContainsFunc(s.ServiceNames(), func(name string) bool { return len(s.Services[name].Cron) > 0 }) {
+		lines = append(lines, fmt.Sprintf("Delete the Cloud Scheduler jobs %s* in %s/%s.", jobPrefix(s.Name), o.Project, o.Region))
+	}
 	secrets := secretIDs(s)
 	switch {
 	case opts.Volumes && len(secrets) > 0:
@@ -171,6 +175,21 @@ func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, o
 		}
 		removed++
 	}
+	// The jobs are found by name, also those of cron entries the spec has
+	// dropped since. A project without the Cloud Scheduler API has none, and
+	// the list fails there; that only matters if the spec has cron entries.
+	var notes []string
+	jobs, err := listJobs(ctx, g, *o, s.Name)
+	switch {
+	case err == nil:
+		n, err := deleteJobs(ctx, g, *o, jobs, nil)
+		removed += n
+		if err != nil {
+			return &adapter.Result{Messages: []string{err.Error()}}, nil
+		}
+	case slices.ContainsFunc(s.ServiceNames(), func(name string) bool { return len(s.Services[name].Cron) > 0 }):
+		notes = append(notes, fmt.Sprintf("Cloud Scheduler jobs were not removed: %v. Look for jobs named %s* in %s/%s.", err, jobPrefix(s.Name), o.Project, o.Region))
+	}
 	if opts.Volumes {
 		for _, id := range secretIDs(s) {
 			if _, err := g.probe(ctx, "secrets", "describe", id); err != nil {
@@ -183,9 +202,9 @@ func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, o
 		}
 	}
 	if removed == 0 && !opts.Volumes {
-		return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Nothing to remove: %s has no Cloud Run services in %s/%s.", s.Name, o.Project, o.Region)}}, nil
+		return &adapter.Result{OK: true, Messages: append([]string{fmt.Sprintf("Nothing to remove: %s has no Cloud Run services in %s/%s.", s.Name, o.Project, o.Region)}, notes...)}, nil
 	}
-	return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Removed %s from Cloud Run in %s/%s.", s.Name, o.Project, o.Region)}}, nil
+	return &adapter.Result{OK: true, Messages: append([]string{fmt.Sprintf("Removed %s from Cloud Run in %s/%s.", s.Name, o.Project, o.Region)}, notes...)}, nil
 }
 
 func secretIDs(s *spec.Spec) []string {

@@ -173,6 +173,21 @@ func TestAttachesServiceDomainsAndHonorsTheOverride(t *testing.T) {
 	}
 }
 
+// A Worker's cron trigger calls scheduled(); a path or a command in the
+// entry can't be honoured, and plan says so.
+func TestWarnsAboutCronPathsAndCommands(t *testing.T) {
+	p := plan(t, parse(t, `{"name": "app",
+		"services": {"web": {"kind": "server", "entry": "src/index.ts", "cron": [
+			{"schedule": "* * * * *", "path": "/tick"}, {"schedule": "0 * * * *", "command": "./job"}, {"schedule": "0 0 * * *"}]}},
+		"targets": {"cloudflare": {}}}`), newEnv())
+	got := codes(p)
+	for _, want := range []string{"CF_CRON_PATH", "CF_CRON_COMMAND"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("codes = %v, want %s", got, want)
+		}
+	}
+}
+
 func TestRefusesWhatWorkersCannotRun(t *testing.T) {
 	eth, err := spec.Load(filepath.Join("..", "..", "examples", "ethereum-node", spec.Filename))
 	if err != nil {

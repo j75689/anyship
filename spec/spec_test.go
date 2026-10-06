@@ -96,6 +96,33 @@ func TestParseRejectsBadNamesAndDuplicatePorts(t *testing.T) {
 	}
 }
 
+func TestParseCron(t *testing.T) {
+	cron := func(entries string) []byte {
+		return app("app", "  services:\n    web: {kind: server, start: x, cron: ["+entries+"]}\n")
+	}
+	s := mustParse(t, cron(`{schedule: "* * * * *", path: /tick}, {schedule: "0 * * * *", path: /sweep, method: get}, {schedule: "0 0 * * *", command: ./job}, {schedule: "0 0 * * 0"}`))
+	want := []Cron{
+		{Schedule: "* * * * *", Path: "/tick", Method: "POST"},
+		{Schedule: "0 * * * *", Path: "/sweep", Method: "GET"},
+		{Schedule: "0 0 * * *", Command: "./job"},
+		{Schedule: "0 0 * * 0"},
+	}
+	if got := s.Services["web"].Cron; !slices.Equal(got, want) {
+		t.Errorf("cron = %+v, want %+v", got, want)
+	}
+
+	for entry, want := range map[string]string{
+		`{schedule: "* * * * *", path: /tick, command: ./job}`: "spec.services.web.cron.0: set command or path, not both",
+		`{schedule: "* * * * *", path: tick}`:                  `spec.services.web.cron.0.path: must start with a slash, like "/internal/tick"`,
+		`{schedule: "* * * * *", method: POST}`:                "spec.services.web.cron.0.method: needs a path to call",
+		`{schedule: "* * * * *", path: /tick, method: PATCH}`:  `spec.services.web.cron.0.method: must be one of "GET", "POST", "PUT", "DELETE", "HEAD"`,
+	} {
+		if got := problemsOf(t, cron(entry)); !slices.Contains(got, want) {
+			t.Errorf("%s: problems = %q, want %q", entry, got, want)
+		}
+	}
+}
+
 func TestParseMemoryAndCPU(t *testing.T) {
 	s := mustParse(t, app("app", "  services:\n    web: {kind: server, start: x, memory: 4GB, cpu: 0.5}\n    job: {kind: worker, start: x, memory: 512MB}\n    bare: {kind: worker, start: x}\n"))
 	for name, want := range map[string]int{"web": 4096, "job": 512, "bare": 0} {
