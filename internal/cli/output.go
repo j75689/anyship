@@ -103,26 +103,23 @@ func printJSON(w io.Writer, v any) error {
 }
 
 // planJSON is the --json form of a plan: empty lists stay lists, and
-// generated files are listed by path.
+// generated files come with their contents, since plan writes none of them.
 func planJSON(p *adapter.Plan) any {
-	type file struct {
-		Path string `json:"path"`
-	}
 	out := struct {
 		Target   string            `json:"target"`
 		Ready    bool              `json:"ready"`
 		Findings []adapter.Finding `json:"findings"`
 		Actions  []adapter.Action  `json:"actions"`
-		Files    []file            `json:"files"`
+		Files    []planFile        `json:"files"`
 	}{
 		Target:   p.Target,
 		Ready:    !adapter.HasErrors(p.Findings),
 		Findings: append([]adapter.Finding{}, p.Findings...),
 		Actions:  append([]adapter.Action{}, p.Actions...),
-		Files:    []file{},
+		Files:    []planFile{},
 	}
 	for _, f := range p.Files {
-		out.Files = append(out.Files, file{Path: f.Path})
+		out.Files = append(out.Files, planFile{Path: f.Path, Contents: string(f.Contents)})
 	}
 	return out
 }
@@ -172,7 +169,7 @@ func printPlan(w io.Writer, s styler, p *adapter.Plan, dir string) {
 		}
 	}
 	if len(p.Files) > 0 {
-		fmt.Fprintln(w, "\nGenerated files:")
+		fmt.Fprintln(w, "\nGenerated files"+s.dim(" (apply writes them, with --dry-run too; plan --json has their contents)")+":")
 		for _, f := range p.Files {
 			rel, err := filepath.Rel(dir, f.Path)
 			if err != nil {

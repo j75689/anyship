@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -96,7 +97,14 @@ type planOutput struct {
 	Ready    bool              `json:"ready"`
 	Findings []adapter.Finding `json:"findings"`
 	Actions  []adapter.Action  `json:"actions"`
-	Files    []string          `json:"files"`
+	Files    []planFile        `json:"files"`
+}
+
+// planFile is a file the target would generate. plan writes nothing, so the
+// contents come with it: Path holds nothing on disk until a deploy writes it.
+type planFile struct {
+	Path     string `json:"path"`
+	Contents string `json:"contents"`
 }
 
 type logsInput struct {
@@ -128,7 +136,7 @@ type diagnoseContextOutput struct {
 type applyInput struct {
 	Config string `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
 	Target string `json:"target" jsonschema:"deploy target such as vps or cloudflare"`
-	DryRun bool   `json:"dry_run,omitempty" jsonschema:"only run the target's checks; change nothing"`
+	DryRun bool   `json:"dry_run,omitempty" jsonschema:"only run the target's checks and write the generated files under .anyship/; deploy nothing"`
 }
 
 type destroyInput struct {
@@ -194,8 +202,9 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "plan",
-		Description: "Show what deploying to a target would do, and every need the target can't meet. Changes nothing.",
+		Name: "plan",
+		Description: "Show what deploying to a target would do, and every need the target can't meet. Changes nothing: " +
+			"the files the target would generate come back with their contents, so review them here instead of reading their paths.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in targetInput) (*mcp.CallToolResult, planOutput, error) {
 		d, _, err := a.prepareForMCP(in.Config, in.Target, false)
@@ -206,9 +215,9 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		if err != nil {
 			return nil, planOutput{}, err
 		}
-		out := planOutput{Target: p.Target, Ready: !adapter.HasErrors(p.Findings), Findings: nonNil(p.Findings), Actions: nonNil(p.Actions), Files: []string{}}
+		out := planOutput{Target: p.Target, Ready: !adapter.HasErrors(p.Findings), Findings: nonNil(p.Findings), Actions: nonNil(p.Actions), Files: []planFile{}}
 		for _, f := range p.Files {
-			out.Files = append(out.Files, f.Path)
+			out.Files = append(out.Files, planFile{Path: f.Path, Contents: string(f.Contents)})
 		}
 		return nil, out, nil
 	})
@@ -275,17 +284,29 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		if err != nil {
 			return nil, diagnoseContextOutput{}, err
 		}
+		// The target's checks are a dry run of apply, which writes the files it
+		// would deploy, and some targets need them on disk. This tool is
+		// read-only, so they go to a temporary directory the call then removes
+		// instead of into the user's .anyship/.
+		outDir, err := os.MkdirTemp("", "anyship-diagnose-")
+		if err != nil {
+			return nil, diagnoseContextOutput{}, err
+		}
+		defer func() { _ = os.RemoveAll(outDir) }()
+		d.env.OutDir = outDir
 		collected := diagnose.Collect(ctx, diagnose.Inputs{
 			Spec: d.spec, SpecPath: config, SpecRaw: raw, Adapter: d.adapter,
 			NewEnv: capturingEnv(d.env), Note: in.Note, Checks: true,
 			Redactor: diagnose.NewRedactor(d.spec, os.LookupEnv),
 		})
-		return nil, diagnoseContextOutput{Context: collected.Render()}, nil
+		// The checks log where they wrote each file. Those paths are gone when
+		// this call returns, and the context holds the contents already.
+		return nil, diagnoseContextOutput{Context: withoutLinesAbout(collected.Render(), filepath.Base(outDir))}, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "apply",
-		Description: "Deploy the spec to a target. With dry_run, only run the target's checks. " +
+		Description: "Deploy the spec to a target. With dry_run, only run the target's checks and write the generated files under .anyship/. " +
 			"Real deploys need the server to run with --allow-deploy; ask the user before deploying.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(true)},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in applyInput) (*mcp.CallToolResult, resultOutput, error) {
@@ -426,3 +447,9 @@ func nonNil[T any](s []T) []T {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// withoutLinesAbout drops the lines of text that mention name.
+func withoutLinesAbout(text, name string) string {
+	lines := strings.Split(text, "\n")
+	return strings.Join(slices.DeleteFunc(lines, func(line string) bool { return strings.Contains(line, name) }), "\n")
+}
