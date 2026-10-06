@@ -6,8 +6,10 @@ anyship reads your project, drafts a platform-neutral deploy spec (`anyship.yaml
 spec into a deployment on whichever platform you pick. Each platform adapter either satisfies every
 need in the spec or tells you exactly which need it can't meet and why. It never quietly drops one.
 
-> **Status: early (v0.2).** The spec, rule-based detection, the CLI, a Cloudflare Workers adapter, a
-> VPS (Docker over SSH) adapter and a Google Cloud Run adapter work today. More targets and the AI assistant layer are on the [roadmap](#roadmap).
+> **Status: early (v0.3).** The spec, rule-based detection, the CLI, the MCP server and four targets
+> are implemented: Cloudflare Workers, VPS (Docker over SSH), Google Cloud Run and Amazon ECS Express
+> Mode. The [Targets](#targets) table says which of them have been run against the real platform.
+> `diagnose` is experimental. What comes next is on the [roadmap](#roadmap).
 
 ```console
 $ anyship init
@@ -192,15 +194,15 @@ domains than the spec asks for. Remove `targets.cloudflare.domains` to use the s
 
 ## Targets
 
-| Target | Status | Runs |
-|---|---|---|
-| `cloudflare` | ✅ v0.1 | Workers (edge handlers) and static assets; D1, KV, R2, Hyperdrive bindings; cron triggers; custom domains |
-| `vps` | ✅ v0.2 | any Linux server with Docker, over SSH: images or Dockerfiles, multi-service, volumes, TCP/UDP ports, secrets |
-| `gcp` | ✅ unreleased | Google Cloud Run: images or Dockerfiles (built locally, pushed to Artifact Registry), HTTP services, secrets in Secret Manager |
-| `aws` | ✅ unreleased | Amazon ECS Express Mode: images or Dockerfiles (built locally, pushed to ECR), HTTP services with a managed load balancer and HTTPS URL, secrets in Secrets Manager |
-| `fly` | planned | containers, volumes, Postgres |
-| `vercel` | planned | static and serverless |
-| Cloudflare Containers | planned | container images on Cloudflare |
+| Target | Since | Run against the real platform | Runs |
+|---|---|---|---|
+| `cloudflare` | v0.1 | not since the v0.3 manifest change ([#28](https://github.com/j75689/anyship/issues/28)) | Workers (edge handlers) and static assets; D1, KV, R2, Hyperdrive bindings; cron triggers; custom domains |
+| `vps` | v0.2 | ✅ on every pull request, in CI | any Linux server with Docker, over SSH: images or Dockerfiles, multi-service, volumes, TCP/UDP ports, secrets |
+| `gcp` | v0.3 | ✅ by hand, on a real project | Google Cloud Run: images or Dockerfiles (built locally, pushed to Artifact Registry), HTTP services, secrets in Secret Manager |
+| `aws` | v0.3 | ⚠ not yet; tested with a fake `aws` CLI ([#26](https://github.com/j75689/anyship/issues/26)) | Amazon ECS Express Mode: images or Dockerfiles (built locally, pushed to ECR), HTTP services with a managed load balancer and HTTPS URL, secrets in Secrets Manager |
+| `fly` | planned | | containers, volumes, Postgres |
+| `vercel` | planned | | static and serverless |
+| Cloudflare Containers | planned | | container images on Cloudflare |
 
 ### Cloudflare notes
 
@@ -387,6 +389,10 @@ Proposed change to anyship.yaml (applies cleanly and plans without errors)
 Apply this change to anyship.yaml? [y/N]
 ```
 
+> **Experimental.** `diagnose` is tested against a stubbed API and has not been run against the live
+> Claude API yet ([#27](https://github.com/j75689/anyship/issues/27)). `--show-context` needs no key
+> and prints exactly what would be sent.
+
 `diagnose` collects what anyship already knows (plan findings, the target's dry-run checks, status,
 recent logs and the generated compose.yaml or Dockerfiles) and asks Claude for the root cause, the
 evidence for it, next steps, and a fix. The rules:
@@ -453,13 +459,22 @@ agent gets stuck.
 
 ## Roadmap
 
-- **v0.2** ✅ `vps` adapter, ✅ MCP server. Next: domains and HTTPS on `vps`, release binaries,
-  Fly.io adapter.
-- **v0.3** AI layer (bring your own key): ✅ `diagnose` for failed deploys with validated spec fixes.
-  Next: `init --ai` to draft specs for unrecognized stacks, and an AI review before deploying.
-- **v0.4** Cloudflare Containers, Vercel adapter, and creating app-scoped resources (such as a D1
-  database) during `apply` when missing, found by name on the platform rather than tracked in state.
-- **Next** ✅ Google Cloud Run and ✅ AWS (ECS Express Mode) adapters.
+- **v0.2** ✅ `vps` adapter, MCP server, release binaries and `install.sh`.
+- **v0.3** ✅ YAML manifest (`anyship.yaml`) and `migrate`, Google Cloud Run and AWS (ECS Express
+  Mode) adapters, `domains` on services, `diagnose` for failed deploys with validated spec fixes
+  (experimental, bring your own key).
+- **Next** run every target against the real platform
+  ([#26](https://github.com/j75689/anyship/issues/26),
+  [#27](https://github.com/j75689/anyship/issues/27),
+  [#28](https://github.com/j75689/anyship/issues/28)); domains and HTTPS on `vps`
+  ([#29](https://github.com/j75689/anyship/issues/29)); cron on Cloud Run
+  ([#36](https://github.com/j75689/anyship/issues/36)); `init --ai` to draft specs for unrecognized
+  stacks ([#30](https://github.com/j75689/anyship/issues/30)) and an AI review before deploying
+  ([#31](https://github.com/j75689/anyship/issues/31)).
+- **After that** Cloudflare Containers, Fly.io and Vercel adapters
+  ([#32](https://github.com/j75689/anyship/issues/32)), and creating app-scoped resources (such as a
+  D1 database) during `apply` when missing, found by name on the platform rather than tracked in
+  state.
 - **Later** community adapters (Railway), recipes with parameters (e.g. N-node RPC clusters).
 
 ## Project layout
@@ -490,8 +505,11 @@ schema/                generated JSON Schema
 
 ## Contributing
 
-Adapters are the easiest way to help. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Adapters are the easiest way to help. See [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[code of conduct](CODE_OF_CONDUCT.md).
+
+Found a security problem? Report it privately; [SECURITY.md](SECURITY.md) says how.
 
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache-2.0](LICENSE). Copyright 2026 The anyship Authors.
