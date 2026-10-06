@@ -22,6 +22,10 @@ spec:
 - anyship uses your system `ssh`, so `~/.ssh/config`, the agent, jump hosts and known_hosts checks
   all apply. It runs in batch mode: an unknown host key or a password prompt fails instead of
   hanging, so connect once with `ssh` first.
+- A service that sets `image` runs that image. If the tag can move (`:latest`, `:main`, no tag), every
+  `apply` pulls it again, so the host runs what the tag points at then; `plan` notes it
+  (`VPS_MUTABLE_TAG`). Such a deploy needs the registry to be reachable. A versioned tag or a digest
+  is pulled once, and `--image <service>=<image>` deploys another image for one run.
 - `public` ports are published on the host (`tcp+udp` publishes both); `internal` ports are only
   reachable by other services, by service name.
 - `start` runs as the container's command, exactly as written and without a shell; wrap it in
