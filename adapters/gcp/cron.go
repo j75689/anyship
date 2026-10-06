@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -107,19 +108,36 @@ func deleteJobs(ctx context.Context, g gcloud, o Options, ids []string, keep fun
 	return removed, nil
 }
 
-// removeStaleJobs deletes the spec's jobs that no cron entry asks for any
-// more, so an entry taken out of the spec stops firing.
-func removeStaleJobs(ctx context.Context, g gcloud, d *planData) error {
-	ids, err := listJobs(ctx, g, d.opts, d.project)
-	if err != nil {
-		return err
-	}
-	wanted := map[string]bool{}
-	for _, sv := range d.services {
-		for _, job := range sv.jobs {
-			wanted[job.id] = true
+// jobService is the service a job id was made for.
+func jobService(id, project string) string {
+	name, _, _ := strings.Cut(strings.TrimPrefix(id, jobPrefix(project)), "_")
+	return name
+}
+
+// jobsOf picks one service's jobs out of a spec's.
+func jobsOf(ids []string, project, service string) []string {
+	var out []string
+	for _, id := range ids {
+		if jobService(id, project) == service {
+			out = append(out, id)
 		}
 	}
-	_, err = deleteJobs(ctx, g, d.opts, ids, func(id string) bool { return wanted[id] })
-	return err
+	return out
+}
+
+// orphanJobs picks the jobs of services the spec no longer has.
+func orphanJobs(ids []string, d *planData) []string {
+	var out []string
+	for _, id := range ids {
+		name := jobService(id, d.project)
+		if !slices.ContainsFunc(d.services, func(sv service) bool { return sv.name == name }) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// wantsJob reports whether a cron entry of the service asks for the job.
+func (sv service) wantsJob(id string) bool {
+	return slices.ContainsFunc(sv.jobs, func(job cronJob) bool { return job.id == id })
 }

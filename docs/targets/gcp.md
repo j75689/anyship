@@ -80,8 +80,11 @@ spec:
   `executionEnvironment`: gcloud can't hand that choice back to Cloud Run, so a deploy that doesn't
   name one leaves it as it is. Settings anyship has no name for are left alone.
 - `timeout` and `serviceAccount` under `services.<name>` override the target's for that service.
-  `maxInstances` can't be below `replicas`. A service with less than one `cpu` needs
-  `concurrency: 1` and runs in the first generation environment, and `gen2` needs at least 512MB.
+  `maxInstances` can't be below `replicas`; without it, Cloud Run picks the ceiling from the
+  project's quota (3 or 4 on a fresh project, not 100), and refuses a big instance that the quota
+  can't hold several of, so a service with much memory may need its own `maxInstances`. A service
+  with less than one `cpu` needs `concurrency: 1` and runs in the first generation environment,
+  and `gen2` needs at least 512MB.
 - A `cron` entry with a `path` becomes a Cloud Scheduler job that calls that path on the service
   (`method`, `POST` by default) when the schedule fires, in UTC. The call carries an identity token
   for the account the service runs as, made out to the service's URL; a service that requires

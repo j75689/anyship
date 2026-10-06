@@ -155,6 +155,16 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		sv.image = ref
 	}
 
+	// The spec's jobs as they are now, to clear away those no entry asks
+	// for any more. Without the API there can be none.
+	var jobs []string
+	if data.scheduler {
+		var err error
+		if jobs, err = listJobs(ctx, g, data.opts, data.project); err != nil {
+			return result(false, err.Error()), nil
+		}
+	}
+
 	messages := []string{fmt.Sprintf("Deployed %s to Cloud Run in %s/%s.", data.project, data.opts.Project, data.opts.Region)}
 	for _, sv := range data.services {
 		env.Logf("$ gcloud run deploy %s", sv.cloudRun)
@@ -165,22 +175,24 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		if err == nil && url != "" {
 			messages = append(messages, fmt.Sprintf("%s: %s", sv.name, url))
 		}
-		if len(sv.jobs) == 0 {
-			continue
+		if len(sv.jobs) > 0 {
+			if url == "" {
+				return result(false, fmt.Sprintf("%s is deployed, but its URL couldn't be read to schedule its cron entries (%v).", sv.cloudRun, err)), nil
+			}
+			if err := applyJobs(ctx, g, data, sv, url); err != nil {
+				return result(false, err.Error()), nil
+			}
+			messages = append(messages, fmt.Sprintf("%s: %d cron schedule(s) on Cloud Scheduler", sv.name, len(sv.jobs)))
 		}
-		if url == "" {
-			return result(false, fmt.Sprintf("%s is deployed, but its URL couldn't be read to schedule its cron entries (%v).", sv.cloudRun, err)), nil
-		}
-		if err := applyJobs(ctx, g, data, sv, url); err != nil {
+		// Right away, not after every service: an entry taken out of the
+		// spec must stop firing even if a later deploy fails.
+		if _, err := deleteJobs(ctx, g, data.opts, jobsOf(jobs, data.project, sv.name), sv.wantsJob); err != nil {
 			return result(false, err.Error()), nil
 		}
-		messages = append(messages, fmt.Sprintf("%s: %d cron schedule(s) on Cloud Scheduler", sv.name, len(sv.jobs)))
 	}
-	// Without the API there can be no jobs to clear away.
-	if data.scheduler {
-		if err := removeStaleJobs(ctx, g, data); err != nil {
-			return result(false, err.Error()), nil
-		}
+	// What is left belongs to services the spec no longer has.
+	if _, err := deleteJobs(ctx, g, data.opts, orphanJobs(jobs, data), nil); err != nil {
+		return result(false, err.Error()), nil
 	}
 	return result(true, messages...), nil
 }
