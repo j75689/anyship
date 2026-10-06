@@ -219,6 +219,16 @@ func TestPlanImageService(t *testing.T) {
 
 // A service's memory and cpu are passed in ECS's units and win over the
 // target's defaults.
+func TestPlanRefusesServiceURLRefs(t *testing.T) {
+	s := parse(t, `{"name": "shop", "services": {
+		"web": {"kind": "server", "image": "web:1", "ports": [{"port": 8080}], "env": {"API": "${services.api.url}"}},
+		"api": {"kind": "server", "image": "api:1", "ports": [{"port": 8080}]}}, `+target+`}`)
+	env, _ := newEnv(t, t.TempDir(), nil)
+	if errs := codes(plan(t, s, env), adapter.Error); !slices.Equal(errs, []string{"AWS_SERVICE_URL"}) {
+		t.Errorf("errors = %v, want AWS_SERVICE_URL", errs)
+	}
+}
+
 func TestPlanMemoryAndCPU(t *testing.T) {
 	s := parse(t, `{"name": "shop",
 		"services": {

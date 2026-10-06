@@ -175,6 +175,11 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		if err == nil && url != "" {
 			messages = append(messages, fmt.Sprintf("%s: %s", sv.name, url))
 		}
+		if sv.internal {
+			if err := allowCallers(ctx, g, data, sv); err != nil {
+				return result(false, err.Error()), nil
+			}
+		}
 		if len(sv.jobs) > 0 {
 			if url == "" {
 				return result(false, fmt.Sprintf("%s is deployed, but its URL couldn't be read to schedule its cron entries (%v).", sv.cloudRun, err)), nil
@@ -228,6 +233,7 @@ func preflight(ctx context.Context, g gcloud, d *planData) (string, []adapter.Fi
 			"Use another account (`gcloud config set account`, or a configuration via spec.targets.gcp.configuration), or grant this one access to the project.")
 		return "", findings
 	}
+	d.number = number
 	runAs := number + defaultAccountSuffix
 
 	enabled, err := g.probe(ctx, "services", "list", "--enabled", "--format", "value(config.name)")
@@ -310,6 +316,27 @@ func ensureSecret(ctx context.Context, g gcloud, project string, sc secret) erro
 		"--replication-policy", "automatic", "--data-file", "-", "--labels", projectLabel+"="+project)
 	if err != nil {
 		return fmt.Errorf("creating secret %s failed: %w", sc.id, err)
+	}
+	return nil
+}
+
+// allowCallers lets the accounts the spec's other services run as call an
+// internal service. The binding is idempotent, so every apply can make sure
+// it exists.
+func allowCallers(ctx context.Context, g gcloud, d *planData, sv service) error {
+	var accounts []string
+	for _, other := range d.services {
+		if other.name != sv.name && !slices.Contains(accounts, other.account) {
+			accounts = append(accounts, other.account)
+		}
+	}
+	for _, account := range accounts {
+		g.env.Logf("$ gcloud run services add-iam-policy-binding %s (run.invoker for %s)", sv.cloudRun, account)
+		err := g.run(ctx, nil, io.Discard, "run", "services", "add-iam-policy-binding", sv.cloudRun, "--region", d.opts.Region,
+			"--member", "serviceAccount:"+account, "--role", "roles/run.invoker")
+		if err != nil {
+			return fmt.Errorf("letting %s call %s failed: %w", account, sv.cloudRun, err)
+		}
 	}
 	return nil
 }

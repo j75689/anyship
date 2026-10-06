@@ -472,6 +472,10 @@ func checkService(name string, svc *spec.Service, s *spec.Spec) []adapter.Findin
 				"Use an HTTP-based external service, or KV for simple caching.")
 		}
 	}
+	if refs := svc.RefersTo(); len(refs) > 0 {
+		addError("CF_SERVICE_URL", fmt.Sprintf("env refers to ${services.%s.url}, but a Worker's URL depends on the account's workers.dev subdomain or a custom domain, which anyship doesn't know.", refs[0]),
+			"Put the URL in env by hand.")
+	}
 	if svc.CPU != 0 || svc.Memory != "" {
 		findings = append(findings, adapter.Finding{Level: adapter.Warning, Code: "CF_RESOURCES_IGNORED", Service: name,
 			Message: "memory and cpu aren't applied: Cloudflare gives every Worker the same limits (128 MB of memory), whatever the spec asks for."})

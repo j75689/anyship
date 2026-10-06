@@ -175,6 +175,15 @@ func TestAttachesServiceDomainsAndHonorsTheOverride(t *testing.T) {
 
 // A Worker's cron trigger calls scheduled(); a path or a command in the
 // entry can't be honoured, and plan says so.
+func TestRefusesServiceURLRefs(t *testing.T) {
+	p := plan(t, parse(t, `{"name": "app",
+		"services": {"web": {"kind": "server", "entry": "src/index.ts", "env": {"SELF": "${services.web.url}"}}},
+		"targets": {"cloudflare": {}}}`), newEnv())
+	if got := codes(p); !slices.Contains(got, "CF_SERVICE_URL") {
+		t.Errorf("codes = %v, want CF_SERVICE_URL", got)
+	}
+}
+
 func TestWarnsAboutCronPathsAndCommands(t *testing.T) {
 	p := plan(t, parse(t, `{"name": "app",
 		"services": {"web": {"kind": "server", "entry": "src/index.ts", "cron": [

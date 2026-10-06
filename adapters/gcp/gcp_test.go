@@ -596,38 +596,92 @@ func TestPlanImageRegistry(t *testing.T) {
 	}
 }
 
-// An internal port deploys a service that the spec's other services can't
-// call until a network path and a permission exist; plan has to say so.
+// An internal port requires a token and keeps internal ingress, as before,
+// unless the target says ingress "all"; the spec's other services get the
+// permission to call either way.
 func TestPlanInternalPort(t *testing.T) {
-	s := parse(t, `{"name": "shop",
-		"services": {
-			"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}]},
-			"api": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 8080, "exposure": "internal"}]}}, `+target+`}`)
+	spec := func(options string) *spec.Spec {
+		return parse(t, `{"name": "shop",
+			"services": {
+				"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}], "env": {"API": "${services.api.url}/v1"}},
+				"api": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 8080, "exposure": "internal"}]}},
+			"targets": {"gcp": {"project": "my-project", "region": "us-central1"`+options+`}}}`)
+	}
 	env, _ := newEnv(t, t.TempDir(), nil)
+	closed := plan(t, spec(``), env)
+	i := slices.IndexFunc(closed.Findings, func(f adapter.Finding) bool { return f.Code == "GCP_INTERNAL_CALLERS" })
+	if i < 0 || closed.Findings[i].Level != adapter.Warning || !strings.Contains(closed.Findings[i].Hint, "services.api.ingress: all") {
+		t.Errorf("GCP_INTERNAL_CALLERS finding = %+v", closed.Findings)
+	}
+	data := closed.Data.(*planData)
+	if args := strings.Join(deployArgs(data, data.services[0], "nginx:1.27"), " "); !strings.Contains(args, "--ingress internal --no-allow-unauthenticated") {
+		t.Errorf("api deploy args %q: internal ingress was given up", args)
+	}
+	if errs := codes(plan(t, spec(`, "services": {"web": {"ingress": "all"}}`), env), adapter.Error); !slices.Equal(errs, []string{"GCP_INGRESS"}) {
+		t.Errorf("ingress on a public service: errors = %v, want GCP_INGRESS", errs)
+	}
+
+	s := spec(`, "services": {"api": {"ingress": "all"}}`)
+	env, fc := newEnv(t, t.TempDir(), nil)
 	p := plan(t, s, env)
 	if errs := codes(p, adapter.Error); len(errs) > 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
-	var found bool
-	for _, f := range p.Findings {
-		if f.Code != "GCP_INTERNAL_CALLERS" {
-			continue
-		}
-		found = true
-		if f.Level != adapter.Warning || f.Service != "api" {
-			t.Errorf("finding = %+v, want a warning on api", f)
-		}
-		for _, want := range []string{"Port 8080", "shop-api", "can't reach it"} {
-			if !strings.Contains(f.Message, want) {
-				t.Errorf("message %q lacks %q", f.Message, want)
-			}
-		}
-		if !strings.Contains(f.Hint, "roles/run.invoker on shop-api") {
-			t.Errorf("hint %q doesn't name the permission", f.Hint)
+	i = slices.IndexFunc(p.Findings, func(f adapter.Finding) bool { return f.Code == "GCP_INTERNAL" })
+	if i < 0 || p.Findings[i].Level != adapter.Info || p.Findings[i].Service != "api" || !strings.Contains(p.Findings[i].Hint, "${services.api.url}") {
+		t.Errorf("GCP_INTERNAL finding = %+v", p.Findings)
+	}
+	data = p.Data.(*planData)
+	args := strings.Join(deployArgs(data, data.services[0], "nginx:1.27"), " ")
+	if !strings.Contains(args, "--ingress all --no-allow-unauthenticated") {
+		t.Errorf("api deploy args %q: not guarded by identity", args)
+	}
+	// Before preflight the URL carries a placeholder for the project number.
+	web := strings.Join(deployArgs(data, data.services[1], "nginx:1.27"), " ")
+	if want := "--set-env-vars API=https://shop-api-<project number>.us-central1.run.app/v1"; !strings.Contains(web, want) {
+		t.Errorf("web deploy args %q lack %q", web, want)
+	}
+
+	res, err := New().Apply(context.Background(), p, s, env)
+	if err != nil || !res.OK {
+		t.Fatalf("apply: %v %+v", err, res)
+	}
+	if deploy := fc.find("gcloud run deploy shop-web"); deploy == nil || !strings.Contains(deploy.line(), "API=https://shop-api-123456789.us-central1.run.app/v1") {
+		t.Errorf("web wasn't given api's URL: %+v", deploy)
+	}
+	grant := fc.find("gcloud run services add-iam-policy-binding shop-api")
+	if grant == nil || !slices.Contains(grant.args, "serviceAccount:123456789-compute@developer.gserviceaccount.com") || !slices.Contains(grant.args, "roles/run.invoker") {
+		t.Errorf("web's account can't call api: %+v", grant)
+	}
+	if fc.find("gcloud run services add-iam-policy-binding shop-web") != nil {
+		t.Error("a public service was given a caller binding")
+	}
+}
+
+// Each internal service lets in the accounts of the other services, each
+// once, and not its own.
+func TestApplyAllowsCallersPerAccount(t *testing.T) {
+	s := parse(t, `{"name": "shop",
+		"services": {
+			"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}]},
+			"worker": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}]},
+			"api": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 8080, "exposure": "internal"}]}},
+		"targets": {"gcp": {"project": "my-project", "region": "us-central1",
+			"services": {"api": {"serviceAccount": "apisvc@my-project.iam.gserviceaccount.com"}, "worker": {"serviceAccount": "worker@my-project.iam.gserviceaccount.com"}}}}}`)
+	env, fc := newEnv(t, t.TempDir(), nil)
+	res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+	if err != nil || !res.OK {
+		t.Fatalf("apply: %v %+v", err, res)
+	}
+	var members []string
+	for _, c := range fc.calls {
+		if strings.HasPrefix(c.line(), "gcloud run services add-iam-policy-binding shop-api") {
+			members = append(members, c.args[slices.Index(c.args, "--member")+1])
 		}
 	}
-	if !found {
-		t.Errorf("no GCP_INTERNAL_CALLERS in %v", p.Findings)
+	slices.Sort(members)
+	if want := []string{"serviceAccount:123456789-compute@developer.gserviceaccount.com", "serviceAccount:worker@my-project.iam.gserviceaccount.com"}; !slices.Equal(members, want) {
+		t.Errorf("members = %q, want %q", members, want)
 	}
 }
 
@@ -1051,6 +1105,7 @@ func TestPlanRefusesBadServiceSettings(t *testing.T) {
 		`{"web": {"timeout": 600}}`:                   "services.web.timeout",
 		`{"web": {"serviceAccount": "me@gmail.com"}}`: "services.web: serviceAccount",
 		`{"web": {"executionEnvironment": "gen3"}}`:   `services.web: executionEnvironment "gen3" is not gen1 or gen2`,
+		`{"web": {"ingress": "public"}}`:              `services.web: ingress "public" is not internal or all`,
 		`{"web": {"maxInstance": 3}}`:                 "services.web.maxInstance",
 		`{"api": {"maxInstances": 3}}`:                `spec.targets.gcp.services.api: the spec has no service named "api" (it has render, web).`,
 		`{"render": {"maxInstances": 1}}`:             "maxInstances 1 is below replicas 2",

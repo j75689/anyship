@@ -138,6 +138,8 @@ spec:
       ports:
         - port: 3000             # protocol: http|tcp|udp|tcp+udp, exposure: public|internal
       domains: [api.example.com] # custom domains for a public http port
+      env:
+        API_URL: ${services.api.url}  # another service's URL on whichever target deploys this
       uses: [db]
       secrets: [JWT_SECRET]
       cron:

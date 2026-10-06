@@ -141,7 +141,7 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 		if build != nil {
 			contexts[name] = filepath.Join(env.Dir, svc.Path)
 		}
-		compose.Services[name] = renderService(svc, c.argv, build)
+		compose.Services[name] = renderService(svc, serviceEnv(svc, s), c.argv, build)
 		for _, v := range svc.Volumes {
 			if compose.Volumes == nil {
 				compose.Volumes = map[string]struct{}{}
@@ -429,6 +429,12 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, dir string) chec
 		add(adapter.Error, "VPS_REPLICAS_WITH_PORTS",
 			fmt.Sprintf("%d replicas cannot all publish the same host ports.", svc.Replicas),
 			"Use one replica, or keep these ports internal behind a load balancer service.")
+	}
+	for _, ref := range svc.RefersTo() {
+		if _, ok := serviceURL(ref, s); !ok {
+			add(adapter.Error, "VPS_SERVICE_URL", fmt.Sprintf("env refers to ${services.%s.url}, but %s has no port to reach it on.", ref, ref),
+				"Give that service a port, or drop the reference.")
+		}
 	}
 	if svc.CPU != 0 || svc.Memory != "" {
 		add(adapter.Info, "VPS_RESOURCE_LIMITS",

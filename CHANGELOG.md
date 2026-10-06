@@ -23,6 +23,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `${services.<name>.url}` in a service's `env` is the URL of another service of the spec, on
+  whichever target deploys it: on `gcp` the service's Cloud Run URL, known before the first
+  deploy; on `vps` its name and port on the compose network. `aws` and `cloudflare` refuse it with
+  a reason, since neither URL is known before a deploy. A reference to a service the spec doesn't
+  have is a validation error.
+- `gcp`: the accounts of the spec's other services get `roles/run.invoker` on each service with an
+  `internal` port, and `targets.gcp.services.<name>.ingress: all` opens such a service to requests
+  from anywhere with the identity token as the only guard, so the services of a spec can call each
+  other without a VPC. Without it an internal port keeps internal ingress, as before.
 - Services take `memory` (`512MB`, `4GB`) and `cpu` (`0.5`, `1`, `2`): what one instance needs,
   on any target. `gcp` sizes the Cloud Run instance and refuses a pair Cloud Run doesn't offer,
   `aws` sizes the task (the service's values win over `targets.aws.cpu` and `memory`), `vps` limits

@@ -71,6 +71,11 @@ type ServiceOptions struct {
 	Timeout              string `json:"timeout,omitempty"`
 	ServiceAccount       string `json:"serviceAccount,omitempty"`
 	ExecutionEnvironment string `json:"executionEnvironment,omitempty"`
+	// Ingress is where requests to a service with an internal port may come
+	// from: "internal" (the default) keeps them to the project's VPC
+	// networks and Google services; "all" lets them in from anywhere and
+	// leaves the identity token as the only guard.
+	Ingress string `json:"ingress,omitempty"`
 }
 
 // Cloud Run's request timeouts: the longest it takes, and the one a service
@@ -198,6 +203,37 @@ type planData struct {
 	// scheduler is whether the Cloud Scheduler API is enabled; preflight
 	// finds out.
 	scheduler bool
+	// number is the project number, which preflight reads; the URLs of the
+	// services are made from it.
+	number string
+}
+
+// numberPlaceholder stands for the project number in a plan, before
+// preflight has read it.
+const numberPlaceholder = "<project number>"
+
+// serviceURL is the URL Cloud Run gives a service of the spec, which follows
+// from its name, the project number and the region, so it is known before
+// the service exists.
+func (d *planData) serviceURL(service string) string {
+	number := d.number
+	if number == "" {
+		number = numberPlaceholder
+	}
+	return fmt.Sprintf("https://%s-%s.%s.run.app", cloudRunName(d.project, service), number, d.opts.Region)
+}
+
+// env is the service's environment with references to other services
+// resolved to their URLs.
+func (d *planData) env(sv service) map[string]string {
+	if len(sv.svc.RefersTo()) == 0 {
+		return sv.svc.Env
+	}
+	env := make(map[string]string, len(sv.svc.Env))
+	for k, v := range sv.svc.Env {
+		env[k] = spec.ExpandServiceURLs(v, d.serviceURL)
+	}
+	return env
 }
 
 // defaultAccountSuffix follows the project number in the name of the Compute
@@ -245,7 +281,7 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 			plan.Findings = append(plan.Findings, adapter.Finding{
 				Level: adapter.Warning, Code: "GCP_DEPENDS_ON", Service: name,
 				Message: "Cloud Run services reach each other by URL, not by service name; dependsOn only orders the deploys.",
-				Hint:    "Pass the other service's URL in env (anyship status shows it after the first deploy).",
+				Hint:    "Pass the other service's URL in env as ${services.<name>.url}.",
 			})
 		}
 		for _, secretName := range svc.Secrets {
@@ -288,7 +324,7 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 		}
 		shown := sv
 		if shown.account == "" {
-			shown.account = "<project number>" + defaultAccountSuffix
+			shown.account = numberPlaceholder + defaultAccountSuffix
 		}
 		args := deployArgs(data, shown, image)
 		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpDeploy, Kind: "Cloud Run service", Name: sv.cloudRun, Detail: fmt.Sprintf("in %s/%s", opts.Project, opts.Region)})
@@ -352,10 +388,17 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 		add(adapter.Error, "GCP_MULTIPLE_PORTS", "Cloud Run sends traffic to one port per service.", "Keep one HTTP port, or split the service.")
 	case len(http) == 1:
 		sv.port, sv.internal = http[0].Port, http[0].Exposure == spec.ExposureInternal
-		if sv.internal {
+		switch {
+		case sv.internal && opts.Services[name].Ingress == "all":
+			add(adapter.Info, "GCP_INTERNAL",
+				fmt.Sprintf("Port %d is internal with ingress \"all\", so %s takes requests from anywhere but answers only those that carry an identity token; the accounts the spec's other services run as may send them (roles/run.invoker, granted on apply).", sv.port, sv.cloudRun),
+				fmt.Sprintf("In the calling apps, attach an identity token with %s as audience (https://cloud.google.com/run/docs/authenticating/service-to-service).", "${services."+name+".url}"))
+		case sv.internal:
 			add(adapter.Warning, "GCP_INTERNAL_CALLERS",
-				fmt.Sprintf("Port %d is internal, so %s is deployed with internal ingress and requires authentication: a request has to arrive through one of the project's VPC networks and carry an identity token. anyship sets up neither for the services that call it, so as deployed they can't reach it.", sv.port, sv.cloudRun),
-				fmt.Sprintf("For each caller: send its traffic through a VPC network (https://cloud.google.com/run/docs/securing/private-networking), grant its service account roles/run.invoker on %s, and have the app attach an identity token (https://cloud.google.com/run/docs/authenticating/service-to-service). Or make the port public and check a token in the app.", sv.cloudRun))
+				fmt.Sprintf("Port %d is internal, so %s is deployed with internal ingress and requires authentication: a request has to arrive through one of the project's VPC networks and carry an identity token. The accounts the spec's other services run as may call it (roles/run.invoker, granted on apply), but anyship sets up no network route, so as deployed they can't reach it.", sv.port, sv.cloudRun),
+				fmt.Sprintf("Send each caller's traffic through a VPC network (https://cloud.google.com/run/docs/securing/private-networking) and have its app attach an identity token with %s as audience; or set spec.targets.gcp.services.%s.ingress: all to let the token be the only guard, with no network to set up.", "${services."+name+".url}", name))
+		case opts.Services[name].Ingress != "":
+			add(adapter.Error, "GCP_INGRESS", fmt.Sprintf("spec.targets.gcp.services.%s.ingress is for a service with an internal port, and %s has none.", name, name), "")
 		}
 	case svc.Kind == spec.KindServer:
 		add(adapter.Info, "GCP_PORT_ASSUMED", fmt.Sprintf("No port in the spec; Cloud Run will send traffic to %d (also passed as $PORT).", defaultPort), "")
@@ -564,18 +607,20 @@ func deployArgs(d *planData, sv service, image string) []string {
 	args := []string{"run", "deploy", sv.cloudRun, "--image", image, "--region", o.Region, "--project", o.Project,
 		"--port", strconv.Itoa(sv.port), "--labels", fmt.Sprintf("%s=%s,%s=%s", projectLabel, d.project, serviceLabel, sv.name),
 		"--memory", gcloudMemory(sv.memoryMB), "--cpu", strconv.FormatFloat(sv.cpu, 'f', -1, 64)}
+	// An internal port requires a token either way; with ingress "all" the
+	// token is the only guard, otherwise the network is one too.
 	switch {
-	case sv.internal:
+	case sv.internal && sv.set.Ingress != "all":
 		args = append(args, "--ingress", "internal", "--no-allow-unauthenticated")
-	case o.Private:
+	case sv.internal || o.Private:
 		args = append(args, "--ingress", "all", "--no-allow-unauthenticated")
 	default:
 		args = append(args, "--ingress", "all", "--allow-unauthenticated")
 	}
-	if len(sv.svc.Env) > 0 {
+	if env := d.env(sv); len(env) > 0 {
 		var pairs []string
-		for _, k := range sortedKeys(sv.svc.Env) {
-			pairs = append(pairs, k+"="+sv.svc.Env[k])
+		for _, k := range sortedKeys(env) {
+			pairs = append(pairs, k+"="+env[k])
 		}
 		args = append(args, "--set-env-vars", listFlag(pairs))
 	} else {
@@ -709,6 +754,8 @@ func (o ServiceOptions) check() error {
 		return fmt.Errorf("serviceAccount %q is not a service account email", o.ServiceAccount)
 	case o.ExecutionEnvironment != "" && o.ExecutionEnvironment != "gen1" && o.ExecutionEnvironment != "gen2":
 		return fmt.Errorf("executionEnvironment %q is not gen1 or gen2", o.ExecutionEnvironment)
+	case o.Ingress != "" && o.Ingress != "internal" && o.Ingress != "all":
+		return fmt.Errorf("ingress %q is not internal or all", o.Ingress)
 	}
 	if o.Timeout != "" {
 		if _, err := parseTimeout(o.Timeout); err != nil {

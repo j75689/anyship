@@ -13,6 +13,8 @@ needs Node.js and a `wrangler login` (or `CLOUDFLARE_API_TOKEN`). The generated 
 - `services.<name>.domains` become custom-domain routes in the generated `wrangler.jsonc`. The zone
   must already be on your Cloudflare account; Cloudflare issues the certificate.
   `targets.cloudflare.domains` overrides the service's list (see [Domains](../../README.md#domains)).
+- `${services.<name>.url}` in `env` is refused (`CF_SERVICE_URL`): a Worker's URL depends on the
+  account's `workers.dev` subdomain or a custom domain. Put it in `env` by hand.
 - `cron` schedules become cron triggers, which call the Worker's `scheduled()` handler. A `path` or
   a `command` in the entry isn't used, and `plan` warns about it (`CF_CRON_PATH`, `CF_CRON_COMMAND`).
 - `memory` and `cpu` aren't applied, and `plan` warns about it (`CF_RESOURCES_IGNORED`): every

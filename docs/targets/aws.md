@@ -45,6 +45,9 @@ spec:
   handed to the aws CLI through a private temporary file, never on the command line.
 - The load balancer checks `healthCheck.path`, or `/`, for HTTP 200. One HTTP port per service
   (default 80); `internal` ports need private `subnets`. `replicas` is the minimum task count.
+- `${services.<name>.url}` in `env` is refused (`AWS_SERVICE_URL`): Express Mode assigns a
+  service its URL on the first deploy. Deploy the other service first and put its URL from
+  `anyship status` in `env`.
 - A service's `memory` and `cpu` size its tasks (0.25, 0.5, 1, 2, 4, 8 or 16 CPUs) and win over
   `cpu` and `memory` under `targets.aws`, which are the default for services that name none.
 - `logs` uses `aws logs tail`, so `-f` works for one service at a time; it selects by `--since`, not `-n`.

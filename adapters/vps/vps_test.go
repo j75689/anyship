@@ -189,6 +189,32 @@ func TestRequiresAValidHost(t *testing.T) {
 	}
 }
 
+// A reference to another service's URL becomes its name and port on the
+// compose network; a service without a port has no address.
+func TestServiceURLsResolveOnTheComposeNetwork(t *testing.T) {
+	env, _ := newEnv(t, t.TempDir())
+	p := plan(t, parse(t, `{"name": "app", "services": {
+		"web": {"kind": "server", "image": "web:1", "ports": [{"port": 3000}], "env": {"API": "${services.api.url}/v1", "SITE": "${services.site.url}"}},
+		"api": {"kind": "server", "image": "api:1", "ports": [{"port": 5432, "protocol": "tcp"}, {"port": 8080, "exposure": "internal"}]},
+		"site": {"kind": "static", "path": "site"}},
+		"targets": {"vps": {"host": "h"}}}`), env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", p.Findings)
+	}
+	got := composeOf(t, p).Services["web"].Environment
+	if want := map[string]string{"API": "http://api:8080/v1", "SITE": "http://site:80"}; got["API"] != want["API"] || got["SITE"] != want["SITE"] {
+		t.Errorf("env = %v, want %v", got, want)
+	}
+
+	noPort := plan(t, parse(t, `{"name": "app", "services": {
+		"web": {"kind": "server", "image": "web:1", "env": {"JOB": "${services.job.url}"}},
+		"job": {"kind": "worker", "image": "job:1"}},
+		"targets": {"vps": {"host": "h"}}}`), env)
+	if errs := codes(noPort, adapter.Error); !slices.Equal(errs, []string{"VPS_SERVICE_URL"}) {
+		t.Errorf("errors = %v, want VPS_SERVICE_URL", errs)
+	}
+}
+
 func TestMemoryAndCPUBecomeContainerLimits(t *testing.T) {
 	env, _ := newEnv(t, t.TempDir())
 	p := plan(t, parse(t, `{"name": "app", "services": {

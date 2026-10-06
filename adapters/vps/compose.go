@@ -125,14 +125,47 @@ func portMappings(svc *spec.Service) []portMapping {
 	return out
 }
 
-// renderService renders one spec service. argv is the already-split start
-// command, or nil to keep the image's own entrypoint and command; build is
-// set for services built on the host.
-func renderService(svc *spec.Service, argv []string, build *composeBuild) composeService {
+// serviceURL is where a service of the spec answers on the compose network:
+// its name, and its first HTTP port (the static port for a static site).
+// A service without a port has no address, and ok is false.
+func serviceURL(name string, s *spec.Spec) (url string, ok bool) {
+	svc := s.Services[name]
+	if svc.Kind == spec.KindStatic {
+		return fmt.Sprintf("http://%s:%d", name, dockerfile.StaticPort), true
+	}
+	for _, p := range svc.Ports {
+		if p.Protocol == spec.ProtocolHTTP {
+			return fmt.Sprintf("http://%s:%d", name, p.Port), true
+		}
+	}
+	return "", false
+}
+
+// serviceEnv is the service's env with references to other services
+// resolved to their addresses on the compose network.
+func serviceEnv(svc *spec.Service, s *spec.Spec) map[string]string {
+	if len(svc.RefersTo()) == 0 {
+		return svc.Env
+	}
+	env := make(map[string]string, len(svc.Env))
+	for k, v := range svc.Env {
+		env[k] = spec.ExpandServiceURLs(v, func(name string) string {
+			url, _ := serviceURL(name, s)
+			return url
+		})
+	}
+	return env
+}
+
+// renderService renders one spec service. env is the service's environment
+// with references resolved; argv is the already-split start command, or nil
+// to keep the image's own entrypoint and command; build is set for services
+// built on the host.
+func renderService(svc *spec.Service, env map[string]string, argv []string, build *composeBuild) composeService {
 	out := composeService{
 		Image:       svc.Image,
 		Build:       build,
-		Environment: svc.Env,
+		Environment: env,
 		Secrets:     svc.Secrets,
 		DependsOn:   svc.DependsOn,
 		Restart:     "unless-stopped",
