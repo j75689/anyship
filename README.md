@@ -5,10 +5,10 @@
 # anyship: describe your app once, deploy it anywhere
 
 anyship is an open source CLI that reads your project, drafts a platform-neutral deploy spec
-(`anyship.yaml`), and turns that one spec into a deployment on whichever platform you pick: Cloudflare
-Workers, any VPS with Docker, Google Cloud Run or AWS ECS. Each platform adapter either satisfies
-every need in the spec or tells you exactly which need it can't meet and why. It never quietly drops
-one.
+(`anyship.yaml`), and turns that one spec into a deployment on whichever platform you pick: Cloudflare,
+a VPS of your own, Google Cloud or AWS today, and more platforms as adapters are added. Each adapter
+either satisfies every need in the spec or tells you exactly which need it can't meet and why. It
+never quietly drops one.
 
 anyship is a single Go binary. It drives the tools you already use (`wrangler`, `ssh`, `gcloud`,
 `aws`) with your own logins, has no server, and keeps no state.
