@@ -525,6 +525,7 @@ func TestAgentTextNamesToolsNotCommands(t *testing.T) {
 		"Keep the volumes data and the secrets in h:app; destroy --volumes deletes them.":                         "Keep the volumes data and the secrets in h:app; destroy with volumes=true deletes them.",
 		"Removed nothing; `anyship destroy -t vps --volumes` also deletes data.":                                  "Removed nothing; the destroy tool with volumes=true also deletes data.",
 		"Check the host first with `anyship apply -t vps --dry-run`.":                                             "Check the host first with the apply tool with dry_run=true.",
+		"Pin it by digest, or override it for one deploy: `anyship apply --image web=<ref>`.":                     "Pin it by digest, or override it for one deploy: the apply tool with its images argument.",
 		"Ask Claude with `anyship diagnose -t vps`.":                                                              "Ask Claude with the diagnose_context tool.",
 		// Advice about other programs, and about this server, is the user's to act on.
 		"Check that `ssh -p 2222 deploy@h` works without a password prompt.":                                   "Check that `ssh -p 2222 deploy@h` works without a password prompt.",

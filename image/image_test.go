@@ -65,3 +65,33 @@ func TestWriteGenerated(t *testing.T) {
 		t.Errorf("ignore file = %q, %v", data, err)
 	}
 }
+
+func TestMovingTag(t *testing.T) {
+	for ref, want := range map[string]string{
+		"nginx":                  "latest",
+		"nginx:latest":           "latest",
+		"ghcr.io/acme/shop:main": "main",
+		// The colon here is the registry's port, not a tag.
+		"localhost:5000/shop":                     "latest",
+		"localhost:5000/shop:stable":              "stable",
+		"us-docker.pkg.dev/p/remote/acme/shop:pr": "pr",
+	} {
+		if tag, moving := MovingTag(ref); !moving || tag != want {
+			t.Errorf("MovingTag(%q) = %q, %v; want %q, true", ref, tag, moving, want)
+		}
+	}
+	for _, ref := range []string{
+		"nginx:1.27",
+		"nginx:1.27-alpine",
+		"ghcr.io/acme/shop:v2",
+		"ghcr.io/acme/shop:sha-3f2a1c9",
+		"ghcr.io/acme/shop:2026-10-06",
+		"ghcr.io/acme/shop@sha256:" + strings.Repeat("a", 64),
+		"ghcr.io/acme/shop:main@sha256:" + strings.Repeat("a", 64),
+		"localhost:5000/shop:1",
+	} {
+		if tag, moving := MovingTag(ref); moving {
+			t.Errorf("MovingTag(%q) = %q, true; want it to count as pinned", ref, tag)
+		}
+	}
+}

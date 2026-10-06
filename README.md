@@ -230,6 +230,13 @@ Worker with `wrangler delete` and never touches bound D1, KV, R2 or Hyperdrive r
 `plan`, `status` and `targets` take `--json` for scripts and agents; progress messages go to stderr.
 `plan --json` includes the contents of the files a deploy would generate, since `plan` writes none.
 
+`plan` and `apply` take `--image <service>=<image>` to deploy a different image than the spec names,
+for that run only. A pipeline passes the digest it just built, and `anyship.yaml` stays as it is:
+
+```console
+$ anyship apply -t gcp --image web=ghcr.io/acme/shop@sha256:9b2c…
+```
+
 ## Diagnose failures with Claude
 
 ```console

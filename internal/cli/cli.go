@@ -217,6 +217,7 @@ func (a *app) validateCommand() *cobra.Command {
 
 func (a *app) planCommand() *cobra.Command {
 	var config, target string
+	var images []string
 	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "plan",
@@ -225,6 +226,9 @@ func (a *app) planCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d, err := a.prepare(config, target, false)
 			if err != nil {
+				return err
+			}
+			if err := useImages(d.spec, images); err != nil {
 				return err
 			}
 			p, err := d.adapter.Plan(cmd.Context(), d.spec, d.env)
@@ -244,12 +248,14 @@ func (a *app) planCommand() *cobra.Command {
 	}
 	addConfigFlag(cmd, &config)
 	addTargetFlag(cmd, &target)
+	addImageFlag(cmd, &images)
 	addJSONFlag(cmd, &asJSON)
 	return cmd
 }
 
 func (a *app) applyCommand() *cobra.Command {
 	var config, target string
+	var images []string
 	var yes, dryRun bool
 	cmd := &cobra.Command{
 		Use:   "apply",
@@ -258,6 +264,9 @@ func (a *app) applyCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d, err := a.prepare(config, target, dryRun)
 			if err != nil {
+				return err
+			}
+			if err := useImages(d.spec, images); err != nil {
 				return err
 			}
 			p, err := d.adapter.Plan(cmd.Context(), d.spec, d.env)
@@ -292,6 +301,7 @@ func (a *app) applyCommand() *cobra.Command {
 	}
 	addConfigFlag(cmd, &config)
 	addTargetFlag(cmd, &target)
+	addImageFlag(cmd, &images)
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation prompt")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "generate config and run the platform's dry run without deploying")
 	return cmd

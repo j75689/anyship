@@ -29,6 +29,25 @@ type Build struct {
 	Platform string
 }
 
+// MovingTag reports whether an image reference names a tag that is expected to
+// move, and which tag that is. A reference with a digest never moves. Without
+// one, no tag at all means "latest", and a tag with no digit in it ("latest",
+// "main", "stable") reads as a channel or a branch rather than a version.
+//
+// A deploy from a moving tag runs whatever the tag points at when the platform
+// pulls it, which behind a caching registry can be an image from days ago.
+func MovingTag(ref string) (tag string, moving bool) {
+	if strings.Contains(ref, "@") {
+		return "", false
+	}
+	name := ref[strings.LastIndex(ref, "/")+1:] // a colon before that is a registry port
+	_, tag, tagged := strings.Cut(name, ":")
+	if !tagged || tag == "" {
+		return "latest", true
+	}
+	return tag, !strings.ContainsAny(tag, "0123456789")
+}
+
 // BuildAndPush runs `docker buildx build --push` and returns the pushed
 // image as repository@sha256:digest.
 func BuildAndPush(ctx context.Context, env *adapter.Env, b Build) (string, error) {
