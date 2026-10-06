@@ -154,8 +154,8 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 	opts, err := decodeOptions(s.Targets[Name])
 	if err != nil {
 		plan.Findings = append(plan.Findings, adapter.Finding{
-			Level: adapter.Error, Code: "AWS_BAD_OPTIONS", Message: "targets.aws: " + err.Error(),
-			Hint: `Set spec.targets.aws, e.g. {"region": "us-east-1", "repository": "apps"}.`,
+			Level: adapter.Error, Code: "AWS_BAD_OPTIONS", Message: "spec.targets.aws: " + err.Error(),
+			Hint: adapter.OptionsHint(Name, "`region: us-east-1`, plus `repository: apps` to build from source"),
 		})
 		return plan, nil
 	}

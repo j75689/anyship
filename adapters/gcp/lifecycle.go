@@ -54,7 +54,7 @@ func deployed(ctx context.Context, g gcloud, o Options, project string) (map[str
 func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*adapter.Status, error) {
 	o, err := decodeOptions(s.Targets[Name])
 	if err != nil {
-		return nil, fmt.Errorf("targets.gcp: %w", err)
+		return nil, fmt.Errorf("spec.targets.gcp: %w", err)
 	}
 	found, err := deployed(ctx, newGcloud(env, *o), *o, s.Name)
 	if err != nil {
@@ -90,7 +90,7 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts adapter.LogOptions) error {
 	o, err := decodeOptions(s.Targets[Name])
 	if err != nil {
-		return fmt.Errorf("targets.gcp: %w", err)
+		return fmt.Errorf("spec.targets.gcp: %w", err)
 	}
 	if opts.Follow {
 		configuration := ""
@@ -132,7 +132,7 @@ func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts
 func (a *Adapter) DestroySummary(s *spec.Spec, opts adapter.DestroyOptions) ([]string, error) {
 	o, err := decodeOptions(s.Targets[Name])
 	if err != nil {
-		return nil, fmt.Errorf("targets.gcp: %w", err)
+		return nil, fmt.Errorf("spec.targets.gcp: %w", err)
 	}
 	var names []string
 	for _, name := range s.ServiceNames() {
@@ -152,7 +152,7 @@ func (a *Adapter) DestroySummary(s *spec.Spec, opts adapter.DestroyOptions) ([]s
 func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, opts adapter.DestroyOptions) (*adapter.Result, error) {
 	o, err := decodeOptions(s.Targets[Name])
 	if err != nil {
-		return nil, fmt.Errorf("targets.gcp: %w", err)
+		return nil, fmt.Errorf("spec.targets.gcp: %w", err)
 	}
 	g := newGcloud(env, *o)
 	found, err := deployed(ctx, g, *o, s.Name)

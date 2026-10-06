@@ -96,8 +96,8 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 		plan.Findings = append(plan.Findings, adapter.Finding{
 			Level:   adapter.Error,
 			Code:    "VPS_BAD_OPTIONS",
-			Message: "targets.vps: " + err.Error(),
-			Hint:    `Set targets.vps.host to an ssh destination, e.g. {"vps": {"host": "deploy@203.0.113.10"}}.`,
+			Message: "spec.targets.vps: " + err.Error(),
+			Hint:    adapter.OptionsHint(Name, "`host: deploy@203.0.113.10`, an ssh destination"),
 		})
 		return plan, nil
 	}
@@ -268,7 +268,7 @@ const defaultLogTail = 100
 func (a *Adapter) Logs(ctx context.Context, s *spec.Spec, env *adapter.Env, opts adapter.LogOptions) error {
 	o, err := decodeOptions(s.Targets[Name])
 	if err != nil {
-		return fmt.Errorf("targets.vps: %w", err)
+		return fmt.Errorf("spec.targets.vps: %w", err)
 	}
 	dir := o.deployDir(s.Name)
 

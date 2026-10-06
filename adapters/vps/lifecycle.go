@@ -49,7 +49,7 @@ type psContainer struct {
 func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*adapter.Status, error) {
 	o, err := decodeOptions(s.Targets[Name])
 	if err != nil {
-		return nil, fmt.Errorf("targets.vps: %w", err)
+		return nil, fmt.Errorf("spec.targets.vps: %w", err)
 	}
 	dir := o.deployDir(s.Name)
 	st := &adapter.Status{Target: Name, Location: o.Host + ":" + dir}
@@ -151,7 +151,7 @@ func worseHealth(a, b string) string {
 func (a *Adapter) DestroySummary(s *spec.Spec, opts adapter.DestroyOptions) ([]string, error) {
 	o, err := decodeOptions(s.Targets[Name])
 	if err != nil {
-		return nil, fmt.Errorf("targets.vps: %w", err)
+		return nil, fmt.Errorf("spec.targets.vps: %w", err)
 	}
 	dir := o.deployDir(s.Name)
 	lines := []string{fmt.Sprintf("Stop and remove the %s containers and network on %s.", s.Name, o.Host)}
@@ -174,7 +174,7 @@ func (a *Adapter) DestroySummary(s *spec.Spec, opts adapter.DestroyOptions) ([]s
 func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, opts adapter.DestroyOptions) (*adapter.Result, error) {
 	o, err := decodeOptions(s.Targets[Name])
 	if err != nil {
-		return nil, fmt.Errorf("targets.vps: %w", err)
+		return nil, fmt.Errorf("spec.targets.vps: %w", err)
 	}
 	dir := o.deployDir(s.Name)
 	down := fmt.Sprintf("%s compose -p %s -f compose.yaml down --remove-orphans", o.docker(), s.Name)

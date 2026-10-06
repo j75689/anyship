@@ -32,6 +32,15 @@ type Finding struct {
 	Hint    string `json:"hint,omitempty"`
 }
 
+// OptionsHint is the hint for a target block that is missing or wrong: where
+// the block lives in anyship.yaml, the fields it needs written the way they
+// appear in the file, and where the rest are documented. Adapters share it so
+// their hints read alike.
+func OptionsHint(target, needs string) string {
+	return fmt.Sprintf("Under spec.targets.%s in anyship.yaml, set %s. Every option: https://github.com/j75689/anyship/blob/main/docs/targets/%s.md",
+		target, needs, target)
+}
+
 // HasErrors reports whether any finding blocks apply.
 func HasErrors(findings []Finding) bool {
 	return slices.ContainsFunc(findings, func(f Finding) bool { return f.Level == Error })
