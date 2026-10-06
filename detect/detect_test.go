@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/j75689/anyship/adapter"
@@ -129,10 +130,54 @@ func TestDockerfileFallback(t *testing.T) {
 	}
 }
 
+// At a repository root the useful answer is where the apps are.
+func TestUnknownProjectPointsAtSubprojects(t *testing.T) {
+	d := detect(t, map[string]string{
+		"README.md":                          "# monorepo\n",
+		"apps/api/requirements.txt":          "fastapi\n",
+		"apps/web/package.json":              "{}",
+		"apps/web/node_modules/x/go.mod":     "module x\n",
+		"worker/go.mod":                      "module worker\n",
+		"docs/guide/intro.md":                "",
+		"node_modules/left-pad/package.json": "{}",
+		".github/actions/build/Dockerfile":   "FROM alpine\n",
+		"vendor/lib/go.mod":                  "module lib\n",
+		"a/b/c/package.json":                 "{}",
+	})
+	var unknown adapter.Finding
+	for _, f := range d.Findings {
+		if f.Code == "DETECT_UNKNOWN" {
+			unknown = f
+		}
+	}
+	if want := "these subdirectories look like projects: apps/api, apps/web, worker."; !strings.HasSuffix(unknown.Message, want) {
+		t.Errorf("message = %q, want it to end with %q", unknown.Message, want)
+	}
+	if !strings.Contains(unknown.Hint, "give its path as the directory") {
+		t.Errorf("hint = %q", unknown.Hint)
+	}
+}
+
+func TestSubprojectsAreCapped(t *testing.T) {
+	files := map[string]string{}
+	for _, name := range []string{"a", "b", "c", "d", "e", "f", "g"} {
+		files["apps/"+name+"/go.mod"] = "module " + name + "\n"
+	}
+	got := subprojects(writeProject(t, files))
+	want := []string{"apps/a", "apps/b", "apps/c", "apps/d", "apps/e", "and 2 more"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 func TestUnknownProjectIsReported(t *testing.T) {
 	d := detect(t, map[string]string{"README.md": "# notes\n", "build.gradle": ""})
 	if !slices.Contains(codes(d.Findings), "DETECT_UNKNOWN") {
 		t.Errorf("findings = %v", codes(d.Findings))
+	}
+	// No subdirectory looks like a project, so the advice is about this one.
+	if hint := d.Findings[0].Hint; !strings.HasPrefix(hint, "Add a Dockerfile") {
+		t.Errorf("hint = %q", hint)
 	}
 	if reparse(t, d.Spec) == nil {
 		t.Error("an undetectable project should not produce a deployable spec")

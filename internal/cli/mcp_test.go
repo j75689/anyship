@@ -438,3 +438,67 @@ func tree(t *testing.T, dir string) []string {
 	slices.Sort(paths)
 	return paths
 }
+
+// An agent's working directory need not be the server's: the server says
+// where it runs, and a missing spec is reported by the path that was tried.
+func TestMCPSaysWhereItLooks(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	wd, err := os.Getwd() // the temp dir with symlinks resolved, as the server sees it
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := connectMCP(t, false)
+	if got := h.session.InitializeResult().Instructions; !strings.Contains(got, "This server runs in "+wd+".") {
+		t.Errorf("instructions do not name the working directory %s:\n%s", wd, got)
+	}
+
+	missing := filepath.Join(wd, spec.Filename) + " does not exist; draft a spec with the detect tool"
+	var valid validateOutput
+	if msg := h.call(t, "validate", nil, &valid); msg != "" || valid.Valid || len(valid.Problems) != 1 || !strings.HasPrefix(valid.Problems[0], missing) {
+		t.Errorf("validate: %q %+v, want a problem starting with %q", msg, valid, missing)
+	}
+	if msg := h.call(t, "plan", map[string]any{"target": "fake"}, nil); !strings.Contains(msg, missing) {
+		t.Errorf("plan: %q, want it to contain %q", msg, missing)
+	}
+	for _, text := range []string{strings.Join(valid.Problems, " "), h.call(t, "plan", map[string]any{"target": "fake"}, nil)} {
+		if strings.Contains(text, "anyship init") {
+			t.Errorf("an agent has no shell to run `anyship init` in: %q", text)
+		}
+	}
+}
+
+func TestMCPDetectInARepositoryOfApps(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := filepath.Join(wd, "apps", "api")
+	if err := os.MkdirAll(api, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(api, "go.mod"), []byte("module api\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(api, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := connectMCP(t, false)
+
+	var root detectOutput
+	if msg := h.call(t, "detect", nil, &root); msg != "" {
+		t.Fatal(msg)
+	}
+	if root.Dir != wd || len(root.Findings) == 0 || !strings.Contains(root.Findings[0].Message, "look like projects: apps/api.") {
+		t.Errorf("detect at the root: dir %q, findings %+v", root.Dir, root.Findings)
+	}
+	var app detectOutput
+	if msg := h.call(t, "detect", map[string]any{"dir": "apps/api"}, &app); msg != "" {
+		t.Fatal(msg)
+	}
+	if app.Dir != api || !app.Valid {
+		t.Errorf("detect in apps/api: dir %q, valid %v, problems %v", app.Dir, app.Valid, app.Problems)
+	}
+}

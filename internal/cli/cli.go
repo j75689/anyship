@@ -413,6 +413,10 @@ func load(config string) (*spec.Spec, error) {
 	if problems := problemsOf(err); len(problems) > 0 {
 		return nil, fmt.Errorf("%s is invalid:\n  ✖ %s", config, strings.Join(problems, "\n  ✖ "))
 	}
+	var missing *spec.NotFoundError
+	if errors.As(err, &missing) {
+		return nil, fmt.Errorf("%w; run `anyship init` in the project to draft it", err)
+	}
 	return nil, fmt.Errorf("%s: %w", config, err)
 }
 

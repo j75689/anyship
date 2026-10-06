@@ -32,6 +32,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   finding telling the reader to review them.
 - MCP: `diagnose_context`, which is annotated read-only, no longer writes `.anyship/<target>/` into
   the project; it runs the target's checks in a temporary directory.
+- A missing spec is reported by the full path that was tried, not as a bare `anyship.yaml`. Over MCP
+  the server's instructions say which directory it runs in, `detect` returns the directory it
+  inspected, and the error points at the `detect` tool instead of a shell command.
+- `init` and `detect` at the root of a repository with several apps name the subdirectories that
+  look like projects, instead of suggesting a Dockerfile.
 
 ## [0.3.0] - 2026-10-06
 

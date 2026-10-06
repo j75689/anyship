@@ -58,12 +58,19 @@ func Project(dir string) (*Detection, error) {
 		d.Evidence = append(d.Evidence, "index.html without a manifest → static site served from the project root")
 		svc = &spec.Service{Kind: spec.KindStatic, Build: &spec.Build{Output: "."}}
 	default:
-		d.Findings = append(d.Findings, adapter.Finding{
+		finding := adapter.Finding{
 			Level:   adapter.Error,
 			Code:    "DETECT_UNKNOWN",
 			Message: "Could not work out how to build or start this project.",
 			Hint:    "Add a Dockerfile, or fill in services.web in anyship.yaml. Auto-detection covers JavaScript, Go, Python and Rust.",
-		})
+		}
+		// At the root of a repository that holds several apps, the fix is to
+		// look in the right directory, not to add a Dockerfile here.
+		if found := subprojects(dir); len(found) > 0 {
+			finding.Message = "Nothing in this directory says how to build or start a project, but these subdirectories look like projects: " + strings.Join(found, ", ") + "."
+			finding.Hint = "Detect one of them instead: give its path as the directory."
+		}
+		d.Findings = append(d.Findings, finding)
 		svc = &spec.Service{Kind: spec.KindServer}
 	}
 	if err != nil {
@@ -167,6 +174,46 @@ func isLoopback(host string) bool {
 }
 
 // project gives detectors read-only access to a source tree.
+// projectFiles are the files Project recognises a project by.
+var projectFiles = []string{"package.json", "go.mod", "Cargo.toml", "pyproject.toml", "requirements.txt", "Dockerfile", "index.html"}
+
+// skippedDirs hold dependencies and build output, never an app of their own.
+var skippedDirs = []string{"node_modules", "vendor", "target", "dist", "build", "testdata"}
+
+// maxSubprojects keeps the list in a finding readable.
+const maxSubprojects = 5
+
+// subprojects lists the directories up to two levels below dir that Project
+// would recognise, as slash-separated paths relative to dir.
+func subprojects(dir string) []string {
+	var found []string
+	var walk func(rel string, depth int)
+	walk = func(rel string, depth int) {
+		entries, err := os.ReadDir(filepath.Join(dir, rel))
+		if err != nil {
+			return
+		}
+		for _, entry := range entries {
+			name := entry.Name()
+			if !entry.IsDir() || strings.HasPrefix(name, ".") || slices.Contains(skippedDirs, name) {
+				continue
+			}
+			sub := filepath.Join(rel, name)
+			if slices.ContainsFunc(projectFiles, project{dir: filepath.Join(dir, sub)}.has) {
+				found = append(found, filepath.ToSlash(sub))
+			} else if depth < 2 {
+				walk(sub, depth+1)
+			}
+		}
+	}
+	walk("", 1)
+	slices.Sort(found)
+	if extra := len(found) - maxSubprojects; extra > 0 {
+		found = append(found[:maxSubprojects], fmt.Sprintf("and %d more", extra))
+	}
+	return found
+}
+
 type project struct{ dir string }
 
 func (p project) has(name string) bool {
