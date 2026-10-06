@@ -27,6 +27,25 @@ Typical flow: detect (draft a spec for a directory) → write anyship.yaml → v
 Read-only tools never change anything. Deploying and destroying are only possible when the server was started with --allow-deploy.
 Never pass volumes=true to destroy unless the user explicitly asked to delete data; it deletes volumes and secrets for good.`
 
+// mcpInstructionsIn adds where the server runs. An agent's own working
+// directory need not be the server's, and every relative path a tool takes
+// is resolved from here.
+func mcpInstructionsIn(dir string) string {
+	return mcpInstructions + fmt.Sprintf(`
+
+This server runs in %s. A relative config or dir is resolved from there, and config defaults to anyship.yaml in it.
+In a repository with several apps, pass the app's directory as dir to detect and the path of its anyship.yaml as config.`, dir)
+}
+
+// forAgent rewords an error for a caller that has tools, not a shell.
+func forAgent(err error) error {
+	var missing *spec.NotFoundError
+	if errors.As(err, &missing) {
+		return fmt.Errorf("%s does not exist; draft a spec with the detect tool and write it there, or pass config if the spec is somewhere else", missing.Path)
+	}
+	return err
+}
+
 // maxToolOutput caps the command output returned to the client, keeping the end.
 const maxToolOutput = 32 << 10
 
@@ -77,6 +96,9 @@ type detectInput struct {
 }
 
 type detectOutput struct {
+	// Dir is the directory that was inspected, as an absolute path: where
+	// the draft belongs.
+	Dir string `json:"dir"`
 	// Spec is the drafted anyship.yaml, to review and write to the project.
 	Spec     string            `json:"spec"`
 	Valid    bool              `json:"valid"`
@@ -159,7 +181,11 @@ type resultOutput struct {
 }
 
 func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "anyship", Version: version}, &mcp.ServerOptions{Instructions: mcpInstructions})
+	instructions := mcpInstructions
+	if dir, err := os.Getwd(); err == nil {
+		instructions = mcpInstructionsIn(dir)
+	}
+	server := mcp.NewServer(&mcp.Implementation{Name: "anyship", Version: version}, &mcp.ServerOptions{Instructions: instructions})
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(false)}
 	readsTarget := &mcp.ToolAnnotations{ReadOnlyHint: true}
 
@@ -177,7 +203,11 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		Description: "Detect a project's stack and draft an anyship.yaml for it. Nothing is written; review the draft, then save it as anyship.yaml.",
 		Annotations: readOnly,
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in detectInput) (*mcp.CallToolResult, detectOutput, error) {
-		d, err := detect.Project(orDefault(in.Dir, "."))
+		dir, err := filepath.Abs(orDefault(in.Dir, "."))
+		if err != nil {
+			return nil, detectOutput{}, err
+		}
+		d, err := detect.Project(dir)
 		if err != nil {
 			return nil, detectOutput{}, err
 		}
@@ -185,7 +215,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		if err != nil {
 			return nil, detectOutput{}, err
 		}
-		out := detectOutput{Spec: string(data), Valid: true, Problems: []string{}, Findings: nonNil(d.Findings), Evidence: nonNil(d.Evidence)}
+		out := detectOutput{Dir: dir, Spec: string(data), Valid: true, Problems: []string{}, Findings: nonNil(d.Findings), Evidence: nonNil(d.Evidence)}
 		if _, err := spec.Parse(data); err != nil {
 			out.Valid, out.Problems = false, problemsOrError(err)
 		}
@@ -196,7 +226,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		func(_ context.Context, _ *mcp.CallToolRequest, in configInput) (*mcp.CallToolResult, validateOutput, error) {
 			s, err := spec.Load(orDefault(in.Config, spec.Filename))
 			if err != nil {
-				return nil, validateOutput{Problems: problemsOrError(err), Services: []string{}}, nil
+				return nil, validateOutput{Problems: problemsOrError(forAgent(err)), Services: []string{}}, nil
 			}
 			return nil, validateOutput{Valid: true, Problems: []string{}, Name: s.Name, Services: s.ServiceNames()}, nil
 		})
@@ -378,7 +408,7 @@ func (a *app) prepareForMCP(config, target string, dryRun bool) (*deployment, *t
 	}
 	d, err := a.prepare(orDefault(config, spec.Filename), target, dryRun)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, forAgent(err)
 	}
 	output := &tailBuffer{max: maxToolOutput}
 	d.env.Logf = func(format string, args ...any) { fmt.Fprintf(output, format+"\n", args...) }

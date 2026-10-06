@@ -282,8 +282,9 @@ claude mcp list                                        # anyship: … - ✔ Conn
 
 `anyship` has to be on `PATH` when Claude Code starts, because Claude Code runs the command itself.
 The server also inherits the directory Claude Code was started in, and that is what `config` and `dir`
-fall back to. In a monorepo, tell the agent which subdirectory the app is in, or `detect` reads the
-repo root and finds nothing to build.
+fall back to. It tells the agent which directory that is, and reports a missing `anyship.yaml` by the
+full path it tried. In a repository with several apps, `detect` at the root names the subdirectories
+that look like projects, so the agent can pass one as `dir`.
 
 | Tool | Does | Writes files |
 |---|---|---|

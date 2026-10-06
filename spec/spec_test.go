@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -312,5 +313,22 @@ func TestCheckedInJSONSchemaIsCurrent(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Error("schema/anyship.schema.json is stale; regenerate it with `go run ./cmd/anyship schema > schema/anyship.schema.json`")
+	}
+}
+
+// "anyship.yaml" alone does not say which directory was searched.
+func TestLoadSaysWhereItLooked(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	_, err := Load(Filename)
+	var missing *NotFoundError
+	if !errors.As(err, &missing) || !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("want a NotFoundError that is fs.ErrNotExist, got %v", err)
+	}
+	if !filepath.IsAbs(missing.Path) || filepath.Base(missing.Path) != Filename {
+		t.Errorf("path = %q, want the absolute path of %s", missing.Path, Filename)
+	}
+	if want := missing.Path + " does not exist"; err.Error() != want {
+		t.Errorf("error = %q, want %q", err, want)
 	}
 }

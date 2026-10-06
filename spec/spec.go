@@ -374,8 +374,26 @@ func Load(path string) (*Spec, error) {
 			return nil, fmt.Errorf("%s not found, but %s is: specs are YAML manifests now (apiVersion: %s); the 0.3.0 notes say what moved: %s", Filename, LegacyFilename, APIVersion, ChangelogURL)
 		}
 	}
+	if errors.Is(err, fs.ErrNotExist) {
+		abs, absErr := filepath.Abs(path)
+		if absErr != nil {
+			abs = path
+		}
+		return nil, &NotFoundError{Path: abs}
+	}
 	if err != nil {
 		return nil, err
 	}
 	return Parse(data)
 }
+
+// NotFoundError is what Load returns when there is no spec file. It carries
+// the absolute path that was tried: "anyship.yaml" alone does not say which
+// directory the caller was looking in.
+type NotFoundError struct {
+	Path string
+}
+
+func (e *NotFoundError) Error() string { return e.Path + " does not exist" }
+
+func (e *NotFoundError) Unwrap() error { return fs.ErrNotExist }
