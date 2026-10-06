@@ -21,6 +21,8 @@ spec:
           serviceAccount: render@my-project.iam.gserviceaccount.com # instead of the account above
           executionEnvironment: gen2  # gen1 or gen2; default: Cloud Run chooses
           ingress: all                # for an internal port: reachable from anywhere, token required; default: internal
+      secretReaders:        # optional service accounts outside the spec that keep reading its secrets
+        - reports@my-project.iam.gserviceaccount.com
 ```
 
 - anyship drives your installed `gcloud` with its current login, and `docker buildx` for builds. It
@@ -49,10 +51,11 @@ spec:
 - Secrets live in Secret Manager as `<spec name>-<NAME>` and reach the container as environment
   variables. A value in the deployer's environment adds a new version; `generate: "hex32"` secrets
   are created once and kept. Each apply lets the account a service runs as read the secrets that
-  service lists, and only those (`roles/secretmanager.secretAccessor` on each secret). anyship adds
-  these bindings and never removes one, so an account that no longer runs a service keeps its
-  access until you take it away (`gcloud secrets remove-iam-policy-binding`). `destroy --volumes`
-  deletes the secrets; images stay in the registry.
+  service lists, and only those (`roles/secretmanager.secretAccessor` on each secret): any other
+  service account that may read one of the spec's secrets loses that right on the next `apply`
+  (`apply --dry-run` names them first), unless it is listed in `secretReaders`. Only secrets
+  anyship created for the spec are touched, only that role, and only service accounts; users and
+  groups are left alone. `destroy --volumes` deletes the secrets; images stay in the registry.
 - One HTTP port per service (default 8080, also passed as `$PORT`). `replicas` sets the minimum
   instance count. Services reach each other by URL, not by name.
 - `memory` and `cpu` set the instance size. Cloud Run takes 1, 2, 4, 6 or 8 CPUs and ties memory to

@@ -59,6 +59,10 @@ type Options struct {
 	// Services holds the settings of single services, by their name in the
 	// spec.
 	Services map[string]ServiceOptions `json:"services,omitempty"`
+	// SecretReaders are service accounts outside the spec that keep their
+	// access to its secrets. Every apply takes the access of any other
+	// service account away.
+	SecretReaders []string `json:"secretReaders,omitempty"`
 }
 
 // ServiceOptions are the Cloud Run settings of one service. Timeout and
@@ -308,7 +312,7 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 			Message: "Secrets reach Cloud Run containers as environment variables named after the secret, not as files under /run/secrets.",
 		})
 		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpNote, Kind: "IAM binding", Name: "roles/secretmanager.secretAccessor",
-			Detail: "lets the account each service runs as read the secrets that service lists; bindings from earlier deploys are not removed"})
+			Detail: "lets the account each service runs as read the secrets that service lists, and takes that right away from other service accounts" + readersNote(opts)})
 	}
 
 	for _, sv := range data.services {
@@ -741,6 +745,11 @@ func decodeOptions(raw json.RawMessage) (*Options, error) {
 			return nil, fmt.Errorf("services.%s: %w", name, err)
 		}
 	}
+	for i, account := range opts.SecretReaders {
+		if !accountRe.MatchString(account) {
+			return nil, fmt.Errorf("secretReaders.%d: %q is not a service account email", i, account)
+		}
+	}
 	return opts, nil
 }
 
@@ -763,6 +772,13 @@ func (o ServiceOptions) check() error {
 		}
 	}
 	return nil
+}
+
+func readersNote(o *Options) string {
+	if len(o.SecretReaders) == 0 {
+		return ""
+	}
+	return " (keeping " + strings.Join(o.SecretReaders, ", ") + ")"
 }
 
 func sortedKeys[V any](m map[string]V) []string {

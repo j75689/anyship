@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -103,8 +104,23 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 	if adapter.HasErrors(checks) {
 		return result(false, "Preflight checks failed; nothing was changed."), nil
 	}
+	for i := range data.services {
+		if data.services[i].account == "" {
+			data.services[i].account = defaultAccount
+		}
+	}
 	if env.DryRun {
-		return result(true, fmt.Sprintf("Dry run: preflight checks passed for %s; nothing was changed.", data.opts.Project)), nil
+		// Say which secret access the apply would take away, since that
+		// is the one thing it does that isn't in the plan.
+		stale, err := staleReaders(ctx, g, data)
+		if err != nil {
+			return result(false, err.Error()), nil
+		}
+		messages := []string{fmt.Sprintf("Dry run: preflight checks passed for %s; nothing was changed.", data.opts.Project)}
+		for _, r := range stale {
+			messages = append(messages, fmt.Sprintf("Would take the right to read secret %s away from %s.", r.secret, r.account))
+		}
+		return result(true, messages...), nil
 	}
 
 	for _, sc := range data.secrets {
@@ -114,11 +130,7 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 	}
 	// Each account may read the secrets its own services list, and no others.
 	granted := map[[2]string]bool{}
-	for i := range data.services {
-		sv := &data.services[i]
-		if sv.account == "" {
-			sv.account = defaultAccount
-		}
+	for _, sv := range data.services {
 		for _, name := range sv.svc.Secrets {
 			grant := [2]string{secretID(data.project, name), sv.account}
 			if granted[grant] {
@@ -128,6 +140,15 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 			if err := grantAccess(ctx, g, grant[0], grant[1]); err != nil {
 				return result(false, err.Error()), nil
 			}
+		}
+	}
+	stale, err := staleReaders(ctx, g, data)
+	if err != nil {
+		return result(false, err.Error()), nil
+	}
+	for _, r := range stale {
+		if err := revokeAccess(ctx, g, r.secret, r.account); err != nil {
+			return result(false, err.Error()), nil
 		}
 	}
 
@@ -341,12 +362,80 @@ func allowCallers(ctx context.Context, g gcloud, d *planData, sv service) error 
 	return nil
 }
 
+// reader is a service account's right to read a secret.
+type reader struct{ secret, account string }
+
+// staleReaders finds the service accounts that may read the spec's secrets
+// without the spec saying so: not the account of a service that lists the
+// secret, and not in targets.gcp.secretReaders. Only secrets anyship made
+// for the spec are looked at (they carry its label), and only service
+// accounts: users, groups and other roles are left alone.
+func staleReaders(ctx context.Context, g gcloud, d *planData) ([]reader, error) {
+	var stale []reader
+	for _, sc := range d.secrets {
+		label, err := g.probe(ctx, "secrets", "describe", sc.id, "--format", "value(labels."+projectLabel+")")
+		if err != nil || label != d.project {
+			continue
+		}
+		out, err := g.probe(ctx, "secrets", "get-iam-policy", sc.id, "--format", "json")
+		if err != nil {
+			return nil, fmt.Errorf("reading who may read secret %s failed (%w)", sc.id, err)
+		}
+		var policy struct {
+			Bindings []struct {
+				Role    string   `json:"role"`
+				Members []string `json:"members"`
+			} `json:"bindings"`
+		}
+		if out != "" {
+			if err := json.Unmarshal([]byte(out), &policy); err != nil {
+				return nil, fmt.Errorf("unexpected output from gcloud secrets get-iam-policy %s: %w", sc.id, err)
+			}
+		}
+		for _, b := range policy.Bindings {
+			if b.Role != secretAccessorRole {
+				continue
+			}
+			for _, member := range b.Members {
+				account, ok := strings.CutPrefix(member, "serviceAccount:")
+				if ok && !d.mayRead(sc.name, account) {
+					stale = append(stale, reader{sc.id, account})
+				}
+			}
+		}
+	}
+	return stale, nil
+}
+
+// mayRead reports whether the spec lets an account read a secret.
+func (d *planData) mayRead(secret, account string) bool {
+	if slices.Contains(d.opts.SecretReaders, account) {
+		return true
+	}
+	return slices.ContainsFunc(d.services, func(sv service) bool {
+		return sv.account == account && slices.Contains(sv.svc.Secrets, secret)
+	})
+}
+
+const secretAccessorRole = "roles/secretmanager.secretAccessor"
+
+// revokeAccess takes an account's right to read one secret away.
+func revokeAccess(ctx context.Context, g gcloud, secretID, account string) error {
+	g.env.Logf("$ gcloud secrets remove-iam-policy-binding %s (secretAccessor for %s)", secretID, account)
+	err := g.run(ctx, nil, io.Discard, "secrets", "remove-iam-policy-binding", secretID,
+		"--member", "serviceAccount:"+account, "--role", secretAccessorRole)
+	if err != nil {
+		return fmt.Errorf("taking %s's access to secret %s away failed: %w", account, secretID, err)
+	}
+	return nil
+}
+
 // grantAccess lets the account a service runs as read one secret. The
 // binding is idempotent, so every apply can make sure it exists.
 func grantAccess(ctx context.Context, g gcloud, secretID, account string) error {
 	g.env.Logf("$ gcloud secrets add-iam-policy-binding %s (secretAccessor for %s)", secretID, account)
 	err := g.run(ctx, nil, io.Discard, "secrets", "add-iam-policy-binding", secretID,
-		"--member", "serviceAccount:"+account, "--role", "roles/secretmanager.secretAccessor")
+		"--member", "serviceAccount:"+account, "--role", secretAccessorRole)
 	if err != nil {
 		return fmt.Errorf("letting %s read secret %s failed: %w", account, secretID, err)
 	}

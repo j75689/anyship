@@ -48,7 +48,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - `gcp`: each service account is let into the secrets of the services that run as it, not into
-  every secret of the spec.
+  every secret of the spec, and every `apply` takes the right to read a secret away from service
+  accounts the spec doesn't give it to (`apply --dry-run` lists them first). Accounts outside the
+  spec that should keep reading go in `targets.gcp.secretReaders`. Only secrets anyship created
+  for the spec, only that role, and only service accounts are touched.
 
 ### Fixed
 

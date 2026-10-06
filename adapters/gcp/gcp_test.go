@@ -483,6 +483,73 @@ func TestDestroyRemovesCronJobs(t *testing.T) {
 	}
 }
 
+// policyWith is a secret's IAM policy in gcloud's JSON, with secretAccessor
+// for the members, and an unrelated role that must be left alone.
+func policyWith(members ...string) string {
+	quoted := make([]string, len(members))
+	for i, m := range members {
+		quoted[i] = `"` + m + `"`
+	}
+	return `{"bindings": [{"role": "roles/secretmanager.secretAccessor", "members": [` + strings.Join(quoted, ", ") + `]},
+		{"role": "roles/secretmanager.viewer", "members": ["serviceAccount:old@my-project.iam.gserviceaccount.com"]}], "etag": "x"}`
+}
+
+// Access to a secret follows the spec: service accounts that may read it
+// without a service listing it, or a place in secretReaders, lose that
+// right. Users, groups, other roles and secrets anyship didn't make are not
+// touched.
+func TestApplyTakesStaleSecretAccessAway(t *testing.T) {
+	s := parse(t, settings(`, "services": {"render": {"serviceAccount": "render@my-project.iam.gserviceaccount.com"}},
+		"secretReaders": ["reports@my-project.iam.gserviceaccount.com"]`))
+	env, fc := newEnv(t, t.TempDir(), map[string]string{"SESSION": "a", "TTS_KEY": "b", "SHARED": "c"})
+	const old = "serviceAccount:old@my-project.iam.gserviceaccount.com"
+	fc.out["gcloud secrets describe shop-SESSION"] = "shop"
+	fc.out["gcloud secrets describe shop-TTS_KEY"] = "shop"
+	fc.out["gcloud secrets get-iam-policy shop-SESSION"] = policyWith(old, "serviceAccount:123456789-compute@developer.gserviceaccount.com",
+		"serviceAccount:reports@my-project.iam.gserviceaccount.com", "user:dev@example.com", "deleted:serviceAccount:gone@my-project.iam.gserviceaccount.com?uid=1")
+	// render's account may read TTS_KEY; the default account may not.
+	fc.out["gcloud secrets get-iam-policy shop-TTS_KEY"] = policyWith("serviceAccount:render@my-project.iam.gserviceaccount.com", "serviceAccount:123456789-compute@developer.gserviceaccount.com")
+	// SHARED carries no anyship label: somebody else's secret, left alone.
+	fc.out["gcloud secrets get-iam-policy shop-SHARED"] = policyWith(old)
+
+	res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+	if err != nil || !res.OK {
+		t.Fatalf("apply: %v %+v", err, res)
+	}
+	var revoked []string
+	for _, c := range fc.calls {
+		if c.name == "gcloud" && len(c.args) > 2 && c.args[0] == "secrets" && c.args[1] == "remove-iam-policy-binding" {
+			revoked = append(revoked, c.args[2]+" "+c.args[slices.Index(c.args, "--member")+1]+" "+c.args[slices.Index(c.args, "--role")+1])
+		}
+	}
+	slices.Sort(revoked)
+	want := []string{
+		"shop-SESSION " + old + " roles/secretmanager.secretAccessor",
+		"shop-TTS_KEY serviceAccount:123456789-compute@developer.gserviceaccount.com roles/secretmanager.secretAccessor",
+	}
+	if !slices.Equal(revoked, want) {
+		t.Errorf("revoked = %q, want %q", revoked, want)
+	}
+
+	// A dry run names them and changes nothing.
+	env, fc = newEnv(t, t.TempDir(), map[string]string{"SESSION": "a", "TTS_KEY": "b", "SHARED": "c"})
+	fc.out["gcloud secrets describe shop-SESSION"] = "shop"
+	fc.out["gcloud secrets get-iam-policy shop-SESSION"] = policyWith(old)
+	env.DryRun = true
+	res, err = New().Apply(context.Background(), plan(t, s, env), s, env)
+	if err != nil || !res.OK {
+		t.Fatalf("dry run: %v %+v", err, res)
+	}
+	if !slices.ContainsFunc(res.Messages, func(m string) bool {
+		return strings.Contains(m, "Would take the right to read secret shop-SESSION away from old@my-project.iam.gserviceaccount.com")
+	}) {
+		t.Errorf("dry-run messages = %q", res.Messages)
+	}
+	if fc.find("gcloud secrets remove-iam-policy-binding") != nil || fc.find("gcloud secrets add-iam-policy-binding") != nil {
+		t.Error("a dry run changed a binding")
+	}
+}
+
 func TestPlanHealthCheck(t *testing.T) {
 	tests := map[string]struct {
 		healthCheck string
@@ -1106,6 +1173,7 @@ func TestPlanRefusesBadServiceSettings(t *testing.T) {
 		`{"web": {"serviceAccount": "me@gmail.com"}}`: "services.web: serviceAccount",
 		`{"web": {"executionEnvironment": "gen3"}}`:   `services.web: executionEnvironment "gen3" is not gen1 or gen2`,
 		`{"web": {"ingress": "public"}}`:              `services.web: ingress "public" is not internal or all`,
+		`{}, "secretReaders": ["me@gmail.com"]`:       `secretReaders.0: "me@gmail.com" is not a service account email`,
 		`{"web": {"maxInstance": 3}}`:                 "services.web.maxInstance",
 		`{"api": {"maxInstances": 3}}`:                `spec.targets.gcp.services.api: the spec has no service named "api" (it has render, web).`,
 		`{"render": {"maxInstances": 1}}`:             "maxInstances 1 is below replicas 2",
