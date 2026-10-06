@@ -1,7 +1,7 @@
 # anyship architecture
 
 anyship is one Go binary that turns `anyship.yaml` into a running app on a platform you pick, then
-helps you operate it. Everything on this page is built.
+helps you operate it.
 
 ![System map: callers, the anyship binary, its adapters and the providers where all state lives](architecture/system.svg)
 
@@ -22,24 +22,25 @@ helps you operate it. Everything on this page is built.
 
 ## Packages
 
-| Package | Owns | Talks to | Status |
-|---|---|---|---|
-| `spec` | `anyship.yaml` types, validation, JSON Schema | nothing | built |
-| `detect` | drafting a spec from JS, Go, Python, Rust, Dockerfile or static projects | project files | built |
-| `dockerfile` | Dockerfiles for services that have none | project files | built |
-| `image` | building an image with `docker buildx` and pushing it to a registry, by digest | Docker, the registry | built |
-| `diagnose` | context collection, redaction, JSON Patch, the retry loop | Claude API | built |
-| `adapter` | the contract (`Plan`, `Apply`, optional `Logs`, `Status`, `Destroy`) and registry | nothing | built |
-| `adapters/cloudflare` | `wrangler.jsonc`, Workers compatibility checks | `npx wrangler` | built |
-| `adapters/vps` | compose rendering, preflight, upload, status, logs, destroy | `ssh` to a Linux host | built |
-| `adapters/gcp` | Cloud Run services, Secret Manager, Artifact Registry | `gcloud`, `docker` | built |
-| `adapters/aws` | ECS Express Mode services, Secrets Manager, ECR | `aws`, `docker` | built |
-| `internal/cli` | the commands and the MCP server | everything above | built |
+| Package | Owns | Talks to |
+|---|---|---|
+| `spec` | `anyship.yaml` types, validation, JSON Schema | nothing |
+| `detect` | drafting a spec from JS, Go, Python, Rust, Dockerfile or static projects | project files |
+| `dockerfile` | Dockerfiles for services that have none | project files |
+| `image` | building an image with `docker buildx` and pushing it to a registry, by digest | Docker, the registry |
+| `diagnose` | context collection, redaction, JSON Patch, the retry loop | Claude API |
+| `adapter` | the contract (`Plan`, `Apply`, optional `Logs`, `Status`, `Destroy`) and registry | nothing |
+| `adapters/cloudflare` | `wrangler.jsonc`, Workers compatibility checks | `npx wrangler` |
+| `adapters/vps` | compose rendering, preflight, upload, status, logs, destroy | `ssh` to a Linux host |
+| `adapters/gcp` | Cloud Run services, Secret Manager, Artifact Registry | `gcloud`, `docker` |
+| `adapters/aws` | ECS Express Mode services, Secrets Manager, ECR | `aws`, `docker` |
+| `internal/cli` | the commands and the MCP server | everything above |
 
 ## Targets
 
 Each adapter talks to its provider through the provider's own CLI, so your existing login is used
-and anyship handles no cloud credentials.
+and anyship handles no cloud credentials. Each target has a page under [targets/](targets/) with its options
+and limits.
 
 | anyship.yaml asks for | cloudflare | vps | gcp | aws |
 |---|---|---|---|---|
