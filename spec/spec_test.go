@@ -242,60 +242,8 @@ func TestLoadPointsAtTheOldJSONFile(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "YAML manifests now") {
 		t.Errorf("want a pointer to the new format, got %v", err)
 	}
-	if err == nil || !strings.Contains(err.Error(), MigrationGuide) {
-		t.Errorf("want a pointer to %s, got %v", MigrationGuide, err)
-	}
-}
-
-type fencedBlock struct {
-	lang string
-	body string
-}
-
-// fencedBlocks returns the fenced code blocks of a Markdown file, in order.
-func fencedBlocks(t *testing.T, path string) []fencedBlock {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var blocks []fencedBlock
-	var open *fencedBlock
-	for _, line := range strings.Split(string(data), "\n") {
-		switch {
-		case !strings.HasPrefix(line, "```") && open != nil:
-			open.body += line + "\n"
-		case !strings.HasPrefix(line, "```"):
-		case open == nil:
-			open = &fencedBlock{lang: strings.TrimSpace(strings.TrimPrefix(line, "```"))}
-		default:
-			blocks, open = append(blocks, *open), nil
-		}
-	}
-	if open != nil {
-		t.Fatalf("%s: a code fence is never closed", path)
-	}
-	return blocks
-}
-
-// The migration guide claims its "after" specs are valid and its "before" specs
-// are not. Check both, so the guide can't drift from the code.
-func TestMigrationGuideExamples(t *testing.T) {
-	var current, legacy int
-	for _, block := range fencedBlocks(t, filepath.Join("..", MigrationGuide)) {
-		switch {
-		case block.lang == "yaml" && strings.Contains(block.body, "apiVersion:"):
-			current++
-			mustParse(t, []byte(block.body))
-		case block.lang == "json" && strings.Contains(block.body, `"version": 1`):
-			legacy++
-			if _, err := Parse([]byte(block.body)); err == nil {
-				t.Errorf("a v0.2 example is still accepted:\n%s", block.body)
-			}
-		}
-	}
-	if current < 2 || legacy < 2 {
-		t.Errorf("want at least two before/after pairs, got %d v0.3 and %d v0.2 examples", current, legacy)
+	if err == nil || !strings.Contains(err.Error(), ChangelogURL) {
+		t.Errorf("want a pointer to %s, got %v", ChangelogURL, err)
 	}
 }
 

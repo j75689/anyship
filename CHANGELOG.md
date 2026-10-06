@@ -9,12 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### ⚠ BREAKING CHANGES
 
-- **The spec is a YAML manifest: `anyship.json` is no longer read.** Move the file to `anyship.yaml`,
-  put `name` under `metadata`, the rest under `spec`, and add `apiVersion: anyship/v1alpha1` and
-  `kind: App`. Everything under `services`, `resources`, `secrets` and `targets` is unchanged. See
-  [docs/MIGRATION.md](docs/MIGRATION.md) for the field-by-field mapping and complete before/after
-  examples, or run `anyship migrate` to convert the file in one step. Loading a project that still has
-  `anyship.json` fails with a pointer to both.
+- **The spec is a YAML manifest: `anyship.json` is no longer read.** Rename the file to `anyship.yaml`,
+  drop `$schema` and `version`, put `name` under `metadata`, the rest under `spec`, and add
+  `apiVersion: anyship/v1alpha1` and `kind: App`. Everything under `services`, `resources`, `secrets`
+  and `targets` is unchanged, and JSON syntax is still valid inside the YAML file. Loading a project
+  that still has `anyship.json` fails with a pointer to this note.
 - `diagnose` JSON Pointers now start at the manifest root (`/spec/services/...`), and validation
   problems use the matching paths (`spec.services.web...`).
 
@@ -28,11 +27,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `aws` target: an Amazon ECS Express Mode adapter, which provisions the load balancer, HTTPS URL and
   autoscaling for each service. Images go to your ECR repository and are deployed by digest; secrets
   live in Secrets Manager. `logs` tails CloudWatch Logs, including `-f`.
-- `anyship migrate` converts a v0.2 `anyship.json` into `anyship.yaml`: it writes the envelope, moves
-  `services`, `resources`, `secrets` and `targets` under `spec` unchanged, and validates the result.
-  `--dry-run` prints the manifest instead of writing it and `--force` replaces an existing
-  `anyship.yaml`. A field anyship no longer recognizes is reported with its path and the nearest
-  field name, never dropped.
 - `anyship init` and the MCP `detect` tool write YAML with a `yaml-language-server` schema comment, so
   editors validate and autocomplete the spec.
 - `services.<name>.domains`: custom domains live in the spec, in one place for every target. The
