@@ -52,9 +52,9 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
-  # Builds the binary and runs it, then compiles every package for each
-  # platform a release ships, so a build break shows up in a minute instead
-  # of at the end of release-snapshot.
+  # Builds the binary and runs it, then compiles every package for the other
+  # two operating systems a release ships. release-snapshot builds all six
+  # platforms; this job is the quick answer to "does it build".
   build:
     runs-on: ubuntu-latest
     steps:
@@ -64,7 +64,7 @@ jobs:
           go-version-file: go.mod
       - run: make build
       - run: ./anyship --version && ./anyship targets
-      - run: make build-all
+      - run: make build-all PLATFORMS="darwin/arm64 windows/amd64"
 
   # Builds and runs an image for every app under dockerfile/testdata/apps:
   # detect → generate Dockerfile → docker build → docker run → HTTP 200.
