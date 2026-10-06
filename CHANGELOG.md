@@ -27,6 +27,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   number or boolean where text belongs comes with the advice to quote it, and every such problem is
   reported at once. Unknown fields now carry their path and the field that was probably meant.
   Target blocks get the same treatment.
+- `plan` over MCP and `plan --json` return each generated file with its contents (`files[].path`,
+  `files[].contents`). They listed paths that do not exist until a deploy writes them, next to a
+  finding telling the reader to review them.
+- MCP: `diagnose_context`, which is annotated read-only, no longer writes `.anyship/<target>/` into
+  the project; it runs the target's checks in a temporary directory.
 
 ## [0.3.0] - 2026-10-06
 

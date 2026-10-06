@@ -228,6 +228,7 @@ health check in scripts. It isn't available on `cloudflare` yet. `destroy` on `c
 Worker with `wrangler delete` and never touches bound D1, KV, R2 or Hyperdrive resources.
 
 `plan`, `status` and `targets` take `--json` for scripts and agents; progress messages go to stderr.
+`plan --json` includes the contents of the files a deploy would generate, since `plan` writes none.
 
 ## Diagnose failures with Claude
 
@@ -289,15 +290,16 @@ repo root and finds nothing to build.
 | `targets` | list targets and what each supports | no |
 | `detect` | draft an `anyship.yaml` for a directory (returned, not written) | no |
 | `validate` | check `anyship.yaml` | no |
-| `plan` | what a deploy would do, and every unmet need | no |
+| `plan` | what a deploy would do, every unmet need, and the generated files with their contents | no |
 | `status`, `logs` | what runs on the target, and its recent logs | no |
-| `diagnose_context` | everything above plus dry-run checks, redacted, for diagnosing a failure | `.anyship/<target>/` |
+| `diagnose_context` | everything above plus dry-run checks, redacted, for diagnosing a failure | no |
 | `apply` | deploy; `dry_run` runs the target's checks and generates the deployment files | `.anyship/<target>/`; deploys only with `--allow-deploy` |
 | `destroy` | remove a deployment; `volumes` also deletes data | no; removes only with `--allow-deploy` |
 
-Running the target's checks means generating the compose file and Dockerfiles first, so
-`diagnose_context` and `apply` with `dry_run` both leave `.anyship/<target>/` behind for review.
-Neither one touches the platform.
+The read-only tools leave your project alone, so a host can run them without asking: `plan` returns
+the compose file and any generated Dockerfile with their contents instead of writing them, and
+`diagnose_context` runs the target's checks in a temporary directory. Only `apply` writes
+`.anyship/<target>/`, dry run or not, and a dry run deploys nothing.
 
 Safety is built into the server, not left to the agent: without `--allow-deploy` only dry runs are
 possible, and deleting data needs `confirm_project` set to the spec's name. Tools carry read-only and

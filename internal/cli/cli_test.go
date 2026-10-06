@@ -86,3 +86,16 @@ func TestPlanJSONUsesEmptyLists(t *testing.T) {
 		t.Errorf("got:\n%s\nwant:\n%s", buf.String(), want)
 	}
 }
+
+// plan writes nothing, so a script reading --json gets what the files would
+// hold, not only paths that do not exist yet.
+func TestPlanJSONCarriesGeneratedFileContents(t *testing.T) {
+	var buf strings.Builder
+	p := &adapter.Plan{Target: "vps", Files: []adapter.File{{Path: "/app/.anyship/vps/compose.yaml", Contents: []byte("services: {}\n")}}}
+	if err := printJSON(&buf, planJSON(p)); err != nil {
+		t.Fatal(err)
+	}
+	if want := "\"files\": [\n    {\n      \"path\": \"/app/.anyship/vps/compose.yaml\",\n      \"contents\": \"services: {}\\n\"\n    }\n  ]"; !strings.Contains(buf.String(), want) {
+		t.Errorf("got:\n%s\nwant it to contain:\n%s", buf.String(), want)
+	}
+}
