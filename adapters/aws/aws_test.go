@@ -448,6 +448,54 @@ func TestLogs(t *testing.T) {
 	}
 }
 
+// A second destroy while the first is still draining must not say the
+// deployment is gone: its load balancer is still billing.
+func TestDestroyReportsDrainingServices(t *testing.T) {
+	s := parse(t, `{"name": "shop", "services": {
+		"web": {"kind": "server", "image": "nginx"}, "api": {"kind": "server", "image": "api"}}, `+target+`}`)
+	for name, tc := range map[string]struct {
+		services string
+		deletes  int
+		want     []string
+		not      string
+	}{
+		"only draining": {
+			services: `{"serviceName": "shop-web", "serviceArn": "arn:web", "status": "DRAINING"}`,
+			want:     []string{"Still being deleted by an earlier destroy: shop-web."},
+			not:      "Removed shop",
+		},
+		"draining and active": {
+			services: `{"serviceName": "shop-web", "serviceArn": "arn:web", "status": "DRAINING"}, {"serviceName": "shop-api", "serviceArn": "arn:api", "status": "ACTIVE"}`,
+			deletes:  1,
+			want:     []string{"Removed shop from ECS", "Still being deleted by an earlier destroy: shop-web."},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			env, fa := newEnv(t, t.TempDir(), nil)
+			fa.out["aws ecs describe-services"] = `{"services": [` + tc.services + `]}`
+			res, err := New().Destroy(context.Background(), s, env, adapter.DestroyOptions{})
+			if err != nil || !res.OK {
+				t.Fatalf("destroy: %v %+v", err, res)
+			}
+			got := strings.Join(res.Messages, "\n")
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("messages %q are missing %q", got, want)
+				}
+			}
+			if strings.Contains(got, "Nothing to remove") || tc.not != "" && strings.Contains(got, tc.not) {
+				t.Errorf("messages %q claim more than happened", got)
+			}
+			if n := fa.count("aws ecs delete-express-gateway-service"); n != tc.deletes {
+				t.Errorf("%d delete calls, want %d", n, tc.deletes)
+			}
+			if tc.deletes == 1 && fa.find("aws ecs delete-express-gateway-service --service-arn arn:api") == nil {
+				t.Errorf("deleted the wrong service: %v", fa.calls)
+			}
+		})
+	}
+}
+
 func TestDestroy(t *testing.T) {
 	s := parse(t, `{"name": "shop", "services": {
 		"web": {"kind": "server", "image": "nginx", "secrets": ["TOKEN"]}, "api": {"kind": "server", "image": "api"}},

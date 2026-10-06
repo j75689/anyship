@@ -12,6 +12,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `gcp`: `targets.gcp.timeout` sets Cloud Run's request timeout (for example `10m`, up to `1h`)
   for every service; without it a deploy keeps the current one.
 
+### Fixed
+
+- `aws`: `destroy` no longer answers "Nothing to remove" while a service from an earlier destroy is
+  still draining. It names the services still being deleted and says their load balancers bill
+  until that finishes.
+
 ## [0.3.0] - 2026-10-06
 
 ### ⚠ BREAKING CHANGES
