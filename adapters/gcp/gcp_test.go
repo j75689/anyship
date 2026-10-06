@@ -596,23 +596,42 @@ func TestPlanImageRegistry(t *testing.T) {
 	}
 }
 
-// An internal port is guarded by identity: the service takes any caller with
-// a token and the permission, and the spec's other services get it.
+// An internal port requires a token and keeps internal ingress, as before,
+// unless the target says ingress "all"; the spec's other services get the
+// permission to call either way.
 func TestPlanInternalPort(t *testing.T) {
-	s := parse(t, `{"name": "shop",
-		"services": {
-			"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}], "env": {"API": "${services.api.url}/v1"}},
-			"api": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 8080, "exposure": "internal"}]}}, `+target+`}`)
+	spec := func(options string) *spec.Spec {
+		return parse(t, `{"name": "shop",
+			"services": {
+				"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}], "env": {"API": "${services.api.url}/v1"}},
+				"api": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 8080, "exposure": "internal"}]}},
+			"targets": {"gcp": {"project": "my-project", "region": "us-central1"`+options+`}}}`)
+	}
+	env, _ := newEnv(t, t.TempDir(), nil)
+	closed := plan(t, spec(``), env)
+	i := slices.IndexFunc(closed.Findings, func(f adapter.Finding) bool { return f.Code == "GCP_INTERNAL_CALLERS" })
+	if i < 0 || closed.Findings[i].Level != adapter.Warning || !strings.Contains(closed.Findings[i].Hint, "services.api.ingress: all") {
+		t.Errorf("GCP_INTERNAL_CALLERS finding = %+v", closed.Findings)
+	}
+	data := closed.Data.(*planData)
+	if args := strings.Join(deployArgs(data, data.services[0], "nginx:1.27"), " "); !strings.Contains(args, "--ingress internal --no-allow-unauthenticated") {
+		t.Errorf("api deploy args %q: internal ingress was given up", args)
+	}
+	if errs := codes(plan(t, spec(`, "services": {"web": {"ingress": "all"}}`), env), adapter.Error); !slices.Equal(errs, []string{"GCP_INGRESS"}) {
+		t.Errorf("ingress on a public service: errors = %v, want GCP_INGRESS", errs)
+	}
+
+	s := spec(`, "services": {"api": {"ingress": "all"}}`)
 	env, fc := newEnv(t, t.TempDir(), nil)
 	p := plan(t, s, env)
 	if errs := codes(p, adapter.Error); len(errs) > 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
-	i := slices.IndexFunc(p.Findings, func(f adapter.Finding) bool { return f.Code == "GCP_INTERNAL" })
+	i = slices.IndexFunc(p.Findings, func(f adapter.Finding) bool { return f.Code == "GCP_INTERNAL" })
 	if i < 0 || p.Findings[i].Level != adapter.Info || p.Findings[i].Service != "api" || !strings.Contains(p.Findings[i].Hint, "${services.api.url}") {
 		t.Errorf("GCP_INTERNAL finding = %+v", p.Findings)
 	}
-	data := p.Data.(*planData)
+	data = p.Data.(*planData)
 	args := strings.Join(deployArgs(data, data.services[0], "nginx:1.27"), " ")
 	if !strings.Contains(args, "--ingress all --no-allow-unauthenticated") {
 		t.Errorf("api deploy args %q: not guarded by identity", args)
@@ -1086,6 +1105,7 @@ func TestPlanRefusesBadServiceSettings(t *testing.T) {
 		`{"web": {"timeout": 600}}`:                   "services.web.timeout",
 		`{"web": {"serviceAccount": "me@gmail.com"}}`: "services.web: serviceAccount",
 		`{"web": {"executionEnvironment": "gen3"}}`:   `services.web: executionEnvironment "gen3" is not gen1 or gen2`,
+		`{"web": {"ingress": "public"}}`:              `services.web: ingress "public" is not internal or all`,
 		`{"web": {"maxInstance": 3}}`:                 "services.web.maxInstance",
 		`{"api": {"maxInstances": 3}}`:                `spec.targets.gcp.services.api: the spec has no service named "api" (it has render, web).`,
 		`{"render": {"maxInstances": 1}}`:             "maxInstances 1 is below replicas 2",

@@ -20,6 +20,7 @@ spec:
           timeout: 15m                # instead of the timeout above
           serviceAccount: render@my-project.iam.gserviceaccount.com # instead of the account above
           executionEnvironment: gen2  # gen1 or gen2; default: Cloud Run chooses
+          ingress: all                # for an internal port: reachable from anywhere, token required; default: internal
 ```
 
 - anyship drives your installed `gcloud` with its current login, and `docker buildx` for builds. It
@@ -59,12 +60,15 @@ spec:
   8), and `plan` refuses a pair that doesn't fit. Less than one CPU (0.08 and up) carries at most
   1GB, or 512MB below half a CPU. A service that names neither gets Cloud Run's defaults, 512MB and
   1 CPU.
-- A service with an `internal` port is guarded by identity, not by network: it is deployed
-  reachable from anywhere but answering only requests that carry an identity token, and each
-  `apply` lets the accounts the spec's other services run as send them (`roles/run.invoker`). The
-  calling app has to
+- A service with an `internal` port requires an identity token, and each `apply` lets the accounts
+  the spec's other services run as send one (`roles/run.invoker`; bindings are added, never
+  removed). The calling app has to
   [attach the token](https://cloud.google.com/run/docs/authenticating/service-to-service), with the
-  service's URL as audience; `plan` says so (`GCP_INTERNAL`). Bindings are added, never removed.
+  service's URL as audience. By default the service also keeps internal ingress, so a request has
+  to arrive through one of the project's VPC networks, which anyship doesn't set up; `plan` warns
+  that the spec's other services can't reach it as deployed (`GCP_INTERNAL_CALLERS`). With
+  `services.<name>.ingress: all` the token is the only guard: the service takes requests from
+  anywhere and the spec's services reach it with no network to set up (`GCP_INTERNAL`).
 - `${services.<name>.url}` in `env` becomes that service's Cloud Run URL
   (`https://<spec name>-<name>-<project number>.<region>.run.app`), which follows from the names,
   so it is known before the first deploy and the same on every one.

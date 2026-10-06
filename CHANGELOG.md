@@ -14,12 +14,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `gcloud run services update` is replaced on the next `apply`. Before upgrading, read the current
   values (`gcloud run services describe <service> --format 'value(spec.template.spec.containers[0].resources.limits)'`)
   and put them in the spec as `memory` and `cpu`.
-- **`gcp`: an `internal` port is guarded by identity, not by network.** The service is deployed
-  with ingress from anywhere and authentication required, instead of internal ingress: any caller
-  with an identity token and `roles/run.invoker` gets through, and the spec's other services are
-  given that role. A service that relied on internal ingress to keep the whole internet out, with
-  no token check, is now reachable by anyone the project lets invoke it. The plan's warning
-  `GCP_INTERNAL_CALLERS` is replaced by the note `GCP_INTERNAL`.
 - **`gcp`: the same goes for the other settings anyship knows.** Every deploy passes the minimum and
   maximum instance count, concurrency, request timeout and service account, as the spec's value or
   as Cloud Run's default. `targets.gcp.timeout` no longer keeps the service's timeout when it is
@@ -35,7 +29,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a reason, since neither URL is known before a deploy. A reference to a service the spec doesn't
   have is a validation error.
 - `gcp`: the accounts of the spec's other services get `roles/run.invoker` on each service with an
-  `internal` port, so the services of a spec can call each other with an identity token.
+  `internal` port, and `targets.gcp.services.<name>.ingress: all` opens such a service to requests
+  from anywhere with the identity token as the only guard, so the services of a spec can call each
+  other without a VPC. Without it an internal port keeps internal ingress, as before.
 - Services take `memory` (`512MB`, `4GB`) and `cpu` (`0.5`, `1`, `2`): what one instance needs,
   on any target. `gcp` sizes the Cloud Run instance and refuses a pair Cloud Run doesn't offer,
   `aws` sizes the task (the service's values win over `targets.aws.cpu` and `memory`), `vps` limits
