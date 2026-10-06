@@ -28,6 +28,7 @@ archives:
         formats: [zip]
     files:
       - LICENSE
+      - NOTICE
       - README.md
 
 checksum:

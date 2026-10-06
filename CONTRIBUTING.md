@@ -1,6 +1,8 @@
 # Contributing to anyship
 
-Thanks for helping! Issues and pull requests are welcome.
+Thanks for helping! Issues and pull requests are welcome. Everyone taking part is expected to follow
+the [code of conduct](CODE_OF_CONDUCT.md). Security problems go through [SECURITY.md](SECURITY.md),
+not a public issue.
 
 ## Setup
 
