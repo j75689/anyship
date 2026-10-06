@@ -7,6 +7,7 @@ import (
 	"path"
 
 	"github.com/j75689/anyship/dockerfile"
+	"github.com/j75689/anyship/image"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -22,6 +23,7 @@ type composeFile struct {
 
 type composeService struct {
 	Image       string            `json:"image,omitempty"`
+	PullPolicy  string            `json:"pull_policy,omitempty"`
 	Build       *composeBuild     `json:"build,omitempty"`
 	Entrypoint  []string          `json:"entrypoint,omitempty"`
 	Command     []string          `json:"command,omitempty"`
@@ -126,6 +128,12 @@ func renderService(svc *spec.Service, argv []string, build *composeBuild) compos
 	}
 	if len(out.Environment) == 0 {
 		out.Environment = nil
+	}
+	// Compose keeps the image the host already has, so a tag that was pushed
+	// again would never reach a deployed service. An image that is not built
+	// here and is named by a tag that moves is pulled on every deploy.
+	if _, moving := image.MovingTag(svc.Image); svc.Image != "" && build == nil && moving {
+		out.PullPolicy = "always"
 	}
 	if len(argv) > 0 {
 		// Overriding the entrypoint also clears the image's default command,

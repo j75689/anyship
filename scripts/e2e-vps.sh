@@ -80,4 +80,33 @@ step "destroying again is a no-op"
 "$ANYSHIP" destroy -t vps --yes | tee again.out
 grep -q "Nothing to remove" again.out || fail "expected a not-deployed message"
 
+step "an image named by a tag that moves is pulled again on every apply"
+mkdir "$work/image"
+cd "$work/image"
+cat > anyship.yaml <<'EOF'
+apiVersion: anyship/v1alpha1
+kind: App
+metadata:
+  name: e2e-image
+spec:
+  services:
+    web:
+      kind: server
+      image: nginx
+      ports:
+        - port: 80
+          exposure: internal
+  targets:
+    vps:
+      host: localhost
+      dir: anyship-e2e/image
+EOF
+"$ANYSHIP" plan -t vps | tee plan.out
+grep -q 'the tag "latest"' plan.out || fail "plan should say the tag can move"
+"$ANYSHIP" apply -t vps --yes
+# Compose only pulls an image the host lacks, unless the compose file says otherwise.
+"$ANYSHIP" apply -t vps --yes 2>&1 | tee pull.out
+grep -q "Pulled" pull.out || fail "the second apply should pull nginx again"
+"$ANYSHIP" destroy -t vps --volumes --yes
+
 printf '\n\033[32mvps end-to-end test passed\033[0m\n'

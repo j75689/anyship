@@ -25,6 +25,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `vps`: an image named by a tag that moves (`:latest`, `:main`, no tag) is pulled on every `apply`.
+  Compose kept the image the host already had, so pushing the tag again and re-deploying changed
+  nothing while reporting success. `plan` notes such services (`VPS_MUTABLE_TAG`).
 - `aws`: `destroy` no longer answers "Nothing to remove" while a service from an earlier destroy is
   still draining. It names the services still being deleted and says their load balancers bill
   until that finishes.

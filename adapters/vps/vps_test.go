@@ -151,6 +151,10 @@ func TestRendersEthereumNode(t *testing.T) {
 	if reth.Restart != "unless-stopped" {
 		t.Errorf("restart = %q", reth.Restart)
 	}
+	// The example deploys reth:latest, so each apply has to pull it.
+	if reth.PullPolicy != "always" {
+		t.Errorf("pull_policy = %q", reth.PullPolicy)
+	}
 	if lh := c.Services["lighthouse"]; !slices.Equal(lh.DependsOn, []string{"reth"}) {
 		t.Errorf("lighthouse depends_on = %v", lh.DependsOn)
 	}
@@ -544,5 +548,46 @@ func TestMissingOptionsHint(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join("..", "..", "docs", "targets", Name+".md")); err != nil {
 		t.Errorf("the hint links to a page that does not exist: %v", err)
+	}
+}
+
+// Compose keeps the image a host already has. A tag that moves has to be
+// pulled on every deploy, or pushing it again changes nothing; a version or a
+// digest names one image and is left to Compose's default.
+func TestMovingTagsArePulledOnEveryDeploy(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM alpine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := parse(t, `{"name": "shop", "services": {
+		"untagged": {"kind": "server", "image": "nginx"},
+		"branch":   {"kind": "server", "image": "ghcr.io/acme/shop:main"},
+		"version":  {"kind": "server", "image": "nginx:1.27"},
+		"digest":   {"kind": "server", "image": "ghcr.io/acme/shop@sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+		"built":    {"kind": "server", "dockerfile": "Dockerfile"}
+	}, "targets": {"vps": {"host": "deploy@203.0.113.10"}}}`)
+	env, _ := newEnv(t, dir)
+	p := plan(t, s, env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	c := composeOf(t, p)
+	for name, want := range map[string]string{"untagged": "always", "branch": "always", "version": "", "digest": "", "built": ""} {
+		if got := c.Services[name].PullPolicy; got != want {
+			t.Errorf("%s: pull_policy = %q, want %q", name, got, want)
+		}
+	}
+	noted := map[string]string{}
+	for _, f := range p.Findings {
+		if f.Code == "VPS_MUTABLE_TAG" {
+			if f.Level != adapter.Info {
+				t.Errorf("%s: the tag is handled, so this is a note, not %s", f.Service, f.Level)
+			}
+			noted[f.Service] = f.Message + " " + f.Hint
+		}
+	}
+	if len(noted) != 2 || !strings.Contains(noted["untagged"], `the tag "latest"`) || !strings.Contains(noted["branch"], `the tag "main"`) ||
+		!strings.Contains(noted["branch"], "--image branch=<ref>") {
+		t.Errorf("notes = %v", noted)
 	}
 }
