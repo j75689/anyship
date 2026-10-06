@@ -62,6 +62,15 @@ type Options struct {
 // maxTimeout is Cloud Run's longest request timeout.
 const maxTimeout = time.Hour
 
+// The startup probe made from healthCheck.path asks every probePeriod seconds
+// and gives up after probeFailures tries: 4 minutes, which is also how long
+// Cloud Run's default check lets a container take to start.
+const (
+	probePeriod   = 10
+	probeTimeout  = 5
+	probeFailures = 24
+)
+
 // timeoutSeconds is Timeout in seconds; decodeOptions has checked it.
 func (o Options) timeoutSeconds() int {
 	d, _ := time.ParseDuration(o.Timeout)
@@ -281,6 +290,19 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	if svc.Replicas > 1 {
 		add(adapter.Info, "GCP_REPLICAS", fmt.Sprintf("Cloud Run scales automatically; replicas keeps %d instances warm (min instances).", svc.Replicas), "")
 	}
+	if hc := svc.HealthCheck; hc != nil {
+		switch {
+		case hc.Path != "" && !strings.HasPrefix(hc.Path, "/"):
+			add(adapter.Error, "GCP_BAD_HEALTH_PATH", fmt.Sprintf("healthCheck.path %q must start with a slash.", hc.Path), "")
+		case hc.Path != "":
+			add(adapter.Info, "GCP_HEALTH_CHECK",
+				fmt.Sprintf("healthCheck.path is the startup probe: a new revision gets traffic once GET %s answers with a 2xx or 3xx status, and the deploy fails if it hasn't within %d minutes.", hc.Path, probePeriod*probeFailures/60), "")
+		case hc.Command != "":
+			add(adapter.Warning, "GCP_HEALTH_COMMAND_IGNORED",
+				"healthCheck.command isn't applied: Cloud Run checks a service over HTTP, not by running a command in it.",
+				"Set healthCheck.path to a path that answers once the service is ready.")
+		}
+	}
 
 	if svc.Image != "" {
 		sv.image = svc.Image
@@ -359,6 +381,14 @@ func deployArgs(d *planData, sv service, image string) []string {
 	}
 	if sv.svc.Replicas > 1 {
 		args = append(args, "--min-instances", strconv.Itoa(sv.svc.Replicas))
+	}
+	if hc := sv.svc.HealthCheck; hc != nil && hc.Path != "" {
+		args = append(args, "--startup-probe", listFlag([]string{
+			"httpGet.path=" + hc.Path,
+			fmt.Sprintf("periodSeconds=%d", probePeriod),
+			fmt.Sprintf("timeoutSeconds=%d", probeTimeout),
+			fmt.Sprintf("failureThreshold=%d", probeFailures),
+		}))
 	}
 	if o.ServiceAccount != "" {
 		args = append(args, "--service-account", o.ServiceAccount)
