@@ -265,6 +265,11 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 		add(adapter.Error, "GCP_MULTIPLE_PORTS", "Cloud Run sends traffic to one port per service.", "Keep one HTTP port, or split the service.")
 	case len(http) == 1:
 		sv.port, sv.internal = http[0].Port, http[0].Exposure == spec.ExposureInternal
+		if sv.internal {
+			add(adapter.Warning, "GCP_INTERNAL_CALLERS",
+				fmt.Sprintf("Port %d is internal, so %s is deployed with internal ingress and requires authentication: a request has to arrive through one of the project's VPC networks and carry an identity token. anyship sets up neither for the services that call it, so as deployed they can't reach it.", sv.port, sv.cloudRun),
+				fmt.Sprintf("For each caller: send its traffic through a VPC network (https://cloud.google.com/run/docs/securing/private-networking), grant its service account roles/run.invoker on %s, and have the app attach an identity token (https://cloud.google.com/run/docs/authenticating/service-to-service). Or make the port public and check a token in the app.", sv.cloudRun))
+		}
 	case svc.Kind == spec.KindServer:
 		add(adapter.Info, "GCP_PORT_ASSUMED", fmt.Sprintf("No port in the spec; Cloud Run will send traffic to %d (also passed as $PORT).", defaultPort), "")
 	}

@@ -40,8 +40,15 @@ spec:
   are created once and kept. Each apply lets the account the services run as read those secrets, and
   only those (`roles/secretmanager.secretAccessor` on each secret). `destroy --volumes` deletes them;
   images stay in the registry.
-- One HTTP port per service (default 8080, also passed as `$PORT`); `internal` ports use internal
-  ingress. `replicas` sets the minimum instance count. Services reach each other by URL, not by name.
+- One HTTP port per service (default 8080, also passed as `$PORT`). `replicas` sets the minimum
+  instance count. Services reach each other by URL, not by name.
+- A service with an `internal` port is deployed with internal ingress and requires authentication.
+  anyship stops there, so as deployed the spec's other services can't call it, and `plan` warns
+  about it (`GCP_INTERNAL_CALLERS`). Each caller needs three things set up by hand: a
+  [route through a VPC network](https://cloud.google.com/run/docs/securing/private-networking),
+  `roles/run.invoker` on the service for the account it runs as, and code that
+  [attaches an identity token](https://cloud.google.com/run/docs/authenticating/service-to-service).
+  The alternative is a public port and a token checked by the app.
 - `healthCheck.path` becomes the service's startup probe: a new revision gets traffic only once that
   path answers with a 2xx or 3xx status, and a deploy whose revision doesn't answer within 4 minutes
   fails and leaves the previous revision serving. The probe sends no credentials, so the path must

@@ -290,6 +290,41 @@ func TestPlanImageRegistry(t *testing.T) {
 	t.Error("no GCP_UNPULLABLE_IMAGE finding")
 }
 
+// An internal port deploys a service that the spec's other services can't
+// call until a network path and a permission exist; plan has to say so.
+func TestPlanInternalPort(t *testing.T) {
+	s := parse(t, `{"name": "shop",
+		"services": {
+			"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}]},
+			"api": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 8080, "exposure": "internal"}]}}, `+target+`}`)
+	env, _ := newEnv(t, t.TempDir(), nil)
+	p := plan(t, s, env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	var found bool
+	for _, f := range p.Findings {
+		if f.Code != "GCP_INTERNAL_CALLERS" {
+			continue
+		}
+		found = true
+		if f.Level != adapter.Warning || f.Service != "api" {
+			t.Errorf("finding = %+v, want a warning on api", f)
+		}
+		for _, want := range []string{"Port 8080", "shop-api", "can't reach it"} {
+			if !strings.Contains(f.Message, want) {
+				t.Errorf("message %q lacks %q", f.Message, want)
+			}
+		}
+		if !strings.Contains(f.Hint, "roles/run.invoker on shop-api") {
+			t.Errorf("hint %q doesn't name the permission", f.Hint)
+		}
+	}
+	if !found {
+		t.Errorf("no GCP_INTERNAL_CALLERS in %v", p.Findings)
+	}
+}
+
 func TestPlanRefusesUnsupported(t *testing.T) {
 	s := parse(t, `{"name": "shop",
 		"services": {
