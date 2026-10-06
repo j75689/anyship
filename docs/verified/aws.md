@@ -9,7 +9,7 @@
 > Blocked on: an AWS sandbox account (access key or SSO profile) with ECS, ECR, ELB, IAM,
 > Secrets Manager and CloudWatch Logs permissions.
 
-Tracking issue: OPE-14.
+Tracking issue: [#26](https://github.com/j75689/anyship/issues/26).
 
 ## Why this target needs care
 
@@ -353,7 +353,7 @@ confirm or refute, not findings.
 4. **ECR images and IAM roles are kept on purpose.** `DestroySummary`
    (`adapters/aws/lifecycle.go:227`) states it, and the README says the same. anyship never creates
    the repository or the roles — the preflight requires them to already exist — so it does not delete
-   them. The OPE-14 acceptance criteria ask for confirmation that `destroy` cleans the ECR image and
+   them. The brief for this verification asked for confirmation that `destroy` cleans the ECR image and
    the IAM role, which this design does not do. The table in step 7 therefore records them as
    expected survivors; a decision to actually delete them would be a behaviour change, not a bug fix.
    ECR image storage does bill ($0.10/GB-month), so note the leftover image size either way.
@@ -368,5 +368,5 @@ One issue per bug, per the acceptance criteria.
 
 | Issue | Summary | Found by |
 | --- | --- | --- |
-| OPE-19 | `destroy` on a `DRAINING` service says "Nothing to remove", while the load balancer is still billing | static review + fake CLI, no account needed |
+| [#37](https://github.com/j75689/anyship/issues/37) | `destroy` on a `DRAINING` service says "Nothing to remove", while the load balancer is still billing | static review + fake CLI, no account needed |
 | _(pending)_ | anything the live run turns up | |
