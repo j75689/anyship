@@ -6,7 +6,8 @@ not a public issue.
 
 ## Setup
 
-Go 1.26+ is required.
+Go 1.27+ is required. CI and releases build with the version in `go.mod`, so formatting and
+vetting with the same one avoids differences between Go releases.
 
 ```bash
 make build    # ./anyship
