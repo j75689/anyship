@@ -39,7 +39,8 @@ spec:
   ingress. `replicas` sets the minimum instance count. Services reach each other by URL, not by name.
 - `healthCheck.path` becomes the service's startup probe: a new revision gets traffic only once that
   path answers with a 2xx or 3xx status, and a deploy whose revision doesn't answer within 4 minutes
-  fails and leaves the previous revision serving. `healthCheck.command` isn't applied
+  fails and leaves the previous revision serving. The probe sends no credentials, so the path must
+  answer without them. `healthCheck.command` isn't applied
   (`GCP_HEALTH_COMMAND_IGNORED`); Cloud Run has no command checks. A deploy without
   `healthCheck.path` leaves the probe as it is, so taking the path out of the spec doesn't remove
   it: `gcloud run services update <service> --startup-probe ""` does.

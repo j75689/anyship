@@ -11,7 +11,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `gcp`: `healthCheck` was dropped without a word. `healthCheck.path` is now the Cloud Run startup
   probe, so a revision that can't answer it never gets traffic, and `plan` says that
-  `healthCheck.command` isn't applied.
+  `healthCheck.command` isn't applied. A spec that already names a path starts being checked on its
+  next deploy: the path has to answer with a 2xx or 3xx status, without credentials, within 4
+  minutes, or the deploy fails and the previous revision keeps serving.
 
 ## [0.3.1] - 2026-10-06
 

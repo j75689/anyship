@@ -191,9 +191,9 @@ func TestPlanHealthCheck(t *testing.T) {
 		args        string
 	}{
 		"path": {
-			healthCheck: `{"path": "/healthz"}`,
+			healthCheck: `{"path": "/health"}`,
 			level:       adapter.Info, code: "GCP_HEALTH_CHECK",
-			args: probe + " httpGet.path=/healthz,periodSeconds=10,timeoutSeconds=5,failureThreshold=24",
+			args: probe + " httpGet.path=/health,periodSeconds=10,timeoutSeconds=5,failureThreshold=24",
 		},
 		"path with a comma": {
 			healthCheck: `{"path": "/health?checks=db,cache"}`,
@@ -201,9 +201,9 @@ func TestPlanHealthCheck(t *testing.T) {
 			args: probe + " ^|^httpGet.path=/health?checks=db,cache|periodSeconds=10|timeoutSeconds=5|failureThreshold=24",
 		},
 		"path wins over command": {
-			healthCheck: `{"path": "/healthz", "command": "curl -f localhost"}`,
+			healthCheck: `{"path": "/health", "command": "curl -f localhost"}`,
 			level:       adapter.Info, code: "GCP_HEALTH_CHECK",
-			args: probe + " httpGet.path=/healthz,",
+			args: probe + " httpGet.path=/health,",
 		},
 		"command only": {
 			healthCheck: `{"command": "curl -f localhost"}`,
