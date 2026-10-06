@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" role="img" aria-label="anyship. Describe your app once, deploy it anywhere. One anyship.yaml file is deployed to Cloudflare Workers, a VPS with Docker, Google Cloud Run or AWS ECS.">
+  <style>
+    svg { --bg:#f4f6f8; --panel:#ffffff; --fg:#15202b; --muted:#556270; --line:#c3ccd5; --accent:#b8430f; --accent-soft:#fbe7dc; }
+    @media (prefers-color-scheme: dark) { svg { --bg:#0f151b; --panel:#161e27; --fg:#e2e8ee; --muted:#94a2b0; --line:#344250; --accent:#f08a4b; --accent-soft:#3a2418; } }
+    .bg { fill:var(--bg); stroke:var(--line); }
+    .word { fill:var(--fg); font:700 104px system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; letter-spacing:-3.5px; }
+    .word .ship { fill:var(--accent); }
+    .tag { fill:var(--muted); font:500 29px system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .tag.strong { fill:var(--fg); }
+    .rule { stroke:var(--accent); stroke-width:4; stroke-linecap:round; }
+    .dots { stroke:var(--line); stroke-width:4; stroke-linecap:round; stroke-dasharray:0.1 12; }
+    .note { fill:var(--muted); font:15px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .card { fill:var(--panel); stroke:var(--line); stroke-width:1.25; }
+    .sep { stroke:var(--line); stroke-width:1.25; }
+    .file { fill:var(--fg); font:600 15px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .dot { fill:var(--line); }
+    .yaml { fill:var(--muted); font:15px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; white-space:pre; }
+    .yaml .v { fill:var(--fg); }
+    .wire { fill:none; stroke:var(--accent); stroke-width:1.75; }
+    .tip { fill:var(--accent); }
+    .target { fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.5; }
+    .name { fill:var(--fg); font:600 16px system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .how { fill:var(--muted); font:13px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+  </style>
+
+  <rect class="bg" x="0.75" y="0.75" width="1278.5" height="398.5" rx="14"/>
+
+  <!-- Name and tagline -->
+  <text class="word" x="68" y="172">any<tspan class="ship">ship</tspan></text>
+  <text class="tag" x="74" y="232">Describe your app once.</text>
+  <text class="tag strong" x="74" y="272">Deploy it anywhere.</text>
+  <path class="rule" d="M76 312h30"/>
+  <path class="dots" d="M122 312h220"/>
+  <text class="note" x="74" y="348">plan → apply → destroy · no state file</text>
+
+  <!-- The one spec -->
+  <rect class="card" x="620" y="62" width="278" height="276" rx="10"/>
+  <circle class="dot" cx="642" cy="86" r="5"/>
+  <circle class="dot" cx="660" cy="86" r="5"/>
+  <circle class="dot" cx="678" cy="86" r="5"/>
+  <text class="file" x="764" y="91" text-anchor="middle">anyship.yaml</text>
+  <path class="sep" d="M620 110h278"/>
+  <text class="yaml" x="644" y="144" xml:space="preserve">kind: <tspan class="v">App</tspan></text>
+  <text class="yaml" x="644" y="170" xml:space="preserve">spec:</text>
+  <text class="yaml" x="644" y="196" xml:space="preserve">  services:</text>
+  <text class="yaml" x="644" y="222" xml:space="preserve">    web:</text>
+  <text class="yaml" x="644" y="248" xml:space="preserve">      kind: <tspan class="v">server</tspan></text>
+  <text class="yaml" x="644" y="274" xml:space="preserve">      ports:</text>
+  <text class="yaml" x="644" y="300" xml:space="preserve">        - port: <tspan class="v">3000</tspan></text>
+
+  <!-- One spec, four targets -->
+  <path class="wire" d="M898 200C946 200 946 91 990 91"/>
+  <path class="wire" d="M898 200C946 200 946 164 990 164"/>
+  <path class="wire" d="M898 200C946 200 946 236 990 236"/>
+  <path class="wire" d="M898 200C946 200 946 309 990 309"/>
+  <path class="tip" d="M1000 91l-11-6v12zM1000 164l-11-6v12zM1000 236l-11-6v12zM1000 309l-11-6v12z"/>
+
+  <rect class="target" x="1002" y="64" width="210" height="54" rx="8"/>
+  <text class="name" x="1022" y="87">Cloudflare Workers</text>
+  <text class="how" x="1022" y="106">wrangler</text>
+
+  <rect class="target" x="1002" y="137" width="210" height="54" rx="8"/>
+  <text class="name" x="1022" y="160">Any VPS</text>
+  <text class="how" x="1022" y="179">docker over ssh</text>
+
+  <rect class="target" x="1002" y="209" width="210" height="54" rx="8"/>
+  <text class="name" x="1022" y="232">Google Cloud Run</text>
+  <text class="how" x="1022" y="251">gcloud</text>
+
+  <rect class="target" x="1002" y="282" width="210" height="54" rx="8"/>
+  <text class="name" x="1022" y="305">AWS ECS</text>
+  <text class="how" x="1022" y="324">aws cli, Express Mode</text>
+</svg>
