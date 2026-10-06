@@ -20,6 +20,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `vps`, `gcp`, `aws`: the hint for a missing or wrong target block showed JSON to paste into what is
   now a YAML file. Hints and messages name the block's path (`spec.targets.<name>`), show the fields
   as they are written in `anyship.yaml`, and link the target's page.
+- `vps`: a failed `status` says why. It reported only ssh's exit status; now the error carries what
+  ssh or Docker said, and how to check the connection when ssh could not connect.
 
 ## [0.3.0] - 2026-10-06
 

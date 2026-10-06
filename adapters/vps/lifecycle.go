@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/j75689/anyship/adapter"
@@ -33,6 +34,52 @@ func notDeployed(err error) bool {
 	return ok && code == notDeployedExit
 }
 
+// sshExit is the status ssh itself exits with when it cannot connect or log
+// in. Any other status is the remote command's.
+const sshExit = 255
+
+// sshFailure is the error for a failed ssh call whose stderr was captured:
+// what was being done, the last thing ssh or the remote command said, and,
+// when ssh could not connect, how to check the connection.
+func sshFailure(doing string, o Options, err error, stderr string) error {
+	detail := ""
+	if cause := lastLine(stderr); cause != "" {
+		detail = ": " + cause
+	}
+	if code, ok := adapter.ExitCode(err); ok && code == sshExit {
+		detail = strings.TrimSuffix(detail, ".") + fmt.Sprintf(". Check that `%s` works without a password prompt.", sshCommand(o))
+	}
+	return fmt.Errorf("%s %s failed (%w)%s", doing, o.Host, err, detail)
+}
+
+// sshCommand is what a person types to reach the host the way anyship does.
+func sshCommand(o Options) string {
+	cmd := "ssh"
+	if o.Port != 0 {
+		cmd += " -p " + strconv.Itoa(o.Port)
+	}
+	if key := o.IdentityFile; key != "" {
+		// A leading ~/ stays bare so the shell expands it, as ssh does for anyship.
+		if rest, ok := strings.CutPrefix(key, "~/"); ok {
+			cmd += " -i ~/" + shellwords.Quote(rest)
+		} else {
+			cmd += " -i " + shellwords.Quote(key)
+		}
+	}
+	return cmd + " " + o.Host
+}
+
+// lastLine is the last line of command output that says anything, cut to a
+// length that fits in an error message.
+func lastLine(output string) string {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	line := strings.TrimSpace(lines[len(lines)-1])
+	if r := []rune(line); len(r) > 300 {
+		line = string(r[:300]) + "…"
+	}
+	return line
+}
+
 // psContainer is one entry of `docker compose ps --format json`.
 type psContainer struct {
 	Service    string
@@ -55,14 +102,16 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 	st := &adapter.Status{Target: Name, Location: o.Host + ":" + dir}
 
 	remote := fmt.Sprintf("%s; %s compose -p %s -f compose.yaml ps --all --format json", enterDeployment(dir), o.docker(), s.Name)
-	var out bytes.Buffer
-	err = env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir, Stdout: &out}, "ssh", append(sshArgs(*o), remote)...)
+	// stderr is captured so a failure can say why: status is also read by
+	// scripts and agents, which see the error and not the terminal.
+	var out, stderr bytes.Buffer
+	err = env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir, Stdout: &out, Stderr: &stderr}, "ssh", append(sshArgs(*o), remote)...)
 	if notDeployed(err) {
 		st.Services = serviceStatuses(s, nil)
 		return st, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("reading status from %s failed (%w)", o.Host, err)
+		return nil, sshFailure("reading status from", *o, err, stderr.String())
 	}
 	containers, err := parsePS(out.Bytes())
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 type scripted struct {
 	calls  []call
 	stdout string
+	stderr string
 	exit   int
 }
 
@@ -26,6 +27,9 @@ func (s *scripted) exec(_ context.Context, opts adapter.ExecOptions, name string
 	s.calls = append(s.calls, call{name: name, args: args})
 	if opts.Stdout != nil {
 		_, _ = io.WriteString(opts.Stdout, s.stdout)
+	}
+	if opts.Stderr != nil {
+		_, _ = io.WriteString(opts.Stderr, s.stderr)
 	}
 	if s.exit != 0 {
 		return exitError(s.exit)
@@ -92,6 +96,57 @@ func TestStatusWhenNothingIsDeployed(t *testing.T) {
 	_, err = New().Status(context.Background(), loadExample(t, "ethereum-node"), scriptedEnv(t, &scripted{exit: 255}))
 	if err == nil || !strings.Contains(err.Error(), "reading status from deploy@203.0.113.10 failed") {
 		t.Errorf("an ssh failure should be an error, got %v", err)
+	}
+}
+
+// A failed status has to say why: scripts and agents see the error, not the
+// terminal ssh wrote to.
+func TestStatusFailureKeepsTheCause(t *testing.T) {
+	for name, tc := range map[string]struct {
+		sc   scripted
+		want string
+	}{
+		"unreachable host": {
+			sc: scripted{exit: 255, stderr: "ssh: connect to host 203.0.113.10 port 22: Connection refused\r\n"},
+			want: "reading status from deploy@203.0.113.10 failed (exit status 255): " +
+				"ssh: connect to host 203.0.113.10 port 22: Connection refused. " +
+				"Check that `ssh deploy@203.0.113.10` works without a password prompt.",
+		},
+		"ssh says nothing": {
+			sc: scripted{exit: 255},
+			want: "reading status from deploy@203.0.113.10 failed (exit status 255). " +
+				"Check that `ssh deploy@203.0.113.10` works without a password prompt.",
+		},
+		// The connection is fine here, so there is nothing to check about ssh.
+		"docker fails on the host": {
+			sc: scripted{exit: 1, stderr: "Warning: Permanently added '203.0.113.10' (ED25519) to the list of known hosts.\n" +
+				"permission denied while trying to connect to the Docker daemon socket\n"},
+			want: "reading status from deploy@203.0.113.10 failed (exit status 1): " +
+				"permission denied while trying to connect to the Docker daemon socket",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := New().Status(context.Background(), loadExample(t, "ethereum-node"), scriptedEnv(t, &tc.sc))
+			if err == nil || err.Error() != tc.want {
+				t.Errorf("error = %v\nwant    %s", err, tc.want)
+			}
+			if code, ok := adapter.ExitCode(err); !ok || code != tc.sc.exit {
+				t.Errorf("the exit status is lost: %d %v", code, ok)
+			}
+		})
+	}
+}
+
+func TestSSHCommandMatchesTheOptions(t *testing.T) {
+	for want, o := range map[string]Options{
+		"ssh deploy@203.0.113.10":                              {Host: "deploy@203.0.113.10"},
+		"ssh -p 2222 -i ~/.ssh/id_ed25519 deploy@203.0.113.10": {Host: "deploy@203.0.113.10", Port: 2222, IdentityFile: "~/.ssh/id_ed25519"},
+		"ssh -i ~/'.ssh/deploy key' deploy@203.0.113.10":       {Host: "deploy@203.0.113.10", IdentityFile: "~/.ssh/deploy key"},
+		"ssh -i '/keys/deploy key' deploy@203.0.113.10":        {Host: "deploy@203.0.113.10", IdentityFile: "/keys/deploy key"},
+	} {
+		if got := sshCommand(o); got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
 	}
 }
 
