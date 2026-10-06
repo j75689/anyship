@@ -238,9 +238,17 @@ func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, o
 		return nil, err
 	}
 	removed := 0
+	// Services an earlier destroy is still deleting. Their load balancers
+	// bill until that finishes, so they are reported, never passed over as
+	// if nothing were there.
+	var draining []string
 	for _, name := range specNames(s) {
 		svc := found[name]
-		if svc == nil || svc.Status == "DRAINING" {
+		if svc == nil {
+			continue
+		}
+		if svc.Status == "DRAINING" {
+			draining = append(draining, name)
 			continue
 		}
 		env.Logf("$ aws ecs delete-express-gateway-service %s", name)
@@ -260,10 +268,18 @@ func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, o
 			}
 		}
 	}
-	if removed == 0 && !opts.Volumes {
+	if removed == 0 && len(draining) == 0 && !opts.Volumes {
 		return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Nothing to remove: %s has no services in cluster %s (%s).", s.Name, o.cluster(), o.Region)}}, nil
 	}
-	return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Removed %s from ECS in %s; load balancers drain over a few minutes.", s.Name, o.Region)}}, nil
+	var messages []string
+	if removed > 0 || len(draining) == 0 {
+		messages = append(messages, fmt.Sprintf("Removed %s from ECS in %s; load balancers drain over a few minutes.", s.Name, o.Region))
+	}
+	if len(draining) > 0 {
+		messages = append(messages, fmt.Sprintf("Still being deleted by an earlier destroy: %s. Their load balancers bill until that finishes, usually within a few minutes; `anyship status -t aws` shows when they are gone.",
+			strings.Join(draining, ", ")))
+	}
+	return &adapter.Result{OK: true, Messages: messages}, nil
 }
 
 func secretIDs(s *spec.Spec) []string {
