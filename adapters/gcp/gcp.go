@@ -127,12 +127,6 @@ const (
 	probeFailures = 24
 )
 
-// timeoutSeconds is Timeout in seconds; decodeOptions has checked it.
-func (o Options) timeoutSeconds() int {
-	d, _ := time.ParseDuration(o.Timeout)
-	return int(d / time.Second)
-}
-
 var (
 	projectRe       = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]$`)
 	regionRe        = regexp.MustCompile(`^[a-z]+-[a-z]+[0-9]+$`)
@@ -273,7 +267,7 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 			Message: "Secrets reach Cloud Run containers as environment variables named after the secret, not as files under /run/secrets.",
 		})
 		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpNote, Kind: "IAM binding", Name: "roles/secretmanager.secretAccessor",
-			Detail: "lets the account each service runs as read the secrets that service lists (and no others)"})
+			Detail: "lets the account each service runs as read the secrets that service lists; bindings from earlier deploys are not removed"})
 	}
 
 	for _, sv := range data.services {
