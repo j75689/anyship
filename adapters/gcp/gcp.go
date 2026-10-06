@@ -431,10 +431,17 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 
 	if svc.Image != "" {
 		sv.image = svc.Image
-		if registry, rest := image.Registry(svc.Image); !pullable(registry) {
+		registry, rest := image.Registry(svc.Image)
+		remote := fmt.Sprintf("an Artifact Registry remote repository that proxies %s, and deploy %s/%s/<remote repository>/%s", registry, opts.registryHost(), opts.Project, rest)
+		switch {
+		case registry == ghcr:
+			add(adapter.Warning, "GCP_GHCR_PUBLIC_ONLY",
+				fmt.Sprintf("image %s comes from ghcr.io, which Cloud Run pulls through a cache of its own that carries no credentials: a public image deploys, a private one fails with \"does not have permission to pull\".", svc.Image),
+				"If the image is private, create "+remote+" with a GitHub token.")
+		case !pullable(registry):
 			add(adapter.Error, "GCP_UNPULLABLE_IMAGE",
-				fmt.Sprintf("Cloud Run can't pull image %s: it pulls from Artifact Registry, gcr.io and Docker Hub, not from %s.", svc.Image, registry),
-				fmt.Sprintf("Create an Artifact Registry remote repository that proxies %s and deploy %s/%s/<remote repository>/%s, or push the image to Artifact Registry.", registry, opts.registryHost(), opts.Project, rest))
+				fmt.Sprintf("Cloud Run can't pull image %s: it pulls from Artifact Registry, gcr.io, Docker Hub and ghcr.io, not from %s.", svc.Image, registry),
+				"Create "+remote+", or push the image to Artifact Registry.")
 		}
 		if tag, moving := image.MovingTag(svc.Image); moving {
 			add(adapter.Warning, "GCP_MUTABLE_TAG",
@@ -533,11 +540,17 @@ func gcloudMemory(mb int) string {
 	return strconv.Itoa(mb) + "Mi"
 }
 
+// ghcr is the one registry outside Google's and Docker Hub that Cloud Run
+// pulls from, through a cache of its own (cache.<region>-docker.pkg.dev),
+// which has no credentials for private images.
+const ghcr = "ghcr.io"
+
 // pullable reports whether Cloud Run pulls images from a registry. It takes
-// Artifact Registry, Container Registry and Docker Hub, and refuses a deploy
-// from anywhere else.
+// Artifact Registry, Container Registry, Docker Hub and ghcr.io, and refuses
+// a deploy from anywhere else, as seen on a real project on 2026-10-07.
 func pullable(registry string) bool {
-	return registry == "docker.io" || registry == "gcr.io" || strings.HasSuffix(registry, ".gcr.io") ||
+	return registry == "docker.io" || registry == "index.docker.io" || registry == ghcr ||
+		registry == "gcr.io" || strings.HasSuffix(registry, ".gcr.io") ||
 		registry == "docker.pkg.dev" || strings.HasSuffix(registry, "-docker.pkg.dev")
 }
 

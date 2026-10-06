@@ -49,9 +49,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   next deploy: the path has to answer with a 2xx or 3xx status, without credentials, within 4
   minutes, or the deploy fails and the previous revision keeps serving. A spec without a path
   removes the service's startup probe, so one set by hand needs `healthCheck.path` to stay.
-- `gcp`: `plan` refuses an image on a registry Cloud Run can't pull from, such as `ghcr.io`
+- `gcp`: `plan` refuses an image on a registry Cloud Run can't pull from, such as `quay.io`
   (`GCP_UNPULLABLE_IMAGE`), and says how to reach it through Artifact Registry. It used to pass and
-  fail in `gcloud run deploy`.
+  fail in `gcloud run deploy`. A `ghcr.io` image gets a warning instead (`GCP_GHCR_PUBLIC_ONLY`):
+  Cloud Run pulls public ones through a cache of its own, and private ones not at all.
 - `gcp`: `plan` warns that a service with an `internal` port can't be called by the spec's other
   services as deployed (`GCP_INTERNAL_CALLERS`), and lists what a caller needs: a route through a
   VPC network, `roles/run.invoker`, and an identity token. It used to say nothing.
