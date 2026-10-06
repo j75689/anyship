@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - unreleased
+## [0.3.0] - 2026-10-06
 
 ### ⚠ BREAKING CHANGES
 
@@ -22,8 +22,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `gcp` target: a Google Cloud Run adapter. Each service becomes the Cloud Run service
   `<spec>-<service>`, labeled `anyship-project=<spec>` so `status`, `logs` and `destroy` find it
   without state. Images are pushed to your Artifact Registry repository and deployed by digest;
-  secrets live in Secret Manager. `apply` runs preflight checks first and `--dry-run` stops after
-  them. Static sites, workers, volumes, cron and TCP/UDP ports are refused with a reason.
+  secrets live in Secret Manager, and each apply lets the account the services run as read the ones
+  the spec uses. `targets.gcp.configuration` picks the gcloud configuration and `serviceAccount` that
+  account. `apply` runs preflight checks first and `--dry-run` stops after them. Static sites,
+  workers, volumes, cron and TCP/UDP ports are refused with a reason.
 - `aws` target: an Amazon ECS Express Mode adapter, which provisions the load balancer, HTTPS URL and
   autoscaling for each service. Images go to your ECR repository and are deployed by digest; secrets
   live in Secrets Manager. `logs` tails CloudWatch Logs, including `-f`.
@@ -36,7 +38,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `anyship diagnose` and the MCP `diagnose_context` tool: collect redacted deployment context and ask
   Claude for a root cause and a validated spec fix (bring your own key). Experimental: tested
   against a stubbed API, not yet run against the live one.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the system map and the main flows.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the system map and the main flows, and a page for
+  each target under [docs/targets/](docs/targets/).
+- [SECURITY.md](SECURITY.md): how to report a vulnerability privately.
 
 ### Changed
 
@@ -45,6 +49,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`latest` by default) for registries that hold several services in one repository.
 - Every cloud adapter deploys dependencies first, in one shared order (`Spec.DeployOrder`).
 - `diagnose` patches the YAML tree in place, so comments and key order survive its fixes.
+- Release archives are built with `go build` instead of GoReleaser. Their names and `checksums.txt`
+  are unchanged, each one now includes `NOTICE`, and release notes are this file's section for the
+  version.
 
 ### Fixed
 
@@ -74,5 +81,5 @@ The first tagged release. It covers everything built up to that point.
   deploy it.
 - Release binaries built with GoReleaser, and `install.sh`, which verifies checksums.
 
-[0.3.0]: https://github.com/j75689/anyship/compare/v0.2.0...HEAD
+[0.3.0]: https://github.com/j75689/anyship/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/j75689/anyship/releases/tag/v0.2.0

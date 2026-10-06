@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/j75689/anyship/main/install.sh | sh
 #
 # Environment:
-#   ANYSHIP_VERSION        release tag to install, e.g. v0.2.0 (default: latest)
+#   ANYSHIP_VERSION        release tag to install, e.g. v0.3.0 (default: latest)
 #   ANYSHIP_INSTALL_DIR    where to put the binary (default: /usr/local/bin if
 #                          writable, otherwise ~/.local/bin)
 #   ANYSHIP_DOWNLOAD_BASE  download from this URL instead of GitHub (mirrors, tests)
