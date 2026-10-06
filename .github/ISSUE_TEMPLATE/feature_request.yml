@@ -1,0 +1,25 @@
+name: Feature request
+description: A new target, a spec field, or something anyship should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to deploy or do?
+      description: The app and the platform, and where anyship stops helping today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like anyship to do?
+      description: >-
+        For a spec change, describe the need rather than a platform feature (`volumes`, not `ebs`).
+        anyship keeps no state and creates no infrastructure, so proposals that need a state file
+        are out of scope.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What do you do instead today?
