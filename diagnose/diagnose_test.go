@@ -133,6 +133,39 @@ func TestRedactor(t *testing.T) {
 	}
 }
 
+// Shapes that used to reach Claude in clear text.
+func TestRedactorCoversWholeValues(t *testing.T) {
+	r := NewRedactor(&spec.Spec{}, func(string) (string, bool) { return "", false })
+	for _, tc := range []struct{ name, in, want string }{
+		{"url password with an empty username", "REDIS_URL: redis://:zzLEAK@cache:6379/0", "REDIS_URL: redis://:[redacted]@cache:6379/0"},
+		{"url password containing @", "amqp://app:zz@LEAK@mq:5672", "amqp://app:[redacted]@mq:5672"},
+		{"unquoted value with spaces", "TOKEN_ARGS: --api-token zzLEAK", `TOKEN_ARGS: "[redacted]"`},
+		{"env line with spaces", "      - API_TOKEN=zz LEAK", `      - API_TOKEN="[redacted]"`},
+		{"exported variable with spaces", "export DB_PASSWORD=zz LEAK", `export DB_PASSWORD="[redacted]"`},
+		{"compose log line", "web-1  | X-Auth-Token: Bearer zzLEAK", `web-1  | X-Auth-Token: "[redacted]"`},
+		{"json number keeps its comma", `  "maxTokens": 4096,`, `  "maxTokens": "[redacted]",`},
+		{"block scalar", "    TLS_KEY: |\n      zzLEAK one\n\n      zzLEAK two\n    PORT: 80", "    TLS_KEY: |\n      [redacted]\n    PORT: 80"},
+		{"folded block scalar in a list", "- PRIVATE_NOTE: >-\n    zzLEAK\n- name: web", "- PRIVATE_NOTE: >-\n    [redacted]\n- name: web"},
+		{"authorization header", "Authorization: Bearer zzLEAK", "Authorization: Bearer [redacted]"},
+		{"basic authorization in curl", `curl -H "Authorization: Basic enpMRUFLOnp6" https://api.example.com`, `curl -H "Authorization: Basic [redacted]" https://api.example.com`},
+		{"authorization in json", `{"authorization": "Bearer zzLEAK", "port": 80}`, `{"authorization": "Bearer [redacted]", "port": 80}`},
+		{"authorization without a scheme", "proxy-authorization=zzLEAK", "proxy-authorization=[redacted]"},
+		// Mid-line pairs keep their neighbours: only the value goes.
+		{"libpq string", "dsn host=db password=zzLEAK dbname=shop", `dsn host=db password="[redacted]" dbname=shop`},
+	} {
+		got := r.Redact(tc.in)
+		if got != tc.want {
+			t.Errorf("%s: Redact(%q) = %q, want %q", tc.name, tc.in, got, tc.want)
+		}
+		if strings.Contains(got, "LEAK") {
+			t.Errorf("%s: leaked: %q", tc.name, got)
+		}
+		if again := r.Redact(got); again != got {
+			t.Errorf("%s: redacting twice changed %q to %q", tc.name, got, again)
+		}
+	}
+}
+
 func TestRedactorKeepsStructure(t *testing.T) {
 	s, _ := spec.Parse([]byte(specYAML))
 	r := NewRedactor(s, func(name string) (string, bool) { return "", false })
@@ -146,6 +179,13 @@ func TestRedactorKeepsStructure(t *testing.T) {
 		`"API_KEY": ""`,
 		"  secrets:\n    JWT_SECRET:\n      generate: hex32",
 		"      secrets:\n        - JWT_SECRET",
+		"JWT_SECRET: {generate: hex32}",
+		"    authorization:\n      type: bearer",
+		"Authorization: Bearer [redacted token]",
+		"description: |\n  not a secret\nport: 80",
+		"      private: false        # true: public services require authentication",
+		`{"private": true, "region": "us-central1"}`,
+		"API_KEY: |\nport: 80",
 	} {
 		if got := r.Redact(in); got != in {
 			t.Errorf("Redact(%q) = %q, want it unchanged", in, got)
