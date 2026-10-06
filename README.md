@@ -390,10 +390,9 @@ Apply this change to anyship.yaml? [y/N]
 ```
 
 > **Experimental.** `diagnose` is tested against a stubbed API and has not been run against the live
-> Claude API yet ([#27](https://github.com/j75689/anyship/issues/27)), and redaction misses three
-> secret shapes ([#39](https://github.com/j75689/anyship/issues/39)): URL passwords with an empty
-> username, values containing spaces, and `Authorization` headers. `--show-context` needs no key and
-> prints exactly what would be sent; search it for your own secrets before the first real call.
+> Claude API yet ([#27](https://github.com/j75689/anyship/issues/27)). Redaction works by pattern, so
+> it can miss a secret in a shape it doesn't know: `--show-context` needs no key and prints exactly
+> what would be sent, and it is worth searching that for your own secrets before the first real call.
 
 `diagnose` collects what anyship already knows (plan findings, the target's dry-run checks, status,
 recent logs and the generated compose.yaml or Dockerfiles) and asks Claude for the root cause, the
@@ -404,8 +403,9 @@ evidence for it, next steps, and a fix. The rules:
   times. Fixes outside `anyship.yaml` (your code, a hand-written Dockerfile, the host) are described,
   never applied.
 - **Secrets are redacted before anything is sent:** values of the spec's secrets found in your
-  environment, credential-like keys (`*_KEY`, `*_TOKEN`, `*PASSWORD*`, ...), API tokens, passwords in
-  URLs and private keys. `--show-context` prints exactly what would be sent, without calling the API.
+  environment, credential-like keys (`*_KEY`, `*_TOKEN`, `*PASSWORD*`, ...), `Authorization` headers,
+  API tokens, passwords in URLs and private keys. `--show-context` prints exactly what would be sent,
+  without calling the API.
 - **Bring your own credentials:** `ANTHROPIC_API_KEY`, or `ant auth login`. It uses `claude-opus-5-5`
   at high effort by default (`--model`, `--effort` to change). Everything else in anyship works without
   a key.

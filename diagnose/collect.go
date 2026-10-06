@@ -154,14 +154,46 @@ var redactPatterns = []struct {
 }{
 	{regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`), "[redacted private key]"},
 	{regexp.MustCompile(`\b(?:sk-ant-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`), "[redacted token]"},
-	// user:password@ in URLs
-	{regexp.MustCompile(`(\b[a-z][a-z0-9+.-]*://[^:/\s@]+:)[^@\s]+@`), "${1}[redacted]@"},
-	// "API_KEY": "value", API_KEY: value, API_KEY=value and similar, on one
-	// line. Only scalar values: arrays and objects under such keys (like
-	// "secrets": [...] or a YAML block) are structure, and values already
-	// redacted start with "[".
-	{regexp.MustCompile(`(?i)("?[A-Z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE)[A-Z0-9_.-]*"?[ \t]*[:=][ \t]*)("[^"\n\[{][^"\n]*"|'[^'\n]*'|[^\s,}\[{"'][^\s,}]*)`), `${1}"[redacted]"`},
+	// user:password@ in URLs. The user may be empty (redis://:pw@host), and
+	// an unescaped @ inside the password must not end the match early.
+	{regexp.MustCompile(`(\b[a-z][a-z0-9+.-]*://[^:/\s@]*:)[^@\s]+@(?:[^@\s/]*@)*`), "${1}[redacted]@"},
 }
+
+// secretKey matches a key that names a credential. Patterns that use it are
+// case-insensitive.
+const secretKey = `[A-Z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE)[A-Z0-9_.-]*`
+
+// blockHeader is a YAML block scalar indicator with nothing else on the line.
+const blockHeader = `[|>][+-]?[0-9]?[+-]?[ \t\r]*(?:#[^\n]*)?`
+
+var (
+	// SECRET: | followed by indented lines. Group 1 is what precedes the key.
+	secretBlock = regexp.MustCompile(`(?i)^([ \t]*(?:-[ \t]+)?)"?` + secretKey + `"?[ \t]*:[ \t]*` + blockHeader + `$`)
+
+	// A secret key that opens a line: API_KEY: value, - API_KEY=value,
+	// export API_KEY=value, or the same behind a compose log prefix
+	// ("web-1  | "). The value runs to the end of the line, spaces included.
+	// Arrays and objects under such keys (like "secrets": [...]) are
+	// structure, values already redacted start with "[", and quoted values
+	// are left to secretPair.
+	secretLine = regexp.MustCompile(`(?im)^([ \t]*(?:[\w.-]+[ \t]*\|[ \t]*)?(?:-[ \t]+)?(?:export[ \t]+|declare[ \t]+-x[ \t]+)?"?` + secretKey + `"?[ \t]*[:=][ \t]*)([^\s,}\[{"'][^\n]*?)(,?[ \t\r]*)$`)
+
+	// A secret key anywhere else, such as password=... inside a connection
+	// string: the value ends at whitespace, so its neighbours stay readable.
+	// Group 2 is a block scalar header, which is not a value.
+	secretPair = regexp.MustCompile(`(?im)("?` + secretKey + `"?[ \t]*[:=][ \t]*)(?:(` + blockHeader + `$)|"[^"\n\[{][^"\n]*"|'[^'\n]*'|[^\s,}\[{"'][^\s,}]*)`)
+
+	// Authorization: Bearer ..., in headers, curl commands and JSON. The
+	// value ends at a quote or the end of the line.
+	authHeader = regexp.MustCompile(`(?i)(\b(?:proxy-)?authorization"?[ \t]*[:=][ \t]*["']?)([^\s"'\[{][^\n"']*)`)
+	authScheme = regexp.MustCompile(`(?i)^(?:basic|bearer|digest|negotiate|token)[ \t]+`)
+
+	blockHeaderOnly = regexp.MustCompile(`^` + blockHeader + `$`)
+
+	// A boolean or null under a secret-looking key is a setting, such as
+	// targets.gcp.private, and the model needs to see it.
+	plainLiteral = regexp.MustCompile(`(?i)^(?:true|false|null|~)[ \t\r]*(?:#.*)?$`)
+)
 
 // NewRedactor redacts the values of the spec's secrets that are set in the
 // deployer's environment, plus anything that looks like a credential.
@@ -187,7 +219,75 @@ func (r *Redactor) Redact(text string) string {
 	for _, p := range redactPatterns {
 		text = p.re.ReplaceAllString(text, p.with)
 	}
+	text = redactSecretBlocks(text)
+	text = authHeader.ReplaceAllStringFunc(text, func(match string) string {
+		m := authHeader.FindStringSubmatch(match)
+		// Keep the scheme: "Bearer" or "Basic" says how the app authenticates.
+		scheme := authScheme.FindString(m[2])
+		if scheme == m[2] {
+			scheme = ""
+		}
+		if strings.HasPrefix(m[2][len(scheme):], "[") {
+			return match // already redacted
+		}
+		return m[1] + scheme + "[redacted]"
+	})
+	text = secretLine.ReplaceAllStringFunc(text, func(match string) string {
+		m := secretLine.FindStringSubmatch(match)
+		if blockHeaderOnly.MatchString(m[2]) || plainLiteral.MatchString(m[2]) {
+			return match
+		}
+		return m[1] + `"[redacted]"` + m[3]
+	})
+	text = secretPair.ReplaceAllStringFunc(text, func(match string) string {
+		m := secretPair.FindStringSubmatch(match)
+		if m[2] != "" || plainLiteral.MatchString(match[len(m[1]):]) {
+			return match
+		}
+		return m[1] + `"[redacted]"`
+	})
 	return text
+}
+
+// redactSecretBlocks replaces the lines of a YAML block scalar under a secret
+// key with one redacted line. The block is every following line indented
+// deeper than the key.
+func redactSecretBlocks(text string) string {
+	if !strings.ContainsAny(text, "|>") {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	for i := 0; i < len(lines); i++ {
+		out = append(out, lines[i])
+		m := secretBlock.FindStringSubmatch(lines[i])
+		if m == nil {
+			continue
+		}
+		first, last := 0, i
+		for j := i + 1; j < len(lines); j++ {
+			if strings.TrimSpace(lines[j]) == "" {
+				continue
+			}
+			if indentOf(lines[j]) <= len(m[1]) {
+				break
+			}
+			if last == i {
+				first = j
+			}
+			last = j
+		}
+		if last == i {
+			continue
+		}
+		out = append(out, lines[first][:indentOf(lines[first])]+"[redacted]")
+		i = last
+	}
+	return strings.Join(out, "\n")
+}
+
+func indentOf(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " \t"))
 }
 
 func toJSON(v any) string {
