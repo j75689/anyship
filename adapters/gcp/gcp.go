@@ -53,14 +53,44 @@ type Options struct {
 	// ServiceAccount is the email of the account services run as; the
 	// project's Compute Engine default service account when empty.
 	ServiceAccount string `json:"serviceAccount,omitempty"`
-	// Timeout is how long a request may take, such as "10m", up to an hour.
-	// When empty a deploy keeps the service's current timeout (5 minutes
-	// for a new service).
+	// Timeout is how long a request may take, such as "10m", up to an hour;
+	// Cloud Run's 5 minutes when empty.
 	Timeout string `json:"timeout,omitempty"`
+	// Services holds the settings of single services, by their name in the
+	// spec.
+	Services map[string]ServiceOptions `json:"services,omitempty"`
 }
 
-// maxTimeout is Cloud Run's longest request timeout.
-const maxTimeout = time.Hour
+// ServiceOptions are the Cloud Run settings of one service. Timeout and
+// ServiceAccount override the target's.
+type ServiceOptions struct {
+	// MaxInstances caps how far the service scales out.
+	MaxInstances int `json:"maxInstances,omitempty"`
+	// Concurrency is how many requests one instance handles at a time.
+	Concurrency          int    `json:"concurrency,omitempty"`
+	Timeout              string `json:"timeout,omitempty"`
+	ServiceAccount       string `json:"serviceAccount,omitempty"`
+	ExecutionEnvironment string `json:"executionEnvironment,omitempty"`
+}
+
+// Cloud Run's request timeouts: the longest it takes, and the one a service
+// gets when a deploy names none.
+const (
+	maxTimeout     = time.Hour
+	defaultTimeout = 5 * time.Minute
+)
+
+// maxConcurrency is the most requests Cloud Run sends one instance at a time.
+const maxConcurrency = 1000
+
+// parseTimeout reads a timeout option into seconds.
+func parseTimeout(timeout string) (int, error) {
+	d, err := time.ParseDuration(timeout)
+	if err != nil || d < time.Second || d > maxTimeout || d%time.Second != 0 {
+		return 0, fmt.Errorf("timeout %q is not a whole number of seconds between 1s and 1h, such as \"10m\"", timeout)
+	}
+	return int(d / time.Second), nil
+}
 
 // What Cloud Run gives an instance when a deploy doesn't say. A spec that
 // names no memory or cpu deploys with these, so taking either out of the spec
@@ -70,8 +100,16 @@ const (
 	defaultCPU      = 1
 )
 
+// minCPU is the smallest share of a CPU an instance can have, and
+// gen2MemoryMB the least memory the second generation execution environment
+// runs with.
+const (
+	minCPU       = 0.08
+	gen2MemoryMB = 512
+)
+
 // cpuMemory is the least and the most memory, in MB, that Cloud Run allows
-// for a CPU count.
+// for a whole number of CPUs.
 var cpuMemory = map[float64][2]int{
 	1: {128, 4 * 1024},
 	2: {128, 8 * 1024},
@@ -88,12 +126,6 @@ const (
 	probeTimeout  = 5
 	probeFailures = 24
 )
-
-// timeoutSeconds is Timeout in seconds; decodeOptions has checked it.
-func (o Options) timeoutSeconds() int {
-	d, _ := time.ParseDuration(o.Timeout)
-	return int(d / time.Second)
-}
 
 var (
 	projectRe       = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]$`)
@@ -130,6 +162,13 @@ type service struct {
 	argv     []string
 	cpu      float64
 	memoryMB int
+	// set holds the service's own Cloud Run settings.
+	set ServiceOptions
+	// timeout is in seconds.
+	timeout int
+	// account is the service account to run as. Empty means the project's
+	// Compute Engine default account, whose name Apply fills in.
+	account string
 	// image is the image to deploy; for builds it is filled in by Apply.
 	image string
 	build *build
@@ -156,6 +195,11 @@ type planData struct {
 	secrets  []secret
 }
 
+// defaultAccountSuffix follows the project number in the name of the Compute
+// Engine default service account, which Cloud Run services run as unless told
+// otherwise.
+const defaultAccountSuffix = "-compute@developer.gserviceaccount.com"
+
 func cloudRunName(project, service string) string { return project + "-" + service }
 func secretID(project, name string) string        { return project + "-" + name }
 
@@ -173,6 +217,15 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 			Hint: adapter.OptionsHint(Name, "`project: my-project` and `region: us-central1`, plus `repository: apps` to build from source"),
 		})
 		return plan, nil
+	}
+
+	for _, name := range sortedKeys(opts.Services) {
+		if _, ok := s.Services[name]; !ok {
+			plan.Findings = append(plan.Findings, adapter.Finding{
+				Level: adapter.Error, Code: "GCP_BAD_OPTIONS",
+				Message: fmt.Sprintf("spec.targets.gcp.services.%s: the spec has no service named %q (it has %s).", name, name, strings.Join(sortedKeys(s.Services), ", ")),
+			})
+		}
 	}
 
 	data := &planData{opts: *opts, project: s.Name}
@@ -213,12 +266,8 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 			Level: adapter.Info, Code: "GCP_SECRETS_AS_ENV",
 			Message: "Secrets reach Cloud Run containers as environment variables named after the secret, not as files under /run/secrets.",
 		})
-		account := opts.ServiceAccount
-		if account == "" {
-			account = "the Compute Engine default service account"
-		}
 		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpNote, Kind: "IAM binding", Name: "roles/secretmanager.secretAccessor",
-			Detail: "lets " + account + ", which the services run as, read each of these secrets (and no others)"})
+			Detail: "lets the account each service runs as read the secrets that service lists; bindings from earlier deploys are not removed"})
 	}
 
 	for _, sv := range data.services {
@@ -232,7 +281,11 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 		if image == "" {
 			image = opts.imageRepository(sv.cloudRun) + "@<digest from the build>"
 		}
-		args := deployArgs(data, sv, image)
+		shown := sv
+		if shown.account == "" {
+			shown.account = "<project number>" + defaultAccountSuffix
+		}
+		args := deployArgs(data, shown, image)
 		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpDeploy, Kind: "Cloud Run service", Name: sv.cloudRun, Detail: fmt.Sprintf("in %s/%s", opts.Project, opts.Region)})
 		plan.Files = append(plan.Files, adapter.File{
 			Path:     filepath.Join(env.OutDir, sv.name+".gcloud.txt"),
@@ -322,9 +375,23 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	if mb := svc.MemoryMB(); mb != 0 {
 		sv.memoryMB = mb
 	}
-	if finding := checkSize(sv.cpu, sv.memoryMB); finding != nil {
-		finding.Service = name
+	sv.set = opts.Services[name]
+	if finding := checkSize(name, sv.cpu, sv.memoryMB, sv.set); finding != nil {
 		findings = append(findings, *finding)
+	}
+	if sv.set.MaxInstances != 0 && sv.set.MaxInstances < svc.Replicas {
+		add(adapter.Error, "GCP_MAX_INSTANCES", fmt.Sprintf("maxInstances %d is below replicas %d, the number of instances kept running.", sv.set.MaxInstances, svc.Replicas),
+			"Raise maxInstances or lower replicas.")
+	}
+	sv.timeout = int(defaultTimeout / time.Second)
+	for _, timeout := range []string{opts.Timeout, sv.set.Timeout} {
+		if timeout != "" {
+			sv.timeout, _ = parseTimeout(timeout) // decodeOptions has checked it
+		}
+	}
+	sv.account = opts.ServiceAccount
+	if sv.set.ServiceAccount != "" {
+		sv.account = sv.set.ServiceAccount
 	}
 	if hc := svc.HealthCheck; hc != nil {
 		switch {
@@ -381,18 +448,40 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	return sv, findings
 }
 
-// checkSize refuses a CPU count Cloud Run doesn't offer and memory that
-// doesn't go with the CPU count.
-func checkSize(cpu float64, memoryMB int) *adapter.Finding {
-	limits, ok := cpuMemory[cpu]
+// memoryLimits is the least and the most memory, in MB, that Cloud Run allows
+// for a CPU count; ok is false for a count it doesn't offer.
+func memoryLimits(cpu float64) (limits [2]int, ok bool) {
 	switch {
+	case cpu < minCPU:
+		return limits, false
+	case cpu < 0.5:
+		return [2]int{128, 512}, true
 	case cpu < 1:
-		return &adapter.Finding{Level: adapter.Error, Code: "GCP_FRACTIONAL_CPU",
-			Message: fmt.Sprintf("cpu %v: Cloud Run runs less than one CPU only with one request per instance, which anyship can't set yet.", cpu),
-			Hint:    "Use cpu: 1."}
+		return [2]int{128, 1024}, true
+	}
+	limits, ok = cpuMemory[cpu]
+	return limits, ok
+}
+
+// checkSize refuses an instance Cloud Run doesn't offer: a CPU count it
+// doesn't have, memory that doesn't go with the CPU count, and less than one
+// CPU without the settings that needs.
+func checkSize(name string, cpu float64, memoryMB int, set ServiceOptions) *adapter.Finding {
+	refuse := func(code, message, hint string) *adapter.Finding {
+		return &adapter.Finding{Level: adapter.Error, Code: code, Service: name, Message: message, Hint: hint}
+	}
+	limits, ok := memoryLimits(cpu)
+	switch {
 	case !ok:
-		return &adapter.Finding{Level: adapter.Error, Code: "GCP_CPU",
-			Message: fmt.Sprintf("cpu %v: Cloud Run instances have 1, 2, 4, 6 or 8 CPUs.", cpu)}
+		return refuse("GCP_CPU", fmt.Sprintf("cpu %v: Cloud Run instances have %v to 1 CPU, or 2, 4, 6 or 8.", cpu, minCPU), "")
+	case cpu < 1 && set.Concurrency != 1:
+		return refuse("GCP_FRACTIONAL_CPU", fmt.Sprintf("cpu %v: Cloud Run runs less than one CPU only with one request per instance.", cpu),
+			fmt.Sprintf("Set spec.targets.gcp.services.%s.concurrency to 1, or use cpu: 1.", name))
+	case cpu < 1 && set.ExecutionEnvironment == "gen2":
+		return refuse("GCP_FRACTIONAL_CPU", fmt.Sprintf("cpu %v: Cloud Run runs less than one CPU only in the first generation execution environment.", cpu),
+			"Drop executionEnvironment: gen2, or use cpu: 1.")
+	case set.ExecutionEnvironment == "gen2" && memoryMB < gen2MemoryMB:
+		return refuse("GCP_MEMORY", fmt.Sprintf("memory %s: the second generation execution environment needs at least %s.", specMemory(memoryMB), specMemory(gen2MemoryMB)), "")
 	case memoryMB >= limits[0] && memoryMB <= limits[1]:
 		return nil
 	}
@@ -403,9 +492,7 @@ func checkSize(cpu float64, memoryMB int) *adapter.Finding {
 			break
 		}
 	}
-	return &adapter.Finding{Level: adapter.Error, Code: "GCP_MEMORY",
-		Message: fmt.Sprintf("memory %s doesn't go with cpu %v: Cloud Run allows %s to %s there.", specMemory(memoryMB), cpu, specMemory(limits[0]), specMemory(limits[1])),
-		Hint:    hint}
+	return refuse("GCP_MEMORY", fmt.Sprintf("memory %s doesn't go with cpu %v: Cloud Run allows %s to %s there.", specMemory(memoryMB), cpu, specMemory(limits[0]), specMemory(limits[1])), hint)
 }
 
 // specMemory writes megabytes the way the spec does: "512MB", "4GB".
@@ -433,8 +520,10 @@ func pullable(registry string) bool {
 }
 
 // deployArgs is the gcloud command that makes the service match the spec.
-// Env vars, secrets, the startup probe, memory and cpu are always set or put
-// back to their defaults, so removals in the spec take effect.
+// Every setting anyship knows is passed on every deploy, as the spec's value
+// or as Cloud Run's default, so removals in the spec take effect. The
+// execution environment is the exception: gcloud has no way to hand the
+// choice back to Cloud Run.
 func deployArgs(d *planData, sv service, image string) []string {
 	o := d.opts
 	args := []string{"run", "deploy", sv.cloudRun, "--image", image, "--region", o.Region, "--project", o.Project,
@@ -472,8 +561,29 @@ func deployArgs(d *planData, sv service, image string) []string {
 			args = append(args, "--args", listFlag(sv.argv[1:]))
 		}
 	}
+	// "default" is gcloud's word for Cloud Run's own value.
+	count := func(n int) string {
+		if n == 0 {
+			return "default"
+		}
+		return strconv.Itoa(n)
+	}
+	minInstances := 0
 	if sv.svc.Replicas > 1 {
-		args = append(args, "--min-instances", strconv.Itoa(sv.svc.Replicas))
+		minInstances = sv.svc.Replicas
+	}
+	args = append(args, "--min-instances", count(minInstances), "--max-instances", count(sv.set.MaxInstances),
+		"--concurrency", count(sv.set.Concurrency), "--timeout", strconv.Itoa(sv.timeout))
+	switch {
+	case sv.cpu < 1:
+		// Less than one CPU needs both of these; say so, in case the
+		// service was set up otherwise by hand.
+		args = append(args, "--execution-environment", "gen1", "--cpu-throttling")
+	case sv.set.ExecutionEnvironment != "":
+		args = append(args, "--execution-environment", sv.set.ExecutionEnvironment)
+	}
+	if sv.account != "" {
+		args = append(args, "--service-account", sv.account)
 	}
 	if hc := sv.svc.HealthCheck; hc != nil && hc.Path != "" {
 		args = append(args, "--startup-probe", listFlag([]string{
@@ -484,12 +594,6 @@ func deployArgs(d *planData, sv service, image string) []string {
 		}))
 	} else {
 		args = append(args, "--startup-probe", "")
-	}
-	if o.ServiceAccount != "" {
-		args = append(args, "--service-account", o.ServiceAccount)
-	}
-	if o.Timeout != "" {
-		args = append(args, "--timeout", strconv.Itoa(o.timeoutSeconds()))
 	}
 	return append(args, "--quiet")
 }
@@ -548,12 +652,35 @@ func decodeOptions(raw json.RawMessage) (*Options, error) {
 		return nil, fmt.Errorf("serviceAccount %q is not a service account email", opts.ServiceAccount)
 	}
 	if opts.Timeout != "" {
-		d, err := time.ParseDuration(opts.Timeout)
-		if err != nil || d < time.Second || d > maxTimeout || d%time.Second != 0 {
-			return nil, fmt.Errorf("timeout %q is not a whole number of seconds between 1s and 1h, such as \"10m\"", opts.Timeout)
+		if _, err := parseTimeout(opts.Timeout); err != nil {
+			return nil, err
+		}
+	}
+	for _, name := range sortedKeys(opts.Services) {
+		if err := opts.Services[name].check(); err != nil {
+			return nil, fmt.Errorf("services.%s: %w", name, err)
 		}
 	}
 	return opts, nil
+}
+
+func (o ServiceOptions) check() error {
+	switch {
+	case o.MaxInstances < 0:
+		return fmt.Errorf("maxInstances %d is not a number of instances, 1 or more", o.MaxInstances)
+	case o.Concurrency < 0 || o.Concurrency > maxConcurrency:
+		return fmt.Errorf("concurrency %d is not between 1 and %d requests per instance", o.Concurrency, maxConcurrency)
+	case o.ServiceAccount != "" && !accountRe.MatchString(o.ServiceAccount):
+		return fmt.Errorf("serviceAccount %q is not a service account email", o.ServiceAccount)
+	case o.ExecutionEnvironment != "" && o.ExecutionEnvironment != "gen1" && o.ExecutionEnvironment != "gen2":
+		return fmt.Errorf("executionEnvironment %q is not gen1 or gen2", o.ExecutionEnvironment)
+	}
+	if o.Timeout != "" {
+		if _, err := parseTimeout(o.Timeout); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func sortedKeys[V any](m map[string]V) []string {

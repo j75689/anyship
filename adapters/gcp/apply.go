@@ -96,7 +96,7 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 
 	g := newGcloud(env, data.opts)
 	env.Logf("checking project %s in %s", data.opts.Project, data.opts.Region)
-	runAs, checks := preflight(ctx, g, data)
+	defaultAccount, checks := preflight(ctx, g, data)
 	result := func(ok bool, messages ...string) *adapter.Result {
 		return &adapter.Result{OK: ok, Findings: checks, Messages: messages}
 	}
@@ -111,8 +111,23 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		if err := ensureSecret(ctx, g, data.project, sc); err != nil {
 			return result(false, err.Error()), nil
 		}
-		if err := grantAccess(ctx, g, sc.id, runAs); err != nil {
-			return result(false, err.Error()), nil
+	}
+	// Each account may read the secrets its own services list, and no others.
+	granted := map[[2]string]bool{}
+	for i := range data.services {
+		sv := &data.services[i]
+		if sv.account == "" {
+			sv.account = defaultAccount
+		}
+		for _, name := range sv.svc.Secrets {
+			grant := [2]string{secretID(data.project, name), sv.account}
+			if granted[grant] {
+				continue
+			}
+			granted[grant] = true
+			if err := grantAccess(ctx, g, grant[0], grant[1]); err != nil {
+				return result(false, err.Error()), nil
+			}
 		}
 	}
 
@@ -160,7 +175,8 @@ var requiredAPIs = map[string]string{
 }
 
 // preflight checks the login, project, APIs and registry before anything
-// changes, and returns the service account the services run as.
+// changes, and returns the project's Compute Engine default service account,
+// which a service runs as when the spec names no other.
 func preflight(ctx context.Context, g gcloud, d *planData) (string, []adapter.Finding) {
 	var findings []adapter.Finding
 	add := func(level adapter.Level, code, message, hint string) {
@@ -182,10 +198,7 @@ func preflight(ctx context.Context, g gcloud, d *planData) (string, []adapter.Fi
 			"Use another account (`gcloud config set account`, or a configuration via spec.targets.gcp.configuration), or grant this one access to the project.")
 		return "", findings
 	}
-	runAs := d.opts.ServiceAccount
-	if runAs == "" {
-		runAs = number + "-compute@developer.gserviceaccount.com"
-	}
+	runAs := number + defaultAccountSuffix
 
 	enabled, err := g.probe(ctx, "services", "list", "--enabled", "--format", "value(config.name)")
 	if err != nil {
@@ -267,7 +280,7 @@ func ensureSecret(ctx context.Context, g gcloud, project string, sc secret) erro
 	return nil
 }
 
-// grantAccess lets the account the services run as read one secret. The
+// grantAccess lets the account a service runs as read one secret. The
 // binding is idempotent, so every apply can make sure it exists.
 func grantAccess(ctx context.Context, g gcloud, secretID, account string) error {
 	g.env.Logf("$ gcloud secrets add-iam-policy-binding %s (secretAccessor for %s)", secretID, account)

@@ -209,7 +209,7 @@ func TestPlanMemoryAndCPU(t *testing.T) {
 	}
 
 	for size, want := range map[string][2]string{
-		`"cpu": 0.5,`:                 {"GCP_FRACTIONAL_CPU", "Use cpu: 1."},
+		`"cpu": 0.5,`:                 {"GCP_FRACTIONAL_CPU", "Set spec.targets.gcp.services.web.concurrency to 1, or use cpu: 1."},
 		`"cpu": 3,`:                   {"GCP_CPU", ""},
 		`"cpu": 16,`:                  {"GCP_CPU", ""},
 		`"memory": "8GB",`:            {"GCP_MEMORY", "Set cpu: 2, or memory between 128MB and 4GB."},
@@ -684,7 +684,7 @@ func TestListFlag(t *testing.T) {
 }
 
 func TestTimeout(t *testing.T) {
-	for timeout, want := range map[string]string{"10m": "--timeout 600", "1h": "--timeout 3600", "1s": "--timeout 1", "1m30s": "--timeout 90", "": ""} {
+	for timeout, want := range map[string]string{"10m": "--timeout 600", "1h": "--timeout 3600", "1s": "--timeout 1", "1m30s": "--timeout 90"} {
 		s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx"}},
 			"targets": {"gcp": {"project": "my-project", "region": "us-central1", "timeout": "`+timeout+`"}}}`)
 		env, _ := newEnv(t, t.TempDir(), nil)
@@ -694,8 +694,160 @@ func TestTimeout(t *testing.T) {
 		}
 		data := p.Data.(*planData)
 		args := strings.Join(deployArgs(data, data.services[0], "nginx"), " ")
-		if want == "" && strings.Contains(args, "--timeout") || want != "" && !strings.Contains(args, want) {
+		if !strings.Contains(args, want) {
 			t.Errorf("timeout %q: deploy args %q", timeout, args)
+		}
+	}
+}
+
+// settings is a two-service spec with the given gcp options next to project
+// and region.
+func settings(options string) string {
+	return `{"name": "shop",
+		"services": {
+			"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}], "secrets": ["SESSION", "SHARED"]},
+			"render": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}], "memory": "4GB", "cpu": 2, "replicas": 2, "secrets": ["TTS_KEY", "SHARED"]}},
+		"secrets": {"SESSION": {}, "TTS_KEY": {}, "SHARED": {}},
+		"targets": {"gcp": {"project": "my-project", "region": "us-central1"` + options + `}}}`
+}
+
+// Every setting is passed on every deploy: the spec's value, or the word or
+// number that puts Cloud Run's default back.
+func TestPlanServiceSettings(t *testing.T) {
+	s := parse(t, settings(`, "timeout": "10m", "serviceAccount": "runner@my-project.iam.gserviceaccount.com",
+		"services": {"render": {"maxInstances": 3, "concurrency": 1, "timeout": "15m", "executionEnvironment": "gen2",
+			"serviceAccount": "render@my-project.iam.gserviceaccount.com"}}`))
+	env, _ := newEnv(t, t.TempDir(), nil)
+	p := plan(t, s, env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", p.Findings)
+	}
+	data := p.Data.(*planData)
+	want := map[string]string{
+		"render": "--min-instances 2 --max-instances 3 --concurrency 1 --timeout 900 --execution-environment gen2 --service-account render@my-project.iam.gserviceaccount.com",
+		"web":    "--min-instances default --max-instances default --concurrency default --timeout 600 --service-account runner@my-project.iam.gserviceaccount.com",
+	}
+	for _, sv := range data.services {
+		if args := strings.Join(deployArgs(data, sv, sv.image), " "); !strings.Contains(args, want[sv.name]) {
+			t.Errorf("%s: deploy args %q lack %q", sv.name, args, want[sv.name])
+		}
+	}
+
+	// Nothing set: Cloud Run's defaults, and no account until Apply knows
+	// the project's default one. The plan's copy of the command shows where
+	// it will go.
+	bare := plan(t, parse(t, settings(``)), env)
+	data = bare.Data.(*planData)
+	args := strings.Join(deployArgs(data, data.services[1], "nginx:1.27"), " ")
+	if !strings.Contains(args, "--min-instances default --max-instances default --concurrency default --timeout 300 --startup-probe") {
+		t.Errorf("deploy args %q don't reset the settings", args)
+	}
+	if strings.Contains(args, "--execution-environment") || strings.Contains(args, "--service-account") {
+		t.Errorf("deploy args %q name an environment or an account the spec doesn't", args)
+	}
+	i := slices.IndexFunc(bare.Files, func(f adapter.File) bool { return filepath.Base(f.Path) == "web.gcloud.txt" })
+	if i < 0 || !strings.Contains(string(bare.Files[i].Contents), "--service-account '<project number>-compute@developer.gserviceaccount.com'") {
+		t.Errorf("the plan's deploy command doesn't show the default account: %s", bare.Files)
+	}
+}
+
+func TestPlanFractionalCPU(t *testing.T) {
+	spec := func(options string) *spec.Spec {
+		return parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}], "cpu": 0.5, "memory": "1GB"}},
+			"targets": {"gcp": {"project": "my-project", "region": "us-central1", "services": {"web": `+options+`}}}}`)
+	}
+	env, _ := newEnv(t, t.TempDir(), nil)
+	p := plan(t, spec(`{"concurrency": 1}`), env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", p.Findings)
+	}
+	data := p.Data.(*planData)
+	args := strings.Join(deployArgs(data, data.services[0], "nginx:1.27"), " ")
+	if want := "--memory 1Gi --cpu 0.5"; !strings.Contains(args, want) {
+		t.Errorf("deploy args %q lack %q", args, want)
+	}
+	if want := "--concurrency 1 --timeout 300 --execution-environment gen1 --cpu-throttling"; !strings.Contains(args, want) {
+		t.Errorf("deploy args %q lack %q", args, want)
+	}
+
+	for options, want := range map[string]string{
+		`{}`:                 "GCP_FRACTIONAL_CPU",
+		`{"concurrency": 2}`: "GCP_FRACTIONAL_CPU",
+		`{"concurrency": 1, "executionEnvironment": "gen2"}`: "GCP_FRACTIONAL_CPU",
+	} {
+		if errs := codes(plan(t, spec(options), env), adapter.Error); !slices.Equal(errs, []string{want}) {
+			t.Errorf("%s: errors = %v, want %s", options, errs, want)
+		}
+	}
+	// Half a CPU carries at most 1GB, and a twentieth of one isn't offered.
+	for size, want := range map[string]string{`"cpu": 0.5, "memory": "2GB"`: "GCP_MEMORY", `"cpu": 0.25, "memory": "1GB"`: "GCP_MEMORY", `"cpu": 0.05`: "GCP_CPU"} {
+		s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}], `+size+`}},
+			"targets": {"gcp": {"project": "my-project", "region": "us-central1", "services": {"web": {"concurrency": 1}}}}}`)
+		if errs := codes(plan(t, s, env), adapter.Error); !slices.Equal(errs, []string{want}) {
+			t.Errorf("%s: errors = %v, want %s", size, errs, want)
+		}
+	}
+}
+
+func TestPlanRefusesBadServiceSettings(t *testing.T) {
+	env, _ := newEnv(t, t.TempDir(), nil)
+	for options, want := range map[string]string{
+		`{"web": {"maxInstances": -1}}`:               "services.web: maxInstances -1",
+		`{"web": {"concurrency": 1001}}`:              "services.web: concurrency 1001",
+		`{"web": {"timeout": "2h"}}`:                  `services.web: timeout "2h"`,
+		`{"web": {"timeout": 600}}`:                   "services.web.timeout",
+		`{"web": {"serviceAccount": "me@gmail.com"}}`: "services.web: serviceAccount",
+		`{"web": {"executionEnvironment": "gen3"}}`:   `services.web: executionEnvironment "gen3" is not gen1 or gen2`,
+		`{"web": {"maxInstance": 3}}`:                 "services.web.maxInstance",
+		`{"api": {"maxInstances": 3}}`:                `spec.targets.gcp.services.api: the spec has no service named "api" (it has render, web).`,
+		`{"render": {"maxInstances": 1}}`:             "maxInstances 1 is below replicas 2",
+		`{"web": {"executionEnvironment": "gen2"}}`:   "",
+	} {
+		p := plan(t, parse(t, settings(`, "services": `+options)), env)
+		var messages []string
+		for _, f := range p.Findings {
+			if f.Level == adapter.Error {
+				messages = append(messages, f.Message)
+			}
+		}
+		switch {
+		case want == "" && len(messages) > 0:
+			t.Errorf("%s: unexpected errors %q", options, messages)
+		case want != "" && !slices.ContainsFunc(messages, func(m string) bool { return strings.Contains(m, want) }):
+			t.Errorf("%s: errors %q lack %q", options, messages, want)
+		}
+	}
+
+	small := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27", "memory": "256MB"}},
+		"targets": {"gcp": {"project": "my-project", "region": "us-central1", "services": {"web": {"executionEnvironment": "gen2"}}}}}`)
+	if errs := codes(plan(t, small, env), adapter.Error); !slices.Equal(errs, []string{"GCP_MEMORY"}) {
+		t.Errorf("256MB on gen2: errors = %v, want GCP_MEMORY", errs)
+	}
+}
+
+// Each account is let into the secrets of the services that run as it, and
+// a service without an account of its own runs as the project's default one.
+func TestApplyGrantsSecretsPerAccount(t *testing.T) {
+	s := parse(t, settings(`, "services": {"render": {"serviceAccount": "render@my-project.iam.gserviceaccount.com"}}`))
+	env, fc := newEnv(t, t.TempDir(), map[string]string{"SESSION": "a", "TTS_KEY": "b", "SHARED": "c"})
+	res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+	if err != nil || !res.OK {
+		t.Fatalf("apply: %v %+v", err, res)
+	}
+	var grants []string
+	for _, c := range fc.calls {
+		if c.name == "gcloud" && len(c.args) > 3 && c.args[0] == "secrets" && c.args[1] == "add-iam-policy-binding" {
+			grants = append(grants, c.args[2]+" "+c.args[slices.Index(c.args, "--member")+1])
+		}
+	}
+	slices.Sort(grants)
+	const fallback, render = "serviceAccount:123456789-compute@developer.gserviceaccount.com", "serviceAccount:render@my-project.iam.gserviceaccount.com"
+	if want := []string{"shop-SESSION " + fallback, "shop-SHARED " + fallback, "shop-SHARED " + render, "shop-TTS_KEY " + render}; !slices.Equal(grants, want) {
+		t.Errorf("grants = %q, want %q", grants, want)
+	}
+	for service, account := range map[string]string{"shop-web": "123456789-compute@developer.gserviceaccount.com", "shop-render": "render@my-project.iam.gserviceaccount.com"} {
+		if deploy := fc.find("gcloud run deploy " + service); deploy == nil || !strings.Contains(deploy.line(), "--service-account "+account) {
+			t.Errorf("%s doesn't run as %s: %+v", service, account, deploy)
 		}
 	}
 }

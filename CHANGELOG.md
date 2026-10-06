@@ -14,6 +14,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `gcloud run services update` is replaced on the next `apply`. Before upgrading, read the current
   values (`gcloud run services describe <service> --format 'value(spec.template.spec.containers[0].resources.limits)'`)
   and put them in the spec as `memory` and `cpu`.
+- **`gcp`: the same goes for the other settings anyship knows.** Every deploy passes the minimum and
+  maximum instance count, concurrency, request timeout and service account, as the spec's value or
+  as Cloud Run's default. `targets.gcp.timeout` no longer keeps the service's timeout when it is
+  left out: the service goes back to 5 minutes. Lowering `replicas` to 1 now takes the minimum
+  instance count off the service, which it didn't before. Put values you set by hand under
+  `targets.gcp.services.<name>` before upgrading.
 
 ### Added
 
@@ -21,6 +27,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   on any target. `gcp` sizes the Cloud Run instance and refuses a pair Cloud Run doesn't offer,
   `aws` sizes the task (the service's values win over `targets.aws.cpu` and `memory`), `vps` limits
   the container, and `cloudflare` warns that Workers can't be sized.
+- `gcp`: `targets.gcp.services.<name>` holds the Cloud Run settings of one service: `maxInstances`,
+  `concurrency`, `timeout`, `serviceAccount` and `executionEnvironment`. With `concurrency: 1` a
+  service can run on less than one `cpu`.
+
+### Changed
+
+- `gcp`: each service account is let into the secrets of the services that run as it, not into
+  every secret of the spec.
 
 ### Fixed
 
