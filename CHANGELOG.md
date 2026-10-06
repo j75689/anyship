@@ -37,6 +37,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   inspected, and the error points at the `detect` tool instead of a shell command.
 - `init` and `detect` at the root of a repository with several apps name the subdirectories that
   look like projects, instead of suggesting a Dockerfile.
+- MCP: messages name tools rather than shell commands ("has it been deployed with the apply tool?"
+  where the CLI says `anyship apply -t vps`), since an agent may have no shell. Read-only tools are
+  now listed as idempotent; the hint was sent as false.
 
 ## [0.3.0] - 2026-10-06
 
