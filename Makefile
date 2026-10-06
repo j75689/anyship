@@ -8,7 +8,7 @@ GORELEASER    ?= goreleaser
 # The platforms release archives are built for (.goreleaser.yaml).
 PLATFORMS     := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
-.PHONY: help check build build-all test vet fmt fmt-check lint tidy-check schema test-images e2e-vps snapshot clean
+.PHONY: help check build build-all test vet fmt fmt-check lint tidy-check schema test-images e2e-vps snapshot release-notes clean
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z0-9-]+:.*## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -54,6 +54,9 @@ e2e-vps: build ## Deploy a sample app to localhost over ssh and remove it (needs
 
 snapshot: ## Build every release archive into dist/ without publishing
 	$(GORELEASER) release --snapshot --clean
+
+release-notes: ## Print the release notes for VERSION from CHANGELOG.md (make release-notes VERSION=0.3.0)
+	@ALLOW_UNRELEASED=1 scripts/release-notes.sh $(VERSION)
 
 clean: ## Remove build output
 	rm -f $(BIN)

@@ -92,6 +92,12 @@ jobs:
         with:
           version: "~> v2"
           args: release --snapshot --clean
+      # The release workflow publishes these as the release notes; a section
+      # the script can't read should fail here, not after a tag is pushed.
+      - name: Release notes can be read from CHANGELOG.md
+        run: |
+          latest=$(sed -n 's/^## \[\([^]]*\)\].*/\1/p' CHANGELOG.md | head -n 1)
+          ALLOW_UNRELEASED=1 scripts/release-notes.sh "$latest"
       - name: List the archives
         run: ls -l dist/*.tar.gz dist/*.zip dist/checksums.txt
       - name: Install from the snapshot with install.sh

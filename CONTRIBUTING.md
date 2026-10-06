@@ -65,22 +65,28 @@ The spec is the contract between detection and every adapter, so changes need ca
 
 ## Releasing
 
-Before tagging, give the release its section in [CHANGELOG.md](CHANGELOG.md): the version, the date,
-and a `⚠ BREAKING CHANGES` block for anything that breaks an existing spec, with a link to the
-migration steps.
+The release notes are the version's section in [CHANGELOG.md](CHANGELOG.md), so that section is
+written first, in a pull request:
 
-Releases are cut by pushing a version tag on `main`:
+1. Give the release its section: `## [0.3.0] - 2026-10-06`, with a `⚠ BREAKING CHANGES` block for
+   anything that breaks an existing spec and the steps to move across. `make release-notes
+   VERSION=0.3.0` prints what will be published.
+2. Update the links at the bottom of the file: the new version compares the previous tag with its
+   own.
+3. After the pull request is merged, tag that commit on `main` and push the tag:
 
 ```bash
-git tag -a v0.2.0 -m "v0.2.0"
-git push origin v0.2.0
+git tag -a v0.3.0 -m "v0.3.0"
+git push origin v0.3.0
 ```
 
-The `Release` workflow runs the tests, then GoReleaser builds the archives for every OS and CPU,
-writes `checksums.txt`, groups the changelog by commit type, and publishes the GitHub release. Tags
-with a suffix such as `v1.0.0-rc.1` become pre-releases. Every pull request already builds the same
-archives in snapshot mode and installs one with `install.sh`, so a broken release config fails CI
-before anything is tagged.
+The `Release` workflow refuses a tag that is not on `main` or has no dated changelog section, runs
+the tests, then GoReleaser builds the archives for every OS and CPU, writes `checksums.txt`, and
+publishes the GitHub release with the changelog section as its notes. Tags with a suffix such as
+`v1.0.0-rc.1` become pre-releases. Release tags can't be moved or deleted once pushed, so check the
+commit before you push one. Every pull request already builds the same archives in snapshot mode,
+installs one with `install.sh` and reads the latest changelog section, so a broken release config
+fails CI before anything is tagged.
 
 ## Commit style
 

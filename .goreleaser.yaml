@@ -38,20 +38,9 @@ checksum:
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 
-changelog:
-  sort: asc
-  groups:
-    - title: Features
-      regexp: '^.*?feat(\(.+\))??!?:.+$'
-      order: 0
-    - title: Bug fixes
-      regexp: '^.*?fix(\(.+\))??!?:.+$'
-      order: 1
-    - title: Other changes
-      order: 999
-  filters:
-    exclude:
-      - '^.*?(docs|test|ci|chore|style)(\(.+\))??!?:.+$'
+# Release notes come from CHANGELOG.md: the Release workflow extracts the
+# version's section with scripts/release-notes.sh and passes it with
+# --release-notes. Don't set changelog.disable, which would discard it.
 
 release:
   # Tags like v1.0.0-rc.1 become pre-releases.

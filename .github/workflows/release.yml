@@ -13,15 +13,21 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # the changelog needs the history since the last tag
+          fetch-depth: 0 # GoReleaser reads the tags, and the check below needs main
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Release only what is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      # Fails before anything is built if CHANGELOG.md has no dated section
+      # for this tag.
+      - name: Release notes from CHANGELOG.md
+        run: scripts/release-notes.sh "$GITHUB_REF_NAME" | tee "$RUNNER_TEMP/release-notes.md"
       - name: Test before publishing
-        run: go test ./...
+        run: make test
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-notes ${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
