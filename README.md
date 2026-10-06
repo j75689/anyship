@@ -144,20 +144,6 @@ autocomplete against [`schema/anyship.schema.json`](schema/anyship.schema.json) 
 comment, which `anyship init` writes (`anyship schema` prints the schema). `anyship validate` also checks cross-references, such as a service
 using a resource that isn't declared, and rejects unknown fields so typos don't go unnoticed.
 
-Coming from v0.2, where the spec was `anyship.json`? Only the envelope changed; everything under
-`services`, `resources`, `secrets` and `targets` is the same, so `anyship migrate` converts the file
-for you:
-
-```bash
-anyship migrate            # anyship.json -> anyship.yaml
-anyship migrate --dry-run  # print it instead of writing it
-```
-
-It writes the envelope, keeps the rest as it is, validates the result, and refuses — with the field's
-path and a suggestion — anything it doesn't recognize rather than dropping it. Your `anyship.json`
-stays where it is until you delete it. [docs/MIGRATION.md](docs/MIGRATION.md) has the field-by-field
-mapping and complete before/after examples.
-
 ### Domains
 
 `services.<name>.domains` names the hosts a service answers on, in one place for every target:
@@ -196,147 +182,16 @@ domains than the spec asks for. Remove `targets.cloudflare.domains` to use the s
 
 | Target | Since | Run against the real platform | Runs |
 |---|---|---|---|
-| `cloudflare` | v0.1 | not since the v0.3 manifest change ([#28](https://github.com/j75689/anyship/issues/28)) | Workers (edge handlers) and static assets; D1, KV, R2, Hyperdrive bindings; cron triggers; custom domains |
-| `vps` | v0.2 | ✅ on every pull request, in CI | any Linux server with Docker, over SSH: images or Dockerfiles, multi-service, volumes, TCP/UDP ports, secrets |
-| `gcp` | v0.3 | ✅ by hand, on a real project | Google Cloud Run: images or Dockerfiles (built locally, pushed to Artifact Registry), HTTP services, secrets in Secret Manager |
-| `aws` | v0.3 | ⚠ not yet; tested with a fake `aws` CLI ([#26](https://github.com/j75689/anyship/issues/26)) | Amazon ECS Express Mode: images or Dockerfiles (built locally, pushed to ECR), HTTP services with a managed load balancer and HTTPS URL, secrets in Secrets Manager |
+| [`cloudflare`](docs/targets/cloudflare.md) | v0.1 | not since the v0.3 manifest change ([#28](https://github.com/j75689/anyship/issues/28)) | Workers (edge handlers) and static assets; D1, KV, R2, Hyperdrive bindings; cron triggers; custom domains |
+| [`vps`](docs/targets/vps.md) | v0.2 | ✅ on every pull request, in CI | any Linux server with Docker, over SSH: images or Dockerfiles, multi-service, volumes, TCP/UDP ports, secrets |
+| [`gcp`](docs/targets/gcp.md) | v0.3 | ✅ by hand, on a real project | Google Cloud Run: images or Dockerfiles (built locally, pushed to Artifact Registry), HTTP services, secrets in Secret Manager |
+| [`aws`](docs/targets/aws.md) | v0.3 | ⚠ not yet; tested with a fake `aws` CLI ([#26](https://github.com/j75689/anyship/issues/26)) | Amazon ECS Express Mode: images or Dockerfiles (built locally, pushed to ECR), HTTP services with a managed load balancer and HTTPS URL, secrets in Secrets Manager |
 | `fly` | planned | | containers, volumes, Postgres |
 | `vercel` | planned | | static and serverless |
 | Cloudflare Containers | planned | | container images on Cloudflare |
 
-### Cloudflare notes
-
-- A spec maps to **one Worker**. Multi-service specs, container images, volumes and non-HTTP ports are
-  rejected with a reason and a suggested alternative.
-- `init` scans your code for Node-only APIs (`child_process`, native modules, ...) and marks the
-  service `edgeCompatible: false`, so `plan` explains why it can't run on Workers before you deploy.
-- D1, KV and Hyperdrive need existing resource ids. `plan` prints the `wrangler ... create` command
-  to run and where to put the id. R2 buckets are addressed by name.
-- `services.<name>.domains` become custom-domain routes in the generated `wrangler.jsonc`. The zone
-  must already be on your Cloudflare account; Cloudflare issues the certificate.
-  `targets.cloudflare.domains` overrides the service's list (see [Domains](#domains)).
-- Next.js needs `@opennextjs/cloudflare`; anyship doesn't drive it yet.
-
-### VPS notes
-
-```yaml
-spec:
-  targets:
-    vps:
-      host: deploy@203.0.113.10        # ssh destination or ~/.ssh/config alias
-      port: 22                         # optional
-      identityFile: ~/.ssh/id_ed25519  # optional
-      dir: anyship/my-app              # optional; relative to the login user's home
-      sudo: false                      # run docker via `sudo -n`
-```
-
-- The spec becomes a Docker Compose project (`.anyship/vps/compose.yaml`, kept locally for review).
-  `apply` uploads it with the build context of every service that builds from source over `ssh`,
-  then runs `docker compose up -d --build` on the host. The host needs Docker with the Compose plugin.
-- Services without `image` or `dockerfile` are built from a generated Dockerfile
-  (`.anyship/vps/<service>.Dockerfile`). Static sites are served by nginx on their public ports, or
-  on port 80.
-- anyship uses your system `ssh`, so `~/.ssh/config`, the agent, jump hosts and known_hosts checks
-  all apply. It runs in batch mode: an unknown host key or a password prompt fails instead of
-  hanging, so connect once with `ssh` first.
-- `public` ports are published on the host (`tcp+udp` publishes both); `internal` ports are only
-  reachable by other services, by service name.
-- `start` runs as the container's command, exactly as written and without a shell; wrap it in
-  `sh -c '...'` if you need pipes or variables.
-- Secrets are mounted at `/run/secrets/<NAME>`. `generate: "hex32"` secrets are created on the host
-  on first deploy and kept; others come from the same-named environment variable at `apply` time,
-  or stay as set by a previous deploy.
-- Every `apply` first runs preflight checks over ssh, and `apply --dry-run` stops after them:
-  Docker Compose on the host must accept the generated `compose.yaml` (validated in a temporary
-  directory that is removed afterwards), the host's architecture is reported (with a warning on
-  arm64 for image-based services), free disk space is compared with the declared volume sizes, and
-  published ports must be free unless the project is already running there. Nothing is uploaded or
-  started until the checks pass.
-- Not yet: cron, provisioning databases (declare them as services instead), `domains` and HTTPS
-  (`VPS_DOMAIN_UNSUPPORTED`; put your own reverse proxy in front of the published ports for now), and
-  generated Dockerfiles for languages other than JavaScript, Go, Python and Rust. `plan` explains
-  each refusal.
-
-### Google Cloud notes
-
-```yaml
-spec:
-  targets:
-    gcp:
-      project: my-project   # Google Cloud project id
-      region: us-central1
-      repository: apps      # existing Artifact Registry Docker repository; needed to build from source
-      private: false        # true: public services require authentication
-      configuration: work   # optional gcloud configuration (account + project); the active one by default
-      serviceAccount: runner@my-project.iam.gserviceaccount.com # optional; default: Compute Engine default account
-```
-
-- anyship drives your installed `gcloud` with its current login, and `docker buildx` for builds. It
-  creates nothing outside Cloud Run and Secret Manager: create the Artifact Registry repository once
-  (`gcloud artifacts repositories create apps --repository-format docker --location us-central1`).
-- Each service becomes the Cloud Run service `<spec name>-<service>`, labeled
-  `anyship-project=<spec name>`; `status`, `logs` and `destroy` find it by that label, with no local state.
-- Services that build from source are built for `linux/amd64`, pushed, and deployed by digest, so a
-  deploy runs exactly the image it built. Generated Dockerfiles are kept in `.anyship/gcp/` for review.
-- Every `apply` first checks the login, the project, the required APIs (`run`, `artifactregistry`,
-  `secretmanager`) and the repository; `apply --dry-run` stops after the checks. Errors name the
-  gcloud account in use, which matters when you have several (`gcloud auth list`).
-- Secrets live in Secret Manager as `<spec name>-<NAME>` and reach the container as environment
-  variables. A value in the deployer's environment adds a new version; `generate: "hex32"` secrets
-  are created once and kept. Each apply lets the account the services run as read those secrets, and
-  only those (`roles/secretmanager.secretAccessor` on each secret). `destroy --volumes` deletes them;
-  images stay in the registry.
-- One HTTP port per service (default 8080, also passed as `$PORT`); `internal` ports use internal
-  ingress. `replicas` sets the minimum instance count. Services reach each other by URL, not by name.
-- Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports, `domains`
-  (`GCP_DOMAIN_UNSUPPORTED`; map them with `gcloud beta run domain-mappings` or a load balancer) and
-  resources anyship would have to provision. `logs -f` points to `gcloud beta run services logs tail`.
-
-### AWS notes
-
-```yaml
-spec:
-  targets:
-    aws:
-      region: us-east-1
-      profile: work                 # optional aws CLI profile
-      cluster: default              # existing ECS cluster
-      repository: apps              # existing ECR repository; needed to build from source
-      executionRole: ecsTaskExecutionRole                       # name or ARN (default shown)
-      infrastructureRole: ecsInfrastructureRoleForExpressServices # name or ARN (default shown)
-      taskRole: my-app-role         # optional, for the app's own AWS access
-      subnets: [subnet-0abc]        # optional; default: the default VPC's public subnets
-      securityGroups: [sg-0abc]     # optional, with subnets
-      cpu: "1024"                   # optional, per task
-      memory: "2048"
-      maxTasks: 4                   # autoscaling ceiling (at least replicas)
-```
-
-- anyship drives your installed `aws` CLI (v2, with ECS Express Mode support) with its current login,
-  and `docker buildx` for builds. App Runner no longer takes new customers, so services run on
-  [ECS Express Mode](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-overview.html),
-  which provisions the load balancer, HTTPS URL (`<service>.ecs.<region>.on.aws`) and autoscaling.
-- Create once per account and region: the cluster, the ECR repository and the two IAM roles from
-  AWS's [Express Mode guide](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-getting-started.html).
-  `apply` checks them first and prints the commands for anything missing; `apply --dry-run` stops after the checks.
-- Each service becomes the Express Mode service `<spec name>-<service>`, tagged
-  `anyship-project=<spec name>`; `status`, `logs` and `destroy` find it by name, with no local state.
-  Built images are tagged with the service name in the repository and deployed by digest.
-- Secrets live in Secrets Manager as `anyship/<spec name>/<NAME>` and reach the container as environment
-  variables. The execution role needs `secretsmanager:GetSecretValue` on them (`plan` warns). Values are
-  handed to the aws CLI through a private temporary file, never on the command line.
-- The load balancer checks `healthCheck.path`, or `/`, for HTTP 200. One HTTP port per service
-  (default 80); `internal` ports need private `subnets`. `replicas` is the minimum task count.
-- `logs` uses `aws logs tail`, so `-f` works for one service at a time; it selects by `--since`, not `-n`.
-- `destroy` deletes the services with their load balancers; the cluster, roles, images and log groups
-  stay. `destroy --volumes` also deletes the secrets without a recovery window.
-- Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports, `domains`
-  (`AWS_DOMAIN_UNSUPPORTED`; point a CNAME at the `on.aws` URL, or add your own ACM certificate and
-  listener rule) and resources anyship would have to provision.
-- This target has not been run against a real AWS account yet. Express Mode provisions a load
-  balancer that bills whether or not it serves traffic, so read
-  [docs/verified/aws.md](docs/verified/aws.md) — the runbook and residual-resource checklist — before
-  you point it at an account you pay for.
+Each target's page, linked from its name, lists the options it takes, how it deploys and what it
+refuses.
 
 ## Logs
 
@@ -449,9 +304,6 @@ possible, and deleting data needs `confirm_project` set to the spec's name. Tool
 destructive hints so hosts can ask you before risky calls. Output from ssh, wrangler and builds is
 returned in the tool result; nothing else touches the protocol's stdin and stdout.
 
-[docs/verified/mcp.md](docs/verified/mcp.md) records a full run from Claude Code, including where an
-agent gets stuck.
-
 ## Examples
 
 - [`examples/hono-worker`](examples/hono-worker): a Hono app that deploys to Cloudflare Workers.
@@ -462,13 +314,14 @@ agent gets stuck.
 ## Roadmap
 
 - **v0.2** ✅ `vps` adapter, MCP server, release binaries and `install.sh`.
-- **v0.3** ✅ YAML manifest (`anyship.yaml`) and `migrate`, Google Cloud Run and AWS (ECS Express
-  Mode) adapters, `domains` on services, `diagnose` for failed deploys with validated spec fixes
-  (experimental, bring your own key).
+- **v0.3** ✅ YAML manifest (`anyship.yaml`), Google Cloud Run and AWS (ECS Express Mode) adapters,
+  `domains` on services, `diagnose` for failed deploys with validated spec fixes (experimental, bring
+  your own key).
 - **Next** run every target against the real platform
   ([#26](https://github.com/j75689/anyship/issues/26),
   [#27](https://github.com/j75689/anyship/issues/27),
-  [#28](https://github.com/j75689/anyship/issues/28)); domains and HTTPS on `vps`
+  [#28](https://github.com/j75689/anyship/issues/28),
+  [#49](https://github.com/j75689/anyship/issues/49)); domains and HTTPS on `vps`
   ([#29](https://github.com/j75689/anyship/issues/29)); cron on Cloud Run
   ([#36](https://github.com/j75689/anyship/issues/36)); `init --ai` to draft specs for unrecognized
   stacks ([#30](https://github.com/j75689/anyship/issues/30)) and an AI review before deploying
@@ -479,36 +332,15 @@ agent gets stuck.
   state.
 - **Later** community adapters (Railway), recipes with parameters (e.g. N-node RPC clusters).
 
-## Project layout
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system map and the flows.
-
-```
-cmd/anyship/           main package
-spec/                  anyship.yaml types, validation, JSON Schema
-adapter/               adapter contract and registry
-adapters/cloudflare/   Cloudflare Workers adapter
-adapters/vps/          Docker Compose over SSH adapter
-adapters/gcp/          Google Cloud Run adapter
-adapters/aws/          Amazon ECS Express Mode adapter
-image/                 docker buildx build --push, by digest
-detect/                rule-based project detection (one file per language)
-dockerfile/            Dockerfile generation for services that have none
-internal/cli/          the `anyship` command (cobra)
-examples/              sample specs
-schema/                generated JSON Schema
-```
-
 ## Releases
 
 [CHANGELOG.md](CHANGELOG.md) lists what changed in each version, including breaking changes.
-[docs/MIGRATION.md](docs/MIGRATION.md) covers the move from v0.2 (`anyship.json`) to v0.3
-(`anyship.yaml`).
 
 ## Contributing
 
 Adapters are the easiest way to help. See [CONTRIBUTING.md](CONTRIBUTING.md) and the
-[code of conduct](CODE_OF_CONDUCT.md).
+[code of conduct](CODE_OF_CONDUCT.md); [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the system
+map, the packages and the main flows.
 
 Found a security problem? Report it privately; [SECURITY.md](SECURITY.md) says how.
 
