@@ -13,6 +13,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -310,11 +311,21 @@ func Parse(data []byte) (*Spec, error) {
 	if err != nil {
 		return nil, fmt.Errorf("not a valid spec: %w", err)
 	}
+	// Wrong shapes and unknown fields are reported by path, all at once. The
+	// strict decoder below would refuse the same documents, but only says
+	// "cannot unmarshal array into Go struct field Manifest.spec.secrets".
+	if found := yamljson.Check(js, reflect.TypeFor[Manifest]()); len(found) > 0 {
+		problems := make([]string, len(found))
+		for i, problem := range found {
+			problems[i] = problem.String()
+		}
+		return nil, &ValidationError{Problems: problems}
+	}
 	dec := json.NewDecoder(bytes.NewReader(js))
 	dec.DisallowUnknownFields()
 	var m Manifest
 	if err := dec.Decode(&m); err != nil {
-		return nil, fmt.Errorf("not a valid spec: %w", err)
+		return nil, fmt.Errorf("not a valid spec: %s", strings.TrimPrefix(err.Error(), "json: "))
 	}
 	var p problems
 	if m.APIVersion != APIVersion {
