@@ -207,6 +207,12 @@ func TestPlanOptions(t *testing.T) {
 		"bad project":   `{"gcp": {"project": "X", "region": "us-central1"}}`,
 		"bad region":    `{"gcp": {"project": "my-project", "region": "central"}}`,
 		"unknown field": `{"gcp": {"project": "my-project", "region": "us-central1", "zone": "a"}}`,
+		"bad timeout":   `{"gcp": {"project": "my-project", "region": "us-central1", "timeout": "10"}}`,
+		"long timeout":  `{"gcp": {"project": "my-project", "region": "us-central1", "timeout": "2h"}}`,
+		"part seconds":  `{"gcp": {"project": "my-project", "region": "us-central1", "timeout": "1.5s"}}`,
+		"zero timeout":  `{"gcp": {"project": "my-project", "region": "us-central1", "timeout": "0s"}}`,
+		"negative":      `{"gcp": {"project": "my-project", "region": "us-central1", "timeout": "-5m"}}`,
+		"over an hour":  `{"gcp": {"project": "my-project", "region": "us-central1", "timeout": "1h1s"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx"}}, "targets": `+targets+`}`)
@@ -478,5 +484,30 @@ func TestListFlag(t *testing.T) {
 		if got := listFlag(tc.in); got != tc.want {
 			t.Errorf("listFlag(%v) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestTimeout(t *testing.T) {
+	for timeout, want := range map[string]string{"10m": "--timeout 600", "1h": "--timeout 3600", "1s": "--timeout 1", "1m30s": "--timeout 90", "": ""} {
+		s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx"}},
+			"targets": {"gcp": {"project": "my-project", "region": "us-central1", "timeout": "`+timeout+`"}}}`)
+		env, _ := newEnv(t, t.TempDir(), nil)
+		p := plan(t, s, env)
+		if errs := codes(p, adapter.Error); len(errs) > 0 {
+			t.Fatalf("timeout %q: errors %v", timeout, errs)
+		}
+		data := p.Data.(*planData)
+		args := strings.Join(deployArgs(data, data.services[0], "nginx"), " ")
+		if want == "" && strings.Contains(args, "--timeout") || want != "" && !strings.Contains(args, want) {
+			t.Errorf("timeout %q: deploy args %q", timeout, args)
+		}
+	}
+}
+
+// gcloud takes a bare number of seconds, so people will write one.
+func TestTimeoutNeedsAUnit(t *testing.T) {
+	_, err := decodeOptions([]byte(`{"project": "my-project", "region": "us-central1", "timeout": 600}`))
+	if err == nil || !strings.Contains(err.Error(), "needs a unit") {
+		t.Errorf("error = %v, want it to ask for a unit", err)
 	}
 }

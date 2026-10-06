@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `gcp`: `targets.gcp.timeout` sets Cloud Run's request timeout (for example `10m`, up to `1h`)
+  for every service; without it a deploy keeps the current one.
+
 ## [0.3.0] - 2026-10-06
 
 ### ⚠ BREAKING CHANGES
@@ -81,5 +88,6 @@ The first tagged release. It covers everything built up to that point.
   deploy it.
 - Release binaries built with GoReleaser, and `install.sh`, which verifies checksums.
 
+[Unreleased]: https://github.com/j75689/anyship/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/j75689/anyship/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/j75689/anyship/releases/tag/v0.2.0
