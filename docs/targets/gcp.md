@@ -12,6 +12,7 @@ spec:
       private: false        # true: public services require authentication
       configuration: work   # optional gcloud configuration (account + project); the active one by default
       serviceAccount: runner@my-project.iam.gserviceaccount.com # optional; default: Compute Engine default account
+      timeout: 10m          # optional request timeout, up to 1h; default: keep the service's (5m when new)
 ```
 
 - anyship drives your installed `gcloud` with its current login, and `docker buildx` for builds. It
@@ -31,6 +32,8 @@ spec:
   images stay in the registry.
 - One HTTP port per service (default 8080, also passed as `$PORT`); `internal` ports use internal
   ingress. `replicas` sets the minimum instance count. Services reach each other by URL, not by name.
+- `timeout` applies to every service of the spec. Without it, a deploy leaves the timeout as it is,
+  so one set by hand survives; set it in the spec to keep it in one place.
 - Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports, `domains`
   (`GCP_DOMAIN_UNSUPPORTED`; map them with `gcloud beta run domain-mappings` or a load balancer) and
   resources anyship would have to provision. `logs -f` points to `gcloud beta run services logs tail`.

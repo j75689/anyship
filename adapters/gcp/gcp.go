@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/j75689/anyship/adapter"
 	"github.com/j75689/anyship/dockerfile"
@@ -51,6 +52,19 @@ type Options struct {
 	// ServiceAccount is the email of the account services run as; the
 	// project's Compute Engine default service account when empty.
 	ServiceAccount string `json:"serviceAccount,omitempty"`
+	// Timeout is how long a request may take, such as "10m", up to an hour.
+	// When empty a deploy keeps the service's current timeout (5 minutes
+	// for a new service).
+	Timeout string `json:"timeout,omitempty"`
+}
+
+// maxTimeout is Cloud Run's longest request timeout.
+const maxTimeout = time.Hour
+
+// timeoutSeconds is Timeout in seconds; decodeOptions has checked it.
+func (o Options) timeoutSeconds() int {
+	d, _ := time.ParseDuration(o.Timeout)
+	return int(d / time.Second)
 }
 
 var (
@@ -343,6 +357,9 @@ func deployArgs(d *planData, sv service, image string) []string {
 	if o.ServiceAccount != "" {
 		args = append(args, "--service-account", o.ServiceAccount)
 	}
+	if o.Timeout != "" {
+		args = append(args, "--timeout", strconv.Itoa(o.timeoutSeconds()))
+	}
 	return append(args, "--quiet")
 }
 
@@ -376,6 +393,12 @@ func decodeOptions(raw json.RawMessage) (*Options, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(opts); err != nil {
+		// gcloud's own --timeout takes a bare number of seconds, so people
+		// will write one here.
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) && typeErr.Field == "timeout" {
+			return nil, errors.New(`timeout needs a unit: write a duration such as "600s" or "10m", not a bare number`)
+		}
 		return nil, err
 	}
 	switch {
@@ -389,6 +412,12 @@ func decodeOptions(raw json.RawMessage) (*Options, error) {
 		return nil, fmt.Errorf("configuration %q is not a valid gcloud configuration name", opts.Configuration)
 	case opts.ServiceAccount != "" && !accountRe.MatchString(opts.ServiceAccount):
 		return nil, fmt.Errorf("serviceAccount %q is not a service account email", opts.ServiceAccount)
+	}
+	if opts.Timeout != "" {
+		d, err := time.ParseDuration(opts.Timeout)
+		if err != nil || d < time.Second || d > maxTimeout || d%time.Second != 0 {
+			return nil, fmt.Errorf("timeout %q is not a whole number of seconds between 1s and 1h, such as \"10m\"", opts.Timeout)
+		}
 	}
 	return opts, nil
 }
