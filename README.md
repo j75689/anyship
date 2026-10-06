@@ -313,24 +313,11 @@ returned in the tool result; nothing else touches the protocol's stdin and stdou
 
 ## Roadmap
 
-- **v0.2** ✅ `vps` adapter, MCP server, release binaries and `install.sh`.
-- **v0.3** ✅ YAML manifest (`anyship.yaml`), Google Cloud Run and AWS (ECS Express Mode) adapters,
-  `domains` on services, `diagnose` for failed deploys with validated spec fixes (experimental, bring
-  your own key).
-- **Next** run every target against the real platform
-  ([#26](https://github.com/j75689/anyship/issues/26),
-  [#27](https://github.com/j75689/anyship/issues/27),
-  [#28](https://github.com/j75689/anyship/issues/28),
-  [#49](https://github.com/j75689/anyship/issues/49)); domains and HTTPS on `vps`
-  ([#29](https://github.com/j75689/anyship/issues/29)); cron on Cloud Run
-  ([#36](https://github.com/j75689/anyship/issues/36)); `init --ai` to draft specs for unrecognized
-  stacks ([#30](https://github.com/j75689/anyship/issues/30)) and an AI review before deploying
-  ([#31](https://github.com/j75689/anyship/issues/31)).
-- **After that** Cloudflare Containers, Fly.io and Vercel adapters
-  ([#32](https://github.com/j75689/anyship/issues/32)), and creating app-scoped resources (such as a
-  D1 database) during `apply` when missing, found by name on the platform rather than tracked in
-  state.
-- **Later** community adapters (Railway), recipes with parameters (e.g. N-node RPC clusters).
+The roadmap is the issue list, so it can't fall behind the work:
+
+- [`enhancement`](https://github.com/j75689/anyship/labels/enhancement) issues are what comes next.
+- [`verification`](https://github.com/j75689/anyship/labels/verification) issues are the targets and
+  features that still need a run against the real platform.
 
 ## Releases
 
