@@ -8,26 +8,41 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request replaces the run for the older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The lint, test and build jobs run Makefile targets, so `make check` on a
+# laptop checks the same things.
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - name: gofmt
-        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
-      - run: go vet ./...
-      - run: go test -race ./...
+      - run: make fmt-check
+      - run: make vet
+      - run: make tidy-check
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.12
 
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make test
+
   # Releases ship Windows binaries, so the unit tests must pass on Windows,
   # where the path separator is a backslash. The docker and ssh end-to-end
   # tests stay on Linux; they skip themselves here.
-  check-windows:
+  test-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -36,6 +51,20 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go test ./...
+
+  # Builds the binary and runs it, then compiles every package for each
+  # platform a release ships, so a build break shows up in a minute instead
+  # of at the end of release-snapshot.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make build
+      - run: ./anyship --version && ./anyship targets
+      - run: make build-all
 
   # Builds and runs an image for every app under dockerfile/testdata/apps:
   # detect → generate Dockerfile → docker build → docker run → HTTP 200.
@@ -46,9 +75,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - run: go test ./dockerfile -run TestGeneratedImagesServeHTTP -v -timeout 30m
-        env:
-          ANYSHIP_DOCKER_TESTS: "1"
+      - run: make test-images
 
   # Builds every release archive without publishing, then installs from them
   # with install.sh, the way users will, including a tampered archive.
@@ -105,5 +132,4 @@ jobs:
           cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
           ssh-keyscan -H localhost >> ~/.ssh/known_hosts
           ssh -o BatchMode=yes localhost 'docker version --format "docker {{.Server.Version}}"'
-      - run: go build -o anyship ./cmd/anyship
-      - run: ANYSHIP=./anyship scripts/e2e-vps.sh
+      - run: make e2e-vps
