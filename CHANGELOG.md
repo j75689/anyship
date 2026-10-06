@@ -18,6 +18,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `AWS_MUTABLE_TAG`). Such a tag can resolve to a stale image behind a caching registry while the
   deploy reports success.
 
+### Changed
+
+- Built with Go 1.27. Building from source needs Go 1.27 or newer; an older `go` downloads it on its
+  own.
+
 ### Fixed
 
 - `aws`: `destroy` no longer answers "Nothing to remove" while a service from an earlier destroy is
