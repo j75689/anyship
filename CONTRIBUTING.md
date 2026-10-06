@@ -65,11 +65,12 @@ The spec is the contract between detection and every adapter, so changes need ca
 
 ## Releasing
 
-The release notes are the version's section in [CHANGELOG.md](CHANGELOG.md), so that section is
-written first, in a pull request:
+A pull request that changes what users see adds a line under `## [Unreleased]` at the top of
+[CHANGELOG.md](CHANGELOG.md), creating the section if the last release closed it. The release notes
+are that section, so it is finished first, in a pull request of its own:
 
-1. Give the release its section: `## [0.3.0] - 2026-10-06`, with a `⚠ BREAKING CHANGES` block for
-   anything that breaks an existing spec and the steps to move across. `make release-notes
+1. Rename `## [Unreleased]` to the release: `## [0.3.0] - 2026-10-06`, with a `⚠ BREAKING CHANGES`
+   block for anything that breaks an existing spec and the steps to move across. `make release-notes
    VERSION=0.3.0` prints what will be published.
 2. Update the links at the bottom of the file: the new version compares the previous tag with its
    own.
