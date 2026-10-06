@@ -545,7 +545,9 @@ func TestPlanImageRegistry(t *testing.T) {
 		"asia.gcr.io/my-project/shop:v2":            true,
 		"us-docker.pkg.dev/my-project/apps/shop:v2": true,
 		"us-central1-docker.pkg.dev/my-project/ghcr/acme/shop" + digest: true,
-		"ghcr.io/acme/shop" + digest:                                    false,
+		"index.docker.io/library/nginx:1.27":                            true,
+		"ghcr.io/acme/shop" + digest:                                    true,
+		"registry.hub.docker.com/library/nginx:1.27":                    false,
 		"quay.io/acme/shop:v2":                                          false,
 		"public.ecr.aws/acme/shop:v2":                                   false,
 		"registry.example.com:5000/shop:v2":                             false,
@@ -560,18 +562,21 @@ func TestPlanImageRegistry(t *testing.T) {
 		}
 	}
 
-	s := parse(t, `{"name": "shop",
-		"services": {"web": {"kind": "server", "image": "ghcr.io/acme/shop:v2", "ports": [{"port": 80}]}}, `+target+`}`)
-	env, _ := newEnv(t, t.TempDir(), nil)
-	for _, f := range plan(t, s, env).Findings {
-		if f.Code == "GCP_UNPULLABLE_IMAGE" {
-			if want := "us-central1-docker.pkg.dev/my-project/<remote repository>/acme/shop:v2"; !strings.Contains(f.Hint, want) {
-				t.Errorf("hint %q lacks %q", f.Hint, want)
-			}
-			return
+	// Cloud Run pulls public ghcr.io images itself and can't pull private
+	// ones; plan can't tell which, so it warns and names the way around.
+	for image, code := range map[string]string{"ghcr.io/acme/shop:v2": "GCP_GHCR_PUBLIC_ONLY", "quay.io/acme/shop:v2": "GCP_UNPULLABLE_IMAGE"} {
+		s := parse(t, `{"name": "shop",
+			"services": {"web": {"kind": "server", "image": "`+image+`", "ports": [{"port": 80}]}}, `+target+`}`)
+		env, _ := newEnv(t, t.TempDir(), nil)
+		i := slices.IndexFunc(plan(t, s, env).Findings, func(f adapter.Finding) bool { return f.Code == code })
+		if i < 0 {
+			t.Errorf("%s: no %s finding", image, code)
+			continue
+		}
+		if f := plan(t, s, env).Findings[i]; !strings.Contains(f.Hint, "us-central1-docker.pkg.dev/my-project/<remote repository>/acme/shop:v2") {
+			t.Errorf("%s: hint %q doesn't name the remote repository path", image, f.Hint)
 		}
 	}
-	t.Error("no GCP_UNPULLABLE_IMAGE finding")
 }
 
 // An internal port deploys a service that the spec's other services can't
