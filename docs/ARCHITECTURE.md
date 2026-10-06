@@ -89,6 +89,7 @@ pull request (`vps-e2e`).
   package compiled for macOS and Windows), `images` (seven sample apps built and served), `vps-e2e` (the
   runner deploys to itself over ssh), `release-snapshot` (every release archive built and one
   installed with `install.sh`). `make check` runs the first three locally.
-- **Releases**: pushing a `vX.Y.Z` tag runs the tests, then GoReleaser publishes archives for Linux,
-  macOS and Windows on amd64 and arm64 with `checksums.txt`; `install.sh` verifies the checksum
-  before installing.
+- **Releases**: pushing a `vX.Y.Z` tag on `main` runs the tests, builds archives for Linux, macOS and
+  Windows on amd64 and arm64 with `checksums.txt` (`make dist`), and publishes them with the
+  version's `CHANGELOG.md` section as the release notes; `install.sh` verifies the checksum before
+  installing.
