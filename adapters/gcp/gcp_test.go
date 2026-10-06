@@ -182,6 +182,75 @@ func TestPlanImageService(t *testing.T) {
 	}
 }
 
+func TestPlanHealthCheck(t *testing.T) {
+	tests := map[string]struct {
+		healthCheck string
+		level       adapter.Level
+		code        string
+		// probe is the value of --startup-probe; empty removes the probe.
+		probe string
+	}{
+		"path": {
+			healthCheck: `{"path": "/health"}`,
+			level:       adapter.Info, code: "GCP_HEALTH_CHECK",
+			probe: "httpGet.path=/health,periodSeconds=10,timeoutSeconds=5,failureThreshold=24",
+		},
+		"path with a comma": {
+			healthCheck: `{"path": "/health?checks=db,cache"}`,
+			level:       adapter.Info, code: "GCP_HEALTH_CHECK",
+			probe: "^|^httpGet.path=/health?checks=db,cache|periodSeconds=10|timeoutSeconds=5|failureThreshold=24",
+		},
+		"path wins over command": {
+			healthCheck: `{"path": "/health", "command": "curl -f localhost"}`,
+			level:       adapter.Info, code: "GCP_HEALTH_CHECK",
+			probe: "httpGet.path=/health,periodSeconds=10,timeoutSeconds=5,failureThreshold=24",
+		},
+		"command only": {
+			healthCheck: `{"command": "curl -f localhost"}`,
+			level:       adapter.Warning, code: "GCP_HEALTH_COMMAND_IGNORED",
+		},
+		"path without a slash": {
+			healthCheck: `{"path": "health"}`,
+			level:       adapter.Error, code: "GCP_BAD_HEALTH_PATH",
+		},
+		"none": {healthCheck: `null`},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			s := parse(t, `{"name": "shop",
+				"services": {"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}],
+					"healthCheck": `+tc.healthCheck+`}}, `+target+`}`)
+			env, _ := newEnv(t, t.TempDir(), nil)
+			p := plan(t, s, env)
+			if tc.code != "" && !slices.Contains(codes(p, tc.level), tc.code) {
+				t.Errorf("missing %s %s in %v", tc.level, tc.code, p.Findings)
+			}
+			if tc.level == adapter.Error {
+				return
+			}
+			if errs := codes(p, adapter.Error); len(errs) > 0 {
+				t.Fatalf("unexpected errors: %v", errs)
+			}
+			if tc.level != adapter.Warning {
+				if warnings := codes(p, adapter.Warning); len(warnings) > 0 {
+					t.Errorf("unexpected warnings: %v", warnings)
+				}
+			}
+			data := p.Data.(*planData)
+			args := deployArgs(data, data.services[0], "nginx:1.27")
+			// The flag is always passed, so a path taken out of the spec
+			// takes the probe off the service.
+			i := slices.Index(args, "--startup-probe")
+			if i < 0 || i+1 >= len(args) {
+				t.Fatalf("deploy args %q lack --startup-probe", args)
+			}
+			if args[i+1] != tc.probe {
+				t.Errorf("--startup-probe = %q, want %q", args[i+1], tc.probe)
+			}
+		})
+	}
+}
+
 func TestPlanRefusesUnsupported(t *testing.T) {
 	s := parse(t, `{"name": "shop",
 		"services": {

@@ -37,6 +37,13 @@ spec:
   images stay in the registry.
 - One HTTP port per service (default 8080, also passed as `$PORT`); `internal` ports use internal
   ingress. `replicas` sets the minimum instance count. Services reach each other by URL, not by name.
+- `healthCheck.path` becomes the service's startup probe: a new revision gets traffic only once that
+  path answers with a 2xx or 3xx status, and a deploy whose revision doesn't answer within 4 minutes
+  fails and leaves the previous revision serving. The probe sends no credentials, so the path must
+  answer without them. `healthCheck.command` isn't applied
+  (`GCP_HEALTH_COMMAND_IGNORED`); Cloud Run has no command checks. The spec
+  decides: a deploy without `healthCheck.path` removes the service's startup probe, one set by hand
+  included.
 - `timeout` applies to every service of the spec. Without it, a deploy leaves the timeout as it is,
   so one set by hand survives; set it in the spec to keep it in one place.
 - Refused with a reason: static sites, workers, volumes, cron, TCP/UDP ports, `domains`
