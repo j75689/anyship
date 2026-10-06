@@ -159,7 +159,16 @@ func TestMCPListsToolsWithSafetyHints(t *testing.T) {
 	for _, name := range []string{"targets", "detect", "validate", "plan", "status", "logs", "diagnose_context"} {
 		if tools[name] == nil || tools[name].Annotations == nil || !tools[name].Annotations.ReadOnlyHint {
 			t.Errorf("%s should be listed as read-only", name)
+			continue
 		}
+		// Reading twice is the same as reading once, and the hint is sent
+		// either way: unset, it tells the host the opposite.
+		if !tools[name].Annotations.IdempotentHint {
+			t.Errorf("%s is read-only, so it should be listed as idempotent", name)
+		}
+	}
+	if tools["apply"].Annotations.IdempotentHint {
+		t.Error("apply deploys again each time; it is not idempotent")
 	}
 	for _, name := range []string{"apply", "destroy"} {
 		if tools[name] == nil || tools[name].Annotations.ReadOnlyHint || tools[name].Annotations.DestructiveHint == nil || !*tools[name].Annotations.DestructiveHint {
@@ -500,5 +509,60 @@ func TestMCPDetectInARepositoryOfApps(t *testing.T) {
 	}
 	if app.Dir != api || !app.Valid {
 		t.Errorf("detect in apps/api: dir %q, valid %v, problems %v", app.Dir, app.Valid, app.Problems)
+	}
+}
+
+// The first seven are messages adapters and detection produce today; the
+// rest cover the other forms the rule handles and the ones it must leave alone.
+func TestAgentTextNamesToolsNotCommands(t *testing.T) {
+	for in, want := range map[string]string{
+		"reading logs from h failed (exit status 255); has shop been deployed there with `anyship apply -t vps`?": "reading logs from h failed (exit status 255); has shop been deployed there with the apply tool?",
+		"shop-web isn't deployed; deploy it with `anyship apply -t aws`":                                          "shop-web isn't deployed; deploy it with the apply tool",
+		"New tasks roll out over a few minutes; `anyship status -t aws` shows progress.":                          "New tasks roll out over a few minutes; the status tool shows progress.",
+		"Pass the other service's URL in env (anyship status shows it after the first deploy).":                   "Pass the other service's URL in env (the status tool shows it after the first deploy).",
+		"Add gunicorn (or uvicorn for ASGI apps) to your dependencies and run `anyship init --force`.":            "Add gunicorn (or uvicorn for ASGI apps) to your dependencies and run the detect tool.",
+		"Run `anyship init` in the member crate to deploy, or set services.web.path to it.":                       "Run the detect tool in the member crate to deploy, or set services.web.path to it.",
+		"Keep the volumes data and the secrets in h:app; destroy --volumes deletes them.":                         "Keep the volumes data and the secrets in h:app; destroy with volumes=true deletes them.",
+		"Removed nothing; `anyship destroy -t vps --volumes` also deletes data.":                                  "Removed nothing; the destroy tool with volumes=true also deletes data.",
+		"Check the host first with `anyship apply -t vps --dry-run`.":                                             "Check the host first with the apply tool with dry_run=true.",
+		"Ask Claude with `anyship diagnose -t vps`.":                                                              "Ask Claude with the diagnose_context tool.",
+		// Advice about other programs, and about this server, is the user's to act on.
+		"Check that `ssh -p 2222 deploy@h` works without a password prompt.":                                   "Check that `ssh -p 2222 deploy@h` works without a password prompt.",
+		"this anyship MCP server only allows dry runs; restart it with `anyship mcp --allow-deploy` to deploy": "this anyship MCP server only allows dry runs; restart it with `anyship mcp --allow-deploy` to deploy",
+		"No Dockerfile, so anyship generated one; review it in the plan's generated files.":                    "No Dockerfile, so anyship generated one; review it in the plan's generated files.",
+		"Enable the API with `gcloud services enable run.googleapis.com`.":                                     "Enable the API with `gcloud services enable run.googleapis.com`.",
+	} {
+		if got := agentText(in); got != want {
+			t.Errorf("agentText(%q)\n got  %q\n want %q", in, got, want)
+		}
+	}
+}
+
+// The rewording reaches what tools return: findings, and errors.
+func TestMCPWordsMessagesForAnAgent(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("flask\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.py"), []byte("from flask import Flask\napp = Flask(__name__)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := connectMCP(t, false)
+	var out detectOutput
+	if msg := h.call(t, "detect", map[string]any{"dir": dir}, &out); msg != "" {
+		t.Fatal(msg)
+	}
+	var hints []string
+	for _, f := range out.Findings {
+		hints = append(hints, f.Hint)
+	}
+	if all := strings.Join(hints, "\n"); !strings.Contains(all, "run the detect tool") || strings.Contains(all, "anyship init") {
+		t.Errorf("detect hints over MCP: %q", hints)
+	}
+	if err := forAgent(errors.New("has it been deployed with `anyship apply -t gcp`?")); err.Error() != "has it been deployed with the apply tool?" {
+		t.Errorf("error over MCP: %v", err)
+	}
+	if forAgent(nil) != nil {
+		t.Error("no error must stay no error")
 	}
 }

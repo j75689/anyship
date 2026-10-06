@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -39,11 +40,80 @@ In a repository with several apps, pass the app's directory as dir to detect and
 
 // forAgent rewords an error for a caller that has tools, not a shell.
 func forAgent(err error) error {
+	if err == nil {
+		return nil
+	}
 	var missing *spec.NotFoundError
 	if errors.As(err, &missing) {
 		return fmt.Errorf("%s does not exist; draft a spec with the detect tool and write it there, or pass config if the spec is somewhere else", missing.Path)
 	}
+	if text := agentText(err.Error()); text != err.Error() {
+		return errors.New(text)
+	}
 	return err
+}
+
+// Messages are written once, in the adapters and in detection, for someone at
+// a command line: "has it been deployed with `anyship apply -t vps`?". An
+// agent that reached anyship over MCP has tools and maybe no shell, so the
+// commands a message names become the tools that do the same thing. Advice
+// about other programs (ssh, gcloud, restarting this server) is left as it
+// is, for the agent to pass on.
+var (
+	backtickedCommand = regexp.MustCompile("`anyship (init|apply|status|logs|destroy|plan|validate|diagnose)\\b([^`]*)`")
+	bareCommand       = regexp.MustCompile(`\banyship (init|apply|status|logs|destroy|plan|validate|diagnose)\b`)
+	bareFlags         = strings.NewReplacer("destroy --volumes", "destroy with volumes=true", "apply --dry-run", "apply with dry_run=true")
+)
+
+// toolFor names the tool behind a command, where the two differ.
+var toolFor = map[string]string{"init": "detect", "diagnose": "diagnose_context"}
+
+func agentText(text string) string {
+	tool := func(command string) string {
+		if name, ok := toolFor[command]; ok {
+			command = name
+		}
+		return "the " + command + " tool"
+	}
+	text = backtickedCommand.ReplaceAllStringFunc(text, func(match string) string {
+		m := backtickedCommand.FindStringSubmatch(match)
+		switch {
+		case strings.Contains(m[2], "--volumes"):
+			return tool(m[1]) + " with volumes=true"
+		case strings.Contains(m[2], "--dry-run"):
+			return tool(m[1]) + " with dry_run=true"
+		}
+		return tool(m[1])
+	})
+	text = bareCommand.ReplaceAllStringFunc(text, func(match string) string {
+		return tool(bareCommand.FindStringSubmatch(match)[1])
+	})
+	return bareFlags.Replace(text)
+}
+
+func agentLines(lines []string) []string {
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		out[i] = agentText(line)
+	}
+	return out
+}
+
+func agentFindings(findings []adapter.Finding) []adapter.Finding {
+	out := make([]adapter.Finding, len(findings))
+	for i, f := range findings {
+		f.Message, f.Hint = agentText(f.Message), agentText(f.Hint)
+		out[i] = f
+	}
+	return out
+}
+
+// addTool registers a tool whose errors are worded for an agent.
+func addTool[In, Out any](server *mcp.Server, tool *mcp.Tool, handler func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, Out, error)) {
+	mcp.AddTool(server, tool, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
+		result, out, err := handler(ctx, req, in)
+		return result, out, forAgent(err)
+	})
 }
 
 // maxToolOutput caps the command output returned to the client, keeping the end.
@@ -186,10 +256,12 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		instructions = mcpInstructionsIn(dir)
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: "anyship", Version: version}, &mcp.ServerOptions{Instructions: instructions})
-	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(false)}
-	readsTarget := &mcp.ToolAnnotations{ReadOnlyHint: true}
+	// Reading twice changes nothing more than reading once. The SDK sends
+	// idempotentHint either way, so leaving it unset would claim the opposite.
+	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: ptr(false)}
+	readsTarget := &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}
 
-	mcp.AddTool(server, &mcp.Tool{Name: "targets", Description: "List deploy targets and what each supports.", Annotations: readOnly},
+	addTool(server, &mcp.Tool{Name: "targets", Description: "List deploy targets and what each supports.", Annotations: readOnly},
 		func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, targetsOutput, error) {
 			out := targetsOutput{Targets: []targetInfo{}}
 			for _, ad := range a.registry.List() {
@@ -198,7 +270,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			return nil, out, nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "detect",
 		Description: "Detect a project's stack and draft an anyship.yaml for it. Nothing is written; review the draft, then save it as anyship.yaml.",
 		Annotations: readOnly,
@@ -215,14 +287,14 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		if err != nil {
 			return nil, detectOutput{}, err
 		}
-		out := detectOutput{Dir: dir, Spec: string(data), Valid: true, Problems: []string{}, Findings: nonNil(d.Findings), Evidence: nonNil(d.Evidence)}
+		out := detectOutput{Dir: dir, Spec: string(data), Valid: true, Problems: []string{}, Findings: agentFindings(d.Findings), Evidence: agentLines(d.Evidence)}
 		if _, err := spec.Parse(data); err != nil {
 			out.Valid, out.Problems = false, problemsOrError(err)
 		}
 		return nil, out, nil
 	})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "validate", Description: "Check anyship.yaml against the schema and cross-references.", Annotations: readOnly},
+	addTool(server, &mcp.Tool{Name: "validate", Description: "Check anyship.yaml against the schema and cross-references.", Annotations: readOnly},
 		func(_ context.Context, _ *mcp.CallToolRequest, in configInput) (*mcp.CallToolResult, validateOutput, error) {
 			s, err := spec.Load(orDefault(in.Config, spec.Filename))
 			if err != nil {
@@ -231,7 +303,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			return nil, validateOutput{Valid: true, Problems: []string{}, Name: s.Name, Services: s.ServiceNames()}, nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "plan",
 		Description: "Show what deploying to a target would do, and every need the target can't meet. Changes nothing: " +
 			"the files the target would generate come back with their contents, so review them here instead of reading their paths.",
@@ -245,14 +317,14 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		if err != nil {
 			return nil, planOutput{}, err
 		}
-		out := planOutput{Target: p.Target, Ready: !adapter.HasErrors(p.Findings), Findings: nonNil(p.Findings), Actions: nonNil(p.Actions), Files: []planFile{}}
+		out := planOutput{Target: p.Target, Ready: !adapter.HasErrors(p.Findings), Findings: agentFindings(p.Findings), Actions: nonNil(p.Actions), Files: []planFile{}}
 		for _, f := range p.Files {
 			out.Files = append(out.Files, planFile{Path: f.Path, Contents: string(f.Contents)})
 		}
 		return nil, out, nil
 	})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "status", Description: "Show what is running for the spec on a target.", Annotations: readsTarget},
+	addTool(server, &mcp.Tool{Name: "status", Description: "Show what is running for the spec on a target.", Annotations: readsTarget},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in targetInput) (*mcp.CallToolResult, *adapter.Status, error) {
 			d, _, err := a.prepareForMCP(in.Config, in.Target, false)
 			if err != nil {
@@ -266,7 +338,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			return nil, st, err
 		})
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        "logs",
 		Description: fmt.Sprintf("Read recent runtime logs from a target. Targets that only stream live logs are read for %s.", liveLogWindow),
 		Annotations: readsTarget,
@@ -299,7 +371,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		return nil, out, err
 	})
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "diagnose_context",
 		Description: "Collect what anyship knows about the spec on a target, with secrets redacted: plan findings, the target's dry-run checks, " +
 			"status, recent logs and generated files. Use it to work out why a deployment fails; propose fixes to anyship.yaml from it.",
@@ -334,7 +406,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		return nil, diagnoseContextOutput{Context: withoutLinesAbout(collected.Render(), filepath.Base(outDir))}, nil
 	})
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "apply",
 		Description: "Deploy the spec to a target. With dry_run, only run the target's checks and write the generated files under .anyship/. " +
 			"Real deploys need the server to run with --allow-deploy; ask the user before deploying.",
@@ -352,7 +424,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			return nil, resultOutput{}, err
 		}
 		if adapter.HasErrors(p.Findings) {
-			return nil, resultOutput{Findings: p.Findings, Messages: []string{"The plan has errors; nothing was done. Fix anyship.yaml and plan again."}}, nil
+			return nil, resultOutput{Findings: agentFindings(p.Findings), Messages: []string{"The plan has errors; nothing was done. Fix anyship.yaml and plan again."}}, nil
 		}
 		result, err := d.adapter.Apply(ctx, p, d.spec, d.env)
 		if err != nil {
@@ -361,7 +433,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		return nil, toResultOutput(result, nil, output), nil
 	})
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: "destroy",
 		Description: "Remove the spec's deployment from a target, keeping persistent data unless volumes is set. " +
 			"Real removals need the server to run with --allow-deploy; always ask the user first.",
@@ -384,7 +456,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			return nil, resultOutput{}, err
 		}
 		if in.DryRun {
-			return nil, resultOutput{OK: true, Summary: summary, Findings: []adapter.Finding{}, Messages: []string{"Dry run: nothing was removed."}}, nil
+			return nil, resultOutput{OK: true, Summary: agentLines(summary), Findings: []adapter.Finding{}, Messages: []string{"Dry run: nothing was removed."}}, nil
 		}
 		if in.Volumes && in.ConfirmProject != d.spec.Name {
 			return nil, resultOutput{}, fmt.Errorf("deleting data needs confirm_project set to %q, confirmed with the user", d.spec.Name)
@@ -419,7 +491,7 @@ func (a *app) prepareForMCP(config, target string, dryRun bool) (*deployment, *t
 }
 
 func toResultOutput(r *adapter.Result, summary []string, output *tailBuffer) resultOutput {
-	out := resultOutput{OK: r.OK, Summary: summary, Findings: nonNil(r.Findings), Messages: nonNil(r.Messages)}
+	out := resultOutput{OK: r.OK, Summary: agentLines(summary), Findings: agentFindings(r.Findings), Messages: agentLines(r.Messages)}
 	out.Output, out.Truncated = output.String()
 	return out
 }
