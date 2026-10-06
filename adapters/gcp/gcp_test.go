@@ -183,34 +183,34 @@ func TestPlanImageService(t *testing.T) {
 }
 
 func TestPlanHealthCheck(t *testing.T) {
-	const probe = "--startup-probe"
 	tests := map[string]struct {
 		healthCheck string
 		level       adapter.Level
 		code        string
-		args        string
+		// probe is the value of --startup-probe; empty removes the probe.
+		probe string
 	}{
 		"path": {
 			healthCheck: `{"path": "/health"}`,
 			level:       adapter.Info, code: "GCP_HEALTH_CHECK",
-			args: probe + " httpGet.path=/health,periodSeconds=10,timeoutSeconds=5,failureThreshold=24",
+			probe: "httpGet.path=/health,periodSeconds=10,timeoutSeconds=5,failureThreshold=24",
 		},
 		"path with a comma": {
 			healthCheck: `{"path": "/health?checks=db,cache"}`,
 			level:       adapter.Info, code: "GCP_HEALTH_CHECK",
-			args: probe + " ^|^httpGet.path=/health?checks=db,cache|periodSeconds=10|timeoutSeconds=5|failureThreshold=24",
+			probe: "^|^httpGet.path=/health?checks=db,cache|periodSeconds=10|timeoutSeconds=5|failureThreshold=24",
 		},
 		"path wins over command": {
 			healthCheck: `{"path": "/health", "command": "curl -f localhost"}`,
 			level:       adapter.Info, code: "GCP_HEALTH_CHECK",
-			args: probe + " httpGet.path=/health,",
+			probe: "httpGet.path=/health,periodSeconds=10,timeoutSeconds=5,failureThreshold=24",
 		},
 		"command only": {
 			healthCheck: `{"command": "curl -f localhost"}`,
 			level:       adapter.Warning, code: "GCP_HEALTH_COMMAND_IGNORED",
 		},
 		"path without a slash": {
-			healthCheck: `{"path": "healthz"}`,
+			healthCheck: `{"path": "health"}`,
 			level:       adapter.Error, code: "GCP_BAD_HEALTH_PATH",
 		},
 		"none": {healthCheck: `null`},
@@ -237,12 +237,15 @@ func TestPlanHealthCheck(t *testing.T) {
 				}
 			}
 			data := p.Data.(*planData)
-			args := strings.Join(deployArgs(data, data.services[0], "nginx:1.27"), " ")
-			switch {
-			case tc.args != "" && !strings.Contains(args, tc.args):
-				t.Errorf("deploy args %q lack %q", args, tc.args)
-			case tc.args == "" && strings.Contains(args, probe):
-				t.Errorf("deploy args %q set a probe", args)
+			args := deployArgs(data, data.services[0], "nginx:1.27")
+			// The flag is always passed, so a path taken out of the spec
+			// takes the probe off the service.
+			i := slices.Index(args, "--startup-probe")
+			if i < 0 || i+1 >= len(args) {
+				t.Fatalf("deploy args %q lack --startup-probe", args)
+			}
+			if args[i+1] != tc.probe {
+				t.Errorf("--startup-probe = %q, want %q", args[i+1], tc.probe)
 			}
 		})
 	}

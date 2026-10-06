@@ -341,8 +341,8 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 }
 
 // deployArgs is the gcloud command that makes the service match the spec.
-// Env vars and secrets are always set or cleared, so removals in the spec
-// take effect.
+// Env vars, secrets and the startup probe are always set or cleared, so
+// removals in the spec take effect.
 func deployArgs(d *planData, sv service, image string) []string {
 	o := d.opts
 	args := []string{"run", "deploy", sv.cloudRun, "--image", image, "--region", o.Region, "--project", o.Project,
@@ -389,6 +389,8 @@ func deployArgs(d *planData, sv service, image string) []string {
 			fmt.Sprintf("timeoutSeconds=%d", probeTimeout),
 			fmt.Sprintf("failureThreshold=%d", probeFailures),
 		}))
+	} else {
+		args = append(args, "--startup-probe", "")
 	}
 	if o.ServiceAccount != "" {
 		args = append(args, "--service-account", o.ServiceAccount)
