@@ -35,6 +35,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   field name, never dropped.
 - `anyship init` and the MCP `detect` tool write YAML with a `yaml-language-server` schema comment, so
   editors validate and autocomplete the spec.
+- `services.<name>.domains`: custom domains live in the spec, in one place for every target. The
+  `cloudflare` target attaches them; `vps`, `gcp` and `aws` refuse them with a
+  `*_DOMAIN_UNSUPPORTED` finding and a hint. `targets.cloudflare.domains` still works and replaces
+  the service's list for that target.
+- `anyship diagnose` and the MCP `diagnose_context` tool: collect redacted deployment context and ask
+  Claude for a root cause and a validated spec fix (bring your own key). Experimental: tested
+  against a stubbed API, not yet run against the live one.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the system map and the main flows.
 
 ### Changed
 
@@ -43,6 +51,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`latest` by default) for registries that hold several services in one repository.
 - Every cloud adapter deploys dependencies first, in one shared order (`Spec.DeployOrder`).
 - `diagnose` patches the YAML tree in place, so comments and key order survive its fixes.
+
+### Fixed
+
+- Windows: commands run directly instead of through `cmd /C`, which mangled any argument holding a
+  quote, `&` or `^`, such as the script the `vps` target hands to ssh.
+- Spec paths written with Windows separators are normalized to slashes, so a spec means the same
+  thing on every machine, and a `build.output` that names a Windows drive is refused.
+- `cloudflare`: Workers are addressed from the spec, never from a leftover generated config.
 
 ## [0.2.0] - 2026-10-02
 
@@ -53,7 +69,7 @@ The first tagged release. It covers everything built up to that point.
 - `anyship.json` spec: a platform-neutral description of services, ports, volumes, resources, secrets
   and per-target overrides, with strict validation and a generated JSON Schema.
 - Commands: `init`, `validate`, `plan`, `apply`, `status`, `logs`, `destroy`, `targets`, `schema`,
-  `diagnose`, and `--json` output.
+  and `--json` output.
 - `cloudflare` target: Workers (edge handlers) and static assets; D1, KV, R2 and Hyperdrive bindings;
   cron triggers; custom domains.
 - `vps` target: any Linux server with Docker, over SSH. Images or Dockerfiles, multi-service,
@@ -62,10 +78,7 @@ The first tagged release. It covers everything built up to that point.
   have none.
 - MCP server (`anyship mcp`), so AI agents can read a project, plan and — only with `--allow-deploy` —
   deploy it.
-- `diagnose`: collects redacted deployment context and asks Claude for a validated spec fix
-  (bring your own key).
 - Release binaries built with GoReleaser, and `install.sh`, which verifies checksums.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the system map and the main flows.
 
 [0.3.0]: https://github.com/j75689/anyship/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/j75689/anyship/releases/tag/v0.2.0
