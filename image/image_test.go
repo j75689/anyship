@@ -68,11 +68,12 @@ func TestWriteGenerated(t *testing.T) {
 
 func TestMovingTag(t *testing.T) {
 	for ref, want := range map[string]string{
-		"nginx":                      "latest",
-		"nginx:latest":               "latest",
-		"ghcr.io/acme/shop:main":     "main",
-		"localhost:5000/shop":        "latest", // the colon is the registry's port
-		"localhost:5000/shop:stable": "stable",
+		"nginx":                  "latest",
+		"nginx:latest":           "latest",
+		"ghcr.io/acme/shop:main": "main",
+		// The colon here is the registry's port, not a tag.
+		"localhost:5000/shop":                     "latest",
+		"localhost:5000/shop:stable":              "stable",
 		"us-docker.pkg.dev/p/remote/acme/shop:pr": "pr",
 	} {
 		if tag, moving := MovingTag(ref); !moving || tag != want {
