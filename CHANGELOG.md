@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.1] - 2026-10-06
 
 ### Added
 
@@ -43,7 +43,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Target blocks get the same treatment.
 - `plan` over MCP and `plan --json` return each generated file with its contents (`files[].path`,
   `files[].contents`). They listed paths that do not exist until a deploy writes them, next to a
-  finding telling the reader to review them.
+  finding telling the reader to review them. Over MCP this changes the shape of `files`, which was
+  a list of paths.
 - MCP: `diagnose_context`, which is annotated read-only, no longer writes `.anyship/<target>/` into
   the project; it runs the target's checks in a temporary directory.
 - A missing spec is reported by the full path that was tried, not as a bare `anyship.yaml`. Over MCP
@@ -131,6 +132,6 @@ The first tagged release. It covers everything built up to that point.
   deploy it.
 - Release binaries built with GoReleaser, and `install.sh`, which verifies checksums.
 
-[Unreleased]: https://github.com/j75689/anyship/compare/v0.3.0...HEAD
+[0.3.1]: https://github.com/j75689/anyship/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/j75689/anyship/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/j75689/anyship/releases/tag/v0.2.0
