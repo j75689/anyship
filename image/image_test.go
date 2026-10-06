@@ -66,6 +66,22 @@ func TestWriteGenerated(t *testing.T) {
 	}
 }
 
+func TestRegistry(t *testing.T) {
+	for ref, want := range map[string][2]string{
+		"nginx:1.27":                 {"docker.io", "nginx:1.27"},
+		"acme/shop":                  {"docker.io", "acme/shop"},
+		"docker.io/acme/shop":        {"docker.io", "acme/shop"},
+		"GHCR.io/acme/shop:v2":       {"ghcr.io", "acme/shop:v2"},
+		"localhost/shop":             {"localhost", "shop"},
+		"localhost:5000/shop:1":      {"localhost:5000", "shop:1"},
+		"us-docker.pkg.dev/p/r/shop": {"us-docker.pkg.dev", "p/r/shop"},
+	} {
+		if host, rest := Registry(ref); host != want[0] || rest != want[1] {
+			t.Errorf("Registry(%q) = %q, %q; want %q, %q", ref, host, rest, want[0], want[1])
+		}
+	}
+}
+
 func TestMovingTag(t *testing.T) {
 	for ref, want := range map[string]string{
 		"nginx":                  "latest",

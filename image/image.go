@@ -48,6 +48,17 @@ func MovingTag(ref string) (tag string, moving bool) {
 	return tag, !strings.ContainsAny(tag, "0123456789")
 }
 
+// Registry splits an image reference into the host it is pulled from and the
+// rest. A reference that names no host, such as "nginx:1.27" or
+// "acme/shop", is on Docker Hub.
+func Registry(ref string) (host, rest string) {
+	first, after, found := strings.Cut(ref, "/")
+	if !found || (!strings.ContainsAny(first, ".:") && first != "localhost") {
+		return "docker.io", ref
+	}
+	return strings.ToLower(first), after
+}
+
 // BuildAndPush runs `docker buildx build --push` and returns the pushed
 // image as repository@sha256:digest.
 func BuildAndPush(ctx context.Context, env *adapter.Env, b Build) (string, error) {

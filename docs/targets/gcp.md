@@ -27,6 +27,11 @@ spec:
   resolve to an older image while the deploy reports success, so `plan` warns about it
   (`GCP_MUTABLE_TAG`). Pin the image by digest, or pass the one to deploy with
   `--image <service>=<image>`.
+- Cloud Run pulls images only from Artifact Registry, `gcr.io` and Docker Hub, so `plan` refuses an
+  `image` on any other registry (`GCP_UNPULLABLE_IMAGE`). To deploy an image from `ghcr.io` or
+  another registry, pull it through an Artifact Registry
+  [remote repository](https://cloud.google.com/artifact-registry/docs/repositories/remote-repo)
+  and name it by that path, or push it to Artifact Registry.
 - Every `apply` first checks the login, the project, the required APIs (`run`, `artifactregistry`,
   `secretmanager`) and the repository; `apply --dry-run` stops after the checks. Errors name the
   gcloud account in use, which matters when you have several (`gcloud auth list`).

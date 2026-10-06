@@ -306,6 +306,11 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 
 	if svc.Image != "" {
 		sv.image = svc.Image
+		if registry, rest := image.Registry(svc.Image); !pullable(registry) {
+			add(adapter.Error, "GCP_UNPULLABLE_IMAGE",
+				fmt.Sprintf("Cloud Run can't pull image %s: it pulls from Artifact Registry, gcr.io and Docker Hub, not from %s.", svc.Image, registry),
+				fmt.Sprintf("Create an Artifact Registry remote repository that proxies %s and deploy %s/%s/<remote repository>/%s, or push the image to Artifact Registry.", registry, opts.registryHost(), opts.Project, rest))
+		}
 		if tag, moving := image.MovingTag(svc.Image); moving {
 			add(adapter.Warning, "GCP_MUTABLE_TAG",
 				fmt.Sprintf("image %s is deployed by the tag %q, which can move: Cloud Run runs whatever it points at when pulled, and behind a caching registry that can be an older image.", svc.Image, tag),
@@ -338,6 +343,14 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	add(adapter.Info, "GCP_GENERATED_DOCKERFILE", "No Dockerfile, so anyship generated one; review it in the plan's generated files.",
 		"To customize the build, commit your own Dockerfile and set services.<name>.dockerfile.")
 	return sv, findings
+}
+
+// pullable reports whether Cloud Run pulls images from a registry. It takes
+// Artifact Registry, Container Registry and Docker Hub, and refuses a deploy
+// from anywhere else.
+func pullable(registry string) bool {
+	return registry == "docker.io" || registry == "gcr.io" || strings.HasSuffix(registry, ".gcr.io") ||
+		registry == "docker.pkg.dev" || strings.HasSuffix(registry, "-docker.pkg.dev")
 }
 
 // deployArgs is the gcloud command that makes the service match the spec.
