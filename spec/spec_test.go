@@ -170,9 +170,50 @@ func TestParseRequiresAPublicHTTPPortForDomains(t *testing.T) {
 }
 
 func TestParseRejectsUnknownFields(t *testing.T) {
-	_, err := Parse(app("app", "  services:\n    web: {kind: server, start: x, replica: 2}\n"))
-	if err == nil || !strings.Contains(err.Error(), `unknown field "replica"`) {
-		t.Errorf("want unknown field error, got %v", err)
+	got := problemsOf(t, app("app", "  services:\n    web: {kind: server, start: x, replica: 2}\n  secret: {}\n"))
+	want := []string{
+		`spec.secret: unknown field; did you mean "secrets"?`,
+		`spec.services.web.replica: unknown field; did you mean "replicas"?`,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("problems = %q, want %q", got, want)
+	}
+}
+
+// A value of the wrong shape is named by its path and by what belongs there,
+// in the file's terms: no Go types, and nothing about JSON.
+func TestParseExplainsWrongShapes(t *testing.T) {
+	for body, want := range map[string]string{
+		"  secrets: [JWT_SECRET]\n":      "spec.secrets: must be a mapping (key: value), not a list",
+		"  services: [web]\n":            "spec.services: must be a mapping (key: value), not a list",
+		"  services:\n    web: server\n": "spec.services.web: must be a mapping (key: value), not a string",
+		"  services:\n    web: {kind: server, start: x, ports: {port: 80}}\n":       "spec.services.web.ports: must be a list (- item), not a mapping",
+		"  services:\n    web: {kind: server, start: x, ports: [{port: eighty}]}\n": "spec.services.web.ports.0.port: must be a whole number, not a string",
+		"  services:\n    web: {kind: server, start: x, replicas: 1.5}\n":           "spec.services.web.replicas: must be a whole number, not the number 1.5",
+		"  services:\n    web: {kind: server, start: x, secrets: JWT}\n":            "spec.services.web.secrets: must be a list (- item), not a string",
+		"  services:\n    web: {kind: server, start: x, env: {PORT: 8080}}\n":       `spec.services.web.env.PORT: must be a string, not the number 8080; write it in quotes: "8080"`,
+		"  services:\n    web: {kind: server, start: x, env: {DEBUG: true}}\n":      `spec.services.web.env.DEBUG: must be a string, not true; write it in quotes: "true"`,
+		"  services:\n    web: {kind: server, start: x, healthCheck: /health}\n":    "spec.services.web.healthCheck: must be a mapping (key: value), not a string",
+		"  services:\n    web: {kind: server, start: x, volumes: [data]}\n":         "spec.services.web.volumes.0: must be a mapping (key: value), not a string",
+	} {
+		got := problemsOf(t, app("app", body))
+		if !slices.Equal(got, []string{want}) {
+			t.Errorf("%s got  %q\n want %q", body, got, want)
+		}
+	}
+	// Everything wrong with the shape is reported in one go.
+	got := problemsOf(t, app("app", "  services:\n    web: {kind: server, start: x, replicas: two, env: {PORT: 80}}\n  secrets: [A]\n"))
+	if len(got) != 3 {
+		t.Errorf("want three problems, got %q", got)
+	}
+	_, err := Parse([]byte("- not\n- a\n- spec\n"))
+	if err == nil || !strings.Contains(err.Error(), "the document must be a mapping (key: value), not a list") {
+		t.Errorf("a list at the top: %v", err)
+	}
+	for _, leak := range []string{"json", "Go ", "unmarshal", "map[", "Manifest"} {
+		if strings.Contains(strings.Join(got, "\n")+err.Error(), leak) {
+			t.Errorf("the errors leak %q: %q %v", leak, got, err)
+		}
 	}
 }
 

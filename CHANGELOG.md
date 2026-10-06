@@ -22,6 +22,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   as they are written in `anyship.yaml`, and link the target's page.
 - `vps`: a failed `status` says why. It reported only ssh's exit status; now the error carries what
   ssh or Docker said, and how to check the connection when ssh could not connect.
+- A value of the wrong shape in `anyship.yaml` is named by its path and by what belongs there
+  (`spec.secrets: must be a mapping (key: value), not a list`) instead of a Go decoding error, a
+  number or boolean where text belongs comes with the advice to quote it, and every such problem is
+  reported at once. Unknown fields now carry their path and the field that was probably meant.
+  Target blocks get the same treatment.
 
 ## [0.3.0] - 2026-10-06
 

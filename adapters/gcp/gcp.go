@@ -9,7 +9,6 @@
 package gcp
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,6 +24,7 @@ import (
 	"github.com/j75689/anyship/adapter"
 	"github.com/j75689/anyship/dockerfile"
 	"github.com/j75689/anyship/internal/shellwords"
+	"github.com/j75689/anyship/internal/yamljson"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -390,14 +390,17 @@ func decodeOptions(raw json.RawMessage) (*Options, error) {
 		return nil, errors.New("project and region are required")
 	}
 	opts := &Options{}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(opts); err != nil {
+	if err := adapter.DecodeOptions(raw, opts); err != nil {
 		// gcloud's own --timeout takes a bare number of seconds, so people
-		// will write one here.
-		var typeErr *json.UnmarshalTypeError
-		if errors.As(err, &typeErr) && typeErr.Field == "timeout" {
-			return nil, errors.New(`timeout needs a unit: write a duration such as "600s" or "10m", not a bare number`)
+		// will write one here. Quoting it, the usual advice for a number
+		// where a string belongs, would still leave it without a unit.
+		var problems yamljson.Problems
+		if errors.As(err, &problems) {
+			for i, problem := range problems {
+				if problem.Path == "timeout" && !problem.Unknown {
+					problems[i].Detail = `needs a unit: write a duration such as "600s" or "10m", not a bare number`
+				}
+			}
 		}
 		return nil, err
 	}

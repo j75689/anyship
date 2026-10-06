@@ -2,13 +2,17 @@
 package adapter
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"slices"
 	"strings"
 
+	"github.com/j75689/anyship/internal/yamljson"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -30,6 +34,22 @@ type Finding struct {
 	Service string `json:"service,omitempty"`
 	File    string `json:"file,omitempty"`
 	Hint    string `json:"hint,omitempty"`
+}
+
+// DecodeOptions decodes a target's block of anyship.yaml into its options,
+// strictly: an unknown field is an error, so a typo surfaces as a finding. A
+// value of the wrong shape is reported in the file's terms ("port must be a
+// whole number, not a string"), as yamljson.Problems.
+func DecodeOptions(raw json.RawMessage, into any) error {
+	if problems := yamljson.Check(raw, reflect.TypeOf(into)); len(problems) > 0 {
+		return problems
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(into); err != nil {
+		return errors.New(strings.TrimPrefix(err.Error(), "json: "))
+	}
+	return nil
 }
 
 // OptionsHint is the hint for a target block that is missing or wrong: where

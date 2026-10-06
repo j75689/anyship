@@ -493,9 +493,7 @@ func decodeOptions(raw json.RawMessage) (*Options, error) {
 	if len(raw) == 0 {
 		return opts, nil
 	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(opts); err != nil {
+	if err := adapter.DecodeOptions(raw, opts); err != nil {
 		return nil, err
 	}
 	if opts.CompatibilityDate != "" && !dateRe.MatchString(opts.CompatibilityDate) {
