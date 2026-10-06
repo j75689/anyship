@@ -390,8 +390,10 @@ Apply this change to anyship.yaml? [y/N]
 ```
 
 > **Experimental.** `diagnose` is tested against a stubbed API and has not been run against the live
-> Claude API yet ([#27](https://github.com/j75689/anyship/issues/27)). `--show-context` needs no key
-> and prints exactly what would be sent.
+> Claude API yet ([#27](https://github.com/j75689/anyship/issues/27)), and redaction misses three
+> secret shapes ([#39](https://github.com/j75689/anyship/issues/39)): URL passwords with an empty
+> username, values containing spaces, and `Authorization` headers. `--show-context` needs no key and
+> prints exactly what would be sent; search it for your own secrets before the first real call.
 
 `diagnose` collects what anyship already knows (plan findings, the target's dry-run checks, status,
 recent logs and the generated compose.yaml or Dockerfiles) and asks Claude for the root cause, the
