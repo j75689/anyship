@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"strconv"
 
 	"github.com/j75689/anyship/dockerfile"
 	"github.com/j75689/anyship/image"
@@ -47,7 +48,17 @@ type composeHealth struct {
 }
 
 type composeDeploy struct {
-	Replicas int `json:"replicas"`
+	Replicas  int               `json:"replicas"`
+	Resources *composeResources `json:"resources,omitempty"`
+}
+
+type composeResources struct {
+	Limits composeLimits `json:"limits"`
+}
+
+type composeLimits struct {
+	CPUs   string `json:"cpus,omitempty"`
+	Memory string `json:"memory,omitempty"`
 }
 
 type composeSecret struct {
@@ -152,6 +163,19 @@ func renderService(svc *spec.Service, argv []string, build *composeBuild) compos
 	}
 	if svc.Replicas > 1 {
 		out.Deploy = &composeDeploy{Replicas: svc.Replicas}
+	}
+	if svc.CPU != 0 || svc.Memory != "" {
+		if out.Deploy == nil {
+			out.Deploy = &composeDeploy{Replicas: svc.Replicas}
+		}
+		limits := composeLimits{}
+		if svc.CPU != 0 {
+			limits.CPUs = strconv.FormatFloat(svc.CPU, 'f', -1, 64)
+		}
+		if mb := svc.MemoryMB(); mb != 0 {
+			limits.Memory = strconv.Itoa(mb) + "M"
+		}
+		out.Deploy.Resources = &composeResources{Limits: limits}
 	}
 	return out
 }

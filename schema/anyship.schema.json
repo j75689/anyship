@@ -197,6 +197,16 @@
           "type": "integer",
           "minimum": 1
         },
+        "memory": {
+          "type": "string",
+          "pattern": "^([1-9]\\d{0,5})(MB|GB)$",
+          "description": "Memory one instance needs, like \"512MB\" or \"4GB\"."
+        },
+        "cpu": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "CPUs one instance needs, like 0.5, 1 or 2."
+        },
         "env": {
           "additionalProperties": {
             "type": "string"

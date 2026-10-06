@@ -96,6 +96,29 @@ func TestParseRejectsBadNamesAndDuplicatePorts(t *testing.T) {
 	}
 }
 
+func TestParseMemoryAndCPU(t *testing.T) {
+	s := mustParse(t, app("app", "  services:\n    web: {kind: server, start: x, memory: 4GB, cpu: 0.5}\n    job: {kind: worker, start: x, memory: 512MB}\n    bare: {kind: worker, start: x}\n"))
+	for name, want := range map[string]int{"web": 4096, "job": 512, "bare": 0} {
+		if got := s.Services[name].MemoryMB(); got != want {
+			t.Errorf("%s: MemoryMB = %d, want %d", name, got, want)
+		}
+	}
+	if got := s.Services["web"].CPU; got != 0.5 {
+		t.Errorf("cpu = %v", got)
+	}
+
+	for _, memory := range []string{"4Gi", "4 GB", "0GB", "4096", "1.5GB", "4TB"} {
+		got := problemsOf(t, app("app", "  services:\n    web: {kind: server, start: x, memory: \""+memory+"\"}\n"))
+		if want := `spec.services.web.memory: use a size like "512MB" or "4GB"`; !slices.Contains(got, want) {
+			t.Errorf("memory %q: problems = %q", memory, got)
+		}
+	}
+	got := problemsOf(t, app("app", "  services:\n    web: {kind: server, start: x, cpu: -1}\n"))
+	if want := "spec.services.web.cpu: must be greater than 0, like 0.5, 1 or 2"; !slices.Contains(got, want) {
+		t.Errorf("cpu -1: problems = %q", got)
+	}
+}
+
 // withDomains is a one-service spec whose public http port can host domains.
 func withDomains(domains string) []byte {
 	return app("app", "  services:\n    web: {kind: server, start: x, ports: [{port: 8080}], domains: "+domains+"}\n")

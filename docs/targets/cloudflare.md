@@ -13,6 +13,8 @@ needs Node.js and a `wrangler login` (or `CLOUDFLARE_API_TOKEN`). The generated 
 - `services.<name>.domains` become custom-domain routes in the generated `wrangler.jsonc`. The zone
   must already be on your Cloudflare account; Cloudflare issues the certificate.
   `targets.cloudflare.domains` overrides the service's list (see [Domains](../../README.md#domains)).
+- `memory` and `cpu` aren't applied, and `plan` warns about it (`CF_RESOURCES_IGNORED`): every
+  Worker gets the same limits, 128 MB of memory among them.
 - Next.js needs `@opennextjs/cloudflare`; anyship doesn't drive it yet.
 
 [All targets](../../README.md#targets)

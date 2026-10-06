@@ -7,6 +7,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### ⚠ BREAKING CHANGES
+
+- **`gcp`: every deploy sets the instance size from the spec.** A service that names no `memory`
+  or `cpu` is deployed with Cloud Run's defaults, 512MB and 1 CPU, so a size set by hand with
+  `gcloud run services update` is replaced on the next `apply`. Before upgrading, read the current
+  values (`gcloud run services describe <service> --format 'value(spec.template.spec.containers[0].resources.limits)'`)
+  and put them in the spec as `memory` and `cpu`.
+
+### Added
+
+- Services take `memory` (`512MB`, `4GB`) and `cpu` (`0.5`, `1`, `2`): what one instance needs,
+  on any target. `gcp` sizes the Cloud Run instance and refuses a pair Cloud Run doesn't offer,
+  `aws` sizes the task (the service's values win over `targets.aws.cpu` and `memory`), `vps` limits
+  the container, and `cloudflare` warns that Workers can't be sized.
+
 ### Fixed
 
 - `gcp`: `healthCheck` was dropped without a word. `healthCheck.path` is now the Cloud Run startup

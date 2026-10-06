@@ -20,7 +20,7 @@ spec:
       taskRole: my-app-role         # optional, for the app's own AWS access
       subnets: [subnet-0abc]        # optional; default: the default VPC's public subnets
       securityGroups: [sg-0abc]     # optional, with subnets
-      cpu: "1024"                   # optional, per task
+      cpu: "1024"                   # optional, per task, for services without their own cpu and memory
       memory: "2048"
       maxTasks: 4                   # autoscaling ceiling (at least replicas)
 ```
@@ -45,6 +45,8 @@ spec:
   handed to the aws CLI through a private temporary file, never on the command line.
 - The load balancer checks `healthCheck.path`, or `/`, for HTTP 200. One HTTP port per service
   (default 80); `internal` ports need private `subnets`. `replicas` is the minimum task count.
+- A service's `memory` and `cpu` size its tasks (0.25, 0.5, 1, 2, 4, 8 or 16 CPUs) and win over
+  `cpu` and `memory` under `targets.aws`, which are the default for services that name none.
 - `logs` uses `aws logs tail`, so `-f` works for one service at a time; it selects by `--since`, not `-n`.
 - `destroy` deletes the services with their load balancers; the cluster, roles, images and log groups
   stay. `destroy --volumes` also deletes the secrets without a recovery window.

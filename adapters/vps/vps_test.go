@@ -189,6 +189,31 @@ func TestRequiresAValidHost(t *testing.T) {
 	}
 }
 
+func TestMemoryAndCPUBecomeContainerLimits(t *testing.T) {
+	env, _ := newEnv(t, t.TempDir())
+	p := plan(t, parse(t, `{"name": "app", "services": {
+		"api": {"kind": "server", "image": "api:1", "memory": "4GB", "cpu": 0.5},
+		"job": {"kind": "worker", "image": "job:1", "memory": "512MB", "replicas": 2},
+		"web": {"kind": "server", "image": "web:1"}},
+		"targets": {"vps": {"host": "h"}}}`), env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if !slices.Contains(codes(p, adapter.Info), "VPS_RESOURCE_LIMITS") {
+		t.Errorf("info = %v, want VPS_RESOURCE_LIMITS", codes(p, adapter.Info))
+	}
+	services := composeOf(t, p).Services
+	if d := services["api"].Deploy; d == nil || d.Replicas != 1 || d.Resources == nil || d.Resources.Limits != (composeLimits{CPUs: "0.5", Memory: "4096M"}) {
+		t.Errorf("api deploy = %+v", d)
+	}
+	if d := services["job"].Deploy; d == nil || d.Replicas != 2 || d.Resources == nil || d.Resources.Limits != (composeLimits{Memory: "512M"}) {
+		t.Errorf("job deploy = %+v", d)
+	}
+	if d := services["web"].Deploy; d != nil {
+		t.Errorf("web deploy = %+v, want none", d)
+	}
+}
+
 func TestRefusesWhatItCannotRunYet(t *testing.T) {
 	env, _ := newEnv(t, t.TempDir())
 	cases := map[string]string{

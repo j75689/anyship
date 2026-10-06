@@ -133,6 +133,8 @@ spec:
       kind: server               # static | server | worker (background)
       entry: src/index.ts        # edge runtimes: module exporting fetch()
       start: node dist/server.js # process-based platforms
+      memory: 512MB              # what one instance needs: 512MB, 4GB, ...
+      cpu: 1                     # ... and how many CPUs: 0.5, 1, 2, ...
       ports:
         - port: 3000             # protocol: http|tcp|udp|tcp+udp, exposure: public|internal
       domains: [api.example.com] # custom domains for a public http port

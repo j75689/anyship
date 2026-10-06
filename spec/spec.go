@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/j75689/anyship/internal/yamljson"
@@ -83,9 +84,13 @@ type Service struct {
 	Ports []Port `json:"ports,omitempty"`
 	// Domains are the custom domains this service answers on. A target that
 	// can't attach them says so instead of dropping them.
-	Domains     []string          `json:"domains,omitempty" jsonschema_description:"Custom domains this service answers on, e.g. \"app.example.com\". Needs a public http port. Wildcards are not supported."`
-	Volumes     []Volume          `json:"volumes,omitempty"`
-	Replicas    int               `json:"replicas,omitempty" jsonschema:"minimum=1"`
+	Domains  []string `json:"domains,omitempty" jsonschema_description:"Custom domains this service answers on, e.g. \"app.example.com\". Needs a public http port. Wildcards are not supported."`
+	Volumes  []Volume `json:"volumes,omitempty"`
+	Replicas int      `json:"replicas,omitempty" jsonschema:"minimum=1"`
+	// Memory and CPU are what one instance of the service needs. A target
+	// that can't size a service says so instead of dropping them.
+	Memory      string            `json:"memory,omitempty" jsonschema_description:"Memory one instance needs, like \"512MB\" or \"4GB\"."`
+	CPU         float64           `json:"cpu,omitempty" jsonschema_description:"CPUs one instance needs, like 0.5, 1 or 2."`
 	Env         map[string]string `json:"env,omitempty"`
 	Secrets     []string          `json:"secrets,omitempty" jsonschema_description:"Names of top-level secrets this service receives."`
 	Uses        []string          `json:"uses,omitempty" jsonschema_description:"Names of top-level resources this service binds to."`
@@ -93,6 +98,20 @@ type Service struct {
 	Runtime     *Runtime          `json:"runtime,omitempty"`
 	HealthCheck *HealthCheck      `json:"healthCheck,omitempty"`
 	DependsOn   []string          `json:"dependsOn,omitempty"`
+}
+
+// MemoryMB is Memory in megabytes, or 0 when the service doesn't set it.
+// Sizes are binary, as container platforms count them: 1GB is 1024MB.
+func (s *Service) MemoryMB() int {
+	m := memoryRe.FindStringSubmatch(s.Memory)
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	if m[2] == "GB" {
+		n *= 1024
+	}
+	return n
 }
 
 type Build struct {

@@ -182,6 +182,59 @@ func TestPlanImageService(t *testing.T) {
 	}
 }
 
+// Memory and cpu are always passed: the spec's, or Cloud Run's defaults when
+// the spec names none, so a value taken out of the spec is taken off the
+// service.
+func TestPlanMemoryAndCPU(t *testing.T) {
+	for size, want := range map[string]string{
+		``:                             "--memory 512Mi --cpu 1",
+		`"memory": "4GB",`:             "--memory 4Gi --cpu 1",
+		`"memory": "1536MB",`:          "--memory 1536Mi --cpu 1",
+		`"cpu": 2,`:                    "--memory 512Mi --cpu 2",
+		`"memory": "16GB", "cpu": 4,`:  "--memory 16Gi --cpu 4",
+		`"memory": "32GB", "cpu": 8,`:  "--memory 32Gi --cpu 8",
+		`"memory": "128MB", "cpu": 1,`: "--memory 128Mi --cpu 1",
+	} {
+		s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27", `+size+` "ports": [{"port": 80}]}}, `+target+`}`)
+		env, _ := newEnv(t, t.TempDir(), nil)
+		p := plan(t, s, env)
+		if errs := codes(p, adapter.Error); len(errs) > 0 {
+			t.Errorf("%s: unexpected errors: %v", size, p.Findings)
+			continue
+		}
+		data := p.Data.(*planData)
+		if args := strings.Join(deployArgs(data, data.services[0], "nginx:1.27"), " "); !strings.Contains(args, want) {
+			t.Errorf("%s: deploy args %q lack %q", size, args, want)
+		}
+	}
+
+	for size, want := range map[string][2]string{
+		`"cpu": 0.5,`:                 {"GCP_FRACTIONAL_CPU", "Use cpu: 1."},
+		`"cpu": 3,`:                   {"GCP_CPU", ""},
+		`"cpu": 16,`:                  {"GCP_CPU", ""},
+		`"memory": "8GB",`:            {"GCP_MEMORY", "Set cpu: 2, or memory between 128MB and 4GB."},
+		`"memory": "20GB", "cpu": 2,`: {"GCP_MEMORY", "Set cpu: 6, or memory between 128MB and 8GB."},
+		`"cpu": 4,`:                   {"GCP_MEMORY", "Set cpu: 1, or memory between 2GB and 16GB."},
+		`"memory": "64MB",`:           {"GCP_MEMORY", "Cloud Run instances have 128MB to 32GB of memory."},
+		`"memory": "64GB", "cpu": 8,`: {"GCP_MEMORY", "Cloud Run instances have 128MB to 32GB of memory."},
+	} {
+		s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27", `+size+` "ports": [{"port": 80}]}}, `+target+`}`)
+		env, _ := newEnv(t, t.TempDir(), nil)
+		var found bool
+		for _, f := range plan(t, s, env).Findings {
+			if f.Level == adapter.Error {
+				found = true
+				if f.Code != want[0] || f.Hint != want[1] || f.Service != "web" {
+					t.Errorf("%s: finding = %+v, want %s with hint %q", size, f, want[0], want[1])
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s: no error", size)
+		}
+	}
+}
+
 func TestPlanHealthCheck(t *testing.T) {
 	tests := map[string]struct {
 		healthCheck string
