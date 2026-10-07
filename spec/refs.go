@@ -3,6 +3,7 @@ package spec
 import (
 	"regexp"
 	"slices"
+	"strings"
 )
 
 // serviceURLRe matches a reference to another service's URL in an env
@@ -36,4 +37,41 @@ func (s *Service) RefersTo() []string {
 	}
 	slices.Sort(names)
 	return slices.Compact(names)
+}
+
+// A reference written almost right reaches the container as the text it is,
+// and the app gets a URL it can't use. These catch the usual slips.
+var (
+	// bracedRefRe is ${services.<name>...} in any case, with "service" or
+	// "services", any field or none, and spaces inside the braces.
+	bracedRefRe = regexp.MustCompile(`(?i)\$\{\s*services?\.([^}.\s]+)(?:\.([^}\s]*))?\s*\}`)
+	// bareRefRe is services.<name>.url without the braces.
+	bareRefRe = regexp.MustCompile(`(?i)\bservices?\.([a-z0-9_-]+)\.url\b`)
+)
+
+// nearMiss is a piece of an env value that reads as a reference to a
+// service's URL but isn't written as ${services.<name>.url}.
+type nearMiss struct {
+	text  string
+	name  string // the service named, in lowercase
+	field string // the field asked for; "url" when none other was written
+}
+
+// nearMisses finds the references in an env value that are written wrong,
+// leaving the ones written right alone.
+func nearMisses(value string) []nearMiss {
+	rest := serviceURLRe.ReplaceAllString(value, " ")
+	var out []nearMiss
+	for _, m := range bracedRefRe.FindAllStringSubmatch(rest, -1) {
+		field := strings.ToLower(m[2])
+		if field == "" {
+			field = "url"
+		}
+		out = append(out, nearMiss{text: m[0], name: strings.ToLower(m[1]), field: field})
+	}
+	rest = bracedRefRe.ReplaceAllString(rest, " ")
+	for _, m := range bareRefRe.FindAllStringSubmatch(rest, -1) {
+		out = append(out, nearMiss{text: m[0], name: strings.ToLower(m[1]), field: "url"})
+	}
+	return out
 }

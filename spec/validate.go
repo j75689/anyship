@@ -179,6 +179,13 @@ func (s *Spec) validateService(name string, claimedDomains map[string]string, p 
 				p.add(at("env", key), "refers to ${services.%s.url}, but the spec has no service %q", ref, ref)
 			}
 		}
+		for _, miss := range nearMisses(svc.Env[key]) {
+			if miss.field != "url" {
+				p.add(at("env", key), "refers to %s, but a service only has a url: write ${services.%s.url}", miss.text, miss.name)
+			} else {
+				p.add(at("env", key), "contains %q, which reads as a reference to %s's URL; write it as ${services.%s.url}, otherwise the container gets this text as it is", miss.text, miss.name, miss.name)
+			}
+		}
 	}
 
 	for i, c := range svc.Cron {

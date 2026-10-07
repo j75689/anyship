@@ -118,6 +118,31 @@ func TestParseServiceURLRefs(t *testing.T) {
 	}
 }
 
+// A reference written almost right would reach the container as text, so
+// the spec refuses it and says how to write it.
+func TestServiceURLNearMisses(t *testing.T) {
+	two := "  services:\n    web: {kind: server, start: x, env: {API: %q}}\n    api: {kind: server, start: x}\n"
+	for value, want := range map[string]string{
+		"${service.api.url}":                      `contains "${service.api.url}", which reads as a reference to api's URL; write it as ${services.api.url}, otherwise the container gets this text as it is`,
+		"${services.API.url}":                     `contains "${services.API.url}", which reads as a reference to api's URL`,
+		"${ services.api.url }":                   `contains "${ services.api.url }", which reads`,
+		"services.api.url":                        `contains "services.api.url", which reads as a reference to api's URL`,
+		"$services.api.url/v1":                    `contains "services.api.url", which reads`,
+		"http://SERVICES.api.URL/x":               `contains "SERVICES.api.URL", which reads`,
+		"${services.api}":                         `contains "${services.api}", which reads`,
+		"${services.api.port}":                    `refers to ${services.api.port}, but a service only has a url: write ${services.api.url}`,
+		"${services.api.url}, ${service.web.url}": `contains "${service.web.url}", which reads as a reference to web's URL`,
+	} {
+		got := problemsOf(t, app("app", fmt.Sprintf(two, value)))
+		if !slices.ContainsFunc(got, func(p string) bool { return strings.HasPrefix(p, "spec.services.web.env.API: "+want) }) {
+			t.Errorf("%s: problems = %q, want %q", value, got, want)
+		}
+	}
+	for _, value := range []string{"${services.api.url}/v1", "${services.api.url},${services.api.url}", "https://services.example.com/api", "${HOME}/services.d", "microservices.api.url"} {
+		mustParse(t, app("app", fmt.Sprintf(two, value)))
+	}
+}
+
 func TestParseCron(t *testing.T) {
 	cron := func(entries string) []byte {
 		return app("app", "  services:\n    web: {kind: server, start: x, cron: ["+entries+"]}\n")
