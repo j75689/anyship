@@ -159,13 +159,23 @@ jobs:
       # The registry answers as kind-registry:5001 on the runner (/etc/hosts)
       # and on the nodes (containerd hosts.toml), so images are pushed to and
       # pulled from that name.
-      - name: Start a kind cluster with a local registry
+      - name: Start a kind cluster with a local registry and a load balancer
         id: kind
         uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           cluster_name: anyship
           registry: true
           registry_port: 5001
+          cloud_provider: true
+      # The e2e test gives a service a domain and checks that an ingress
+      # controller routes it; this one is the project's own manifest for
+      # clusters with a load balancer.
+      - name: Install ingress-nginx
+        run: |
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.15.1/deploy/static/provider/cloud/deploy.yaml
+          kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=180s
       - run: make e2e-kubernetes
         env:
           ANYSHIP_K8S_REPOSITORY: ${{ steps.kind.outputs.LOCAL_REGISTRY }}/anyship-e2e
+          ANYSHIP_K8S_INGRESS_CLASS: nginx
+          ANYSHIP_K8S_LB: "1"

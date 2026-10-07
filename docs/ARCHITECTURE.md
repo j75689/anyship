@@ -47,8 +47,8 @@ and limits.
 | HTTP `server` | Worker | container | Cloud Run service | ECS Express Mode service | Deployment and ClusterIP Service |
 | image or Dockerfile | refused | built on the host | built locally, pushed to Artifact Registry | built locally, pushed to ECR | built locally, pushed to a registry you name |
 | `static` site | Worker assets | nginx container | refused (use cloudflare) | refused (use cloudflare) | refused (planned) |
-| volumes, TCP/UDP ports | refused | Docker volumes, published ports | refused (use vps) | refused (use vps) | refused (planned) |
-| `domains` | custom-domain routes | refused (no HTTP router yet) | refused (map them yourself) | refused (CNAME the `on.aws` URL) | refused (Ingress planned) |
+| volumes, TCP/UDP ports | refused | Docker volumes, published ports | refused (use vps) | refused (use vps) | volumes planned; LoadBalancer Service ports |
+| `domains` | custom-domain routes | refused (no HTTP router yet) | refused (map them yourself) | refused (CNAME the `on.aws` URL) | Ingress host rules, given an IngressClass |
 | `replicas` | automatic | Compose replicas | min instances | min tasks | Deployment replicas |
 | `secrets` | `wrangler secret` | files on the host | Secret Manager, by name | Secrets Manager, by name | Secret objects, files in the pod |
 | databases | D1, KV, R2, Hyperdrive by id | external only | external only | external only | external only |
