@@ -101,7 +101,7 @@ curl -fsSL https://raw.githubusercontent.com/j75689/anyship/main/install.sh | sh
 
 The script picks the archive for your OS and CPU from the
 [latest release](https://github.com/j75689/anyship/releases/latest), checks it against the release's
-`checksums.txt`, and installs to `/usr/local/bin` (or `~/.local/bin`). Set `ANYSHIP_VERSION=v0.3.1` to
+`checksums.txt`, and installs to `/usr/local/bin` (or `~/.local/bin`). Set `ANYSHIP_VERSION=v0.4.0` to
 pin a version or `ANYSHIP_INSTALL_DIR` to choose the directory. You can also download an archive from
 the releases page, or build from source with Go 1.27+:
 `go install github.com/j75689/anyship/cmd/anyship@latest`.
