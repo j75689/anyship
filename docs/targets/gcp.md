@@ -23,6 +23,8 @@ spec:
           ingress: all                # for an internal port: reachable from anywhere, token required; default: internal
       secretReaders:        # optional service accounts outside the spec that keep reading its secrets
         - reports@my-project.iam.gserviceaccount.com
+      network: default      # optional existing VPC network and a subnet of it in the region, for
+      subnet: default       # services that call one with an internal port
 ```
 
 - anyship drives your installed `gcloud` with its current login, and `docker buildx` for builds. It
@@ -68,10 +70,17 @@ spec:
   removed). The calling app has to
   [attach the token](https://cloud.google.com/run/docs/authenticating/service-to-service), with the
   service's URL as audience. By default the service also keeps internal ingress, so a request has
-  to arrive through one of the project's VPC networks, which anyship doesn't set up; `plan` warns
-  that the spec's other services can't reach it as deployed (`GCP_INTERNAL_CALLERS`). With
-  `services.<name>.ingress: all` the token is the only guard: the service takes requests from
-  anywhere and the spec's services reach it with no network to set up (`GCP_INTERNAL`).
+  to arrive through one of the project's VPC networks. anyship creates no network, but given an
+  existing one (`network` and `subnet`), every service whose `env` refers to such a service with
+  `${services.<name>.url}` sends all its traffic through it (Direct VPC egress) and so reaches it
+  (`GCP_INTERNAL_VPC`, `GCP_VPC_EGRESS`); preflight checks that the subnet exists, belongs to the
+  network and has Private Google Access, which traffic from it to Cloud Run needs. Such a caller
+  reaches the internet only through Cloud NAT on that network. A network set by hand on a service
+  stays. Right after the subnet or the caller's network is set up, internal ingress can keep
+  answering 404 to the caller for a few minutes before the new path is recognised. Without `network`, `plan` warns that the spec's other services can't reach the internal
+  one as deployed (`GCP_INTERNAL_CALLERS`). With `services.<name>.ingress: all` the token is the
+  only guard: the service takes requests from anywhere and the spec's services reach it with no
+  network at all (`GCP_INTERNAL`).
 - `${services.<name>.url}` in `env` becomes that service's Cloud Run URL
   (`https://<spec name>-<name>-<project number>.<region>.run.app`), which follows from the names,
   so it is known before the first deploy and the same on every one.

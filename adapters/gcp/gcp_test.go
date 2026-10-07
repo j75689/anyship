@@ -550,6 +550,116 @@ func TestApplyTakesStaleSecretAccessAway(t *testing.T) {
 	}
 }
 
+// A service that refers to one with internal ingress sends its traffic
+// through the target's VPC, once the target names one; the callee's warning
+// becomes a note. With ingress "all" on the callee there is no need.
+func TestPlanVPCEgress(t *testing.T) {
+	spec := func(options string) *spec.Spec {
+		return parse(t, `{"name": "shop",
+			"services": {
+				"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}], "env": {"API": "${services.api.url}"}},
+				"api": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 8080, "exposure": "internal"}]},
+				"other": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}]}},
+			"targets": {"gcp": {"project": "my-project", "region": "us-central1"`+options+`}}}`)
+	}
+	env, _ := newEnv(t, t.TempDir(), nil)
+	const flags = "--network vpc --subnet apps --vpc-egress all-traffic"
+
+	p := plan(t, spec(`, "network": "vpc", "subnet": "apps"`), env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", p.Findings)
+	}
+	if got := codes(p, adapter.Warning); len(got) > 0 {
+		t.Errorf("warnings = %v, want none", got)
+	}
+	for _, want := range []string{"GCP_INTERNAL_VPC", "GCP_VPC_EGRESS"} {
+		if !slices.Contains(codes(p, adapter.Info), want) {
+			t.Errorf("info = %v, want %s", codes(p, adapter.Info), want)
+		}
+	}
+	data := p.Data.(*planData)
+	for _, sv := range data.services {
+		args := strings.Join(deployArgs(data, sv, "nginx:1.27"), " ")
+		if has := strings.Contains(args, flags); has != (sv.name == "web") {
+			t.Errorf("%s: deploy args %q, vpc flags = %v", sv.name, args, has)
+		}
+	}
+
+	bare := plan(t, spec(``), env)
+	if !slices.Contains(codes(bare, adapter.Warning), "GCP_INTERNAL_CALLERS") {
+		t.Errorf("without a network: warnings = %v", codes(bare, adapter.Warning))
+	}
+	data = bare.Data.(*planData)
+	if args := strings.Join(deployArgs(data, data.services[2], "nginx:1.27"), " "); strings.Contains(args, "--network") {
+		t.Errorf("without a network: deploy args %q", args)
+	}
+
+	open := plan(t, spec(`, "network": "vpc", "subnet": "apps", "services": {"api": {"ingress": "all"}}`), env)
+	data = open.Data.(*planData)
+	if args := strings.Join(deployArgs(data, data.services[2], "nginx:1.27"), " "); strings.Contains(args, "--network") {
+		t.Errorf("callee open to all: deploy args %q", args)
+	}
+
+	for options, want := range map[string]string{
+		`, "network": "vpc"`:                      "network and subnet go together",
+		`, "subnet": "apps"`:                      "network and subnet go together",
+		`, "network": "My VPC", "subnet": "apps"`: `network "My VPC"`,
+	} {
+		p := plan(t, spec(options), env)
+		if msgs := codes(p, adapter.Error); !slices.Equal(msgs, []string{"GCP_BAD_OPTIONS"}) || !strings.Contains(p.Findings[0].Message, want) {
+			t.Errorf("%s: findings = %+v, want %q", options, p.Findings, want)
+		}
+	}
+}
+
+func TestApplyChecksTheSubnet(t *testing.T) {
+	s := parse(t, `{"name": "shop",
+		"services": {
+			"web": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 80}], "env": {"API": "${services.api.url}"}},
+			"api": {"kind": "server", "image": "nginx:1.27", "ports": [{"port": 8080, "exposure": "internal"}]}},
+		"targets": {"gcp": {"project": "my-project", "region": "us-central1", "network": "vpc", "subnet": "apps"}}}`)
+	for name, tc := range map[string]struct {
+		apis, subnet string
+		code, hint   string
+	}{
+		"ready":             {"\ncompute.googleapis.com", "vpc\tTrue", "", ""},
+		"api off":           {"", "vpc\tTrue", "GCP_PREFLIGHT_API", "gcloud services enable compute.googleapis.com"},
+		"no private access": {"\ncompute.googleapis.com", "vpc\tFalse", "GCP_PREFLIGHT_SUBNET", "--enable-private-ip-google-access"},
+		"wrong network":     {"\ncompute.googleapis.com", "other\tTrue", "GCP_PREFLIGHT_SUBNET", ""},
+		"no such subnet":    {"\ncompute.googleapis.com", "", "GCP_PREFLIGHT_SUBNET", "subnets list"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			env, fc := newEnv(t, t.TempDir(), nil)
+			fc.out["gcloud services list"] += tc.apis
+			if tc.subnet == "" {
+				fc.fail = []string{"gcloud compute networks subnets describe"}
+			} else {
+				fc.out["gcloud compute networks subnets describe apps"] = tc.subnet
+			}
+			res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.code == "" {
+				if !res.OK {
+					t.Fatalf("apply failed: %+v", res.Findings)
+				}
+				if deploy := fc.find("gcloud run deploy shop-web"); deploy == nil || !strings.Contains(deploy.line(), "--network vpc --subnet apps --vpc-egress all-traffic") {
+					t.Errorf("web deploy = %+v", deploy)
+				}
+				return
+			}
+			if res.OK || fc.find("gcloud run deploy") != nil {
+				t.Fatalf("deployed anyway: %+v", res)
+			}
+			i := slices.IndexFunc(res.Findings, func(f adapter.Finding) bool { return f.Code == tc.code })
+			if i < 0 || !strings.Contains(res.Findings[i].Hint, tc.hint) {
+				t.Errorf("findings = %+v, want %s with hint %q", res.Findings, tc.code, tc.hint)
+			}
+		})
+	}
+}
+
 func TestPlanHealthCheck(t *testing.T) {
 	tests := map[string]struct {
 		healthCheck string

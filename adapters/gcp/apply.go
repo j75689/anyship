@@ -228,6 +228,7 @@ var requiredAPIs = map[string]string{
 	"registry": "artifactregistry.googleapis.com",
 	"secrets":  "secretmanager.googleapis.com",
 	"cron":     "cloudscheduler.googleapis.com",
+	"compute":  "compute.googleapis.com",
 }
 
 // preflight checks the login, project, APIs and registry before anything
@@ -273,6 +274,10 @@ func preflight(ctx context.Context, g gcloud, d *planData) (string, []adapter.Fi
 	if slices.ContainsFunc(d.services, func(sv service) bool { return len(sv.jobs) > 0 }) {
 		needed = append(needed, requiredAPIs["cron"])
 	}
+	vpc := slices.ContainsFunc(d.services, func(sv service) bool { return sv.vpc })
+	if vpc {
+		needed = append(needed, requiredAPIs["compute"])
+	}
 	apis := strings.Fields(enabled)
 	d.scheduler = slices.Contains(apis, requiredAPIs["cron"])
 	for _, api := range needed {
@@ -292,6 +297,22 @@ func preflight(ctx context.Context, g gcloud, d *planData) (string, []adapter.Fi
 				fmt.Sprintf("gcloud artifacts repositories create %s --repository-format docker --location %s --project %s", d.opts.Repository, d.opts.Region, d.opts.Project))
 		case format != "DOCKER":
 			add(adapter.Error, "GCP_PREFLIGHT_REPOSITORY", fmt.Sprintf("Artifact Registry repository %s holds %s packages, not Docker images.", d.opts.Repository, format), "")
+		}
+	}
+	// Instances on a VPC have no public address, so reaching run.app from
+	// the subnet takes Private Google Access.
+	if vpc && slices.Contains(apis, requiredAPIs["compute"]) {
+		out, err := g.probe(ctx, "compute", "networks", "subnets", "describe", d.opts.Subnet, "--region", d.opts.Region, "--format", "value(network.basename(),privateIpGoogleAccess)")
+		network, access, _ := strings.Cut(out, "\t")
+		switch {
+		case err != nil:
+			add(adapter.Error, "GCP_PREFLIGHT_SUBNET", fmt.Sprintf("Subnet %s doesn't exist in %s, or can't be read: %v.", d.opts.Subnet, d.opts.Region, err),
+				"Name an existing subnet of the network in spec.targets.gcp.subnet (gcloud compute networks subnets list).")
+		case network != d.opts.Network:
+			add(adapter.Error, "GCP_PREFLIGHT_SUBNET", fmt.Sprintf("Subnet %s belongs to network %s, not %s.", d.opts.Subnet, network, d.opts.Network), "")
+		case access != "True":
+			add(adapter.Error, "GCP_PREFLIGHT_SUBNET", fmt.Sprintf("Subnet %s has no Private Google Access, which traffic from it to Cloud Run needs.", d.opts.Subnet),
+				fmt.Sprintf("gcloud compute networks subnets update %s --region %s --enable-private-ip-google-access --project %s", d.opts.Subnet, d.opts.Region, d.opts.Project))
 		}
 	}
 	if building {
