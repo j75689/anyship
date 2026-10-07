@@ -64,7 +64,11 @@ func (*fakeAdapter) Apply(ctx context.Context, p *adapter.Plan, _ *spec.Spec, en
 }
 
 func (*fakeAdapter) Logs(ctx context.Context, _ *spec.Spec, env *adapter.Env, opts adapter.LogOptions) error {
-	execOpts, name, args := helper("print", "log line for "+opts.Service)
+	line := "log line for " + opts.Service
+	if opts.Timestamps {
+		line = "2026-10-07T00:00:00Z " + line
+	}
+	execOpts, name, args := helper("print", line)
 	return env.Exec(ctx, execOpts, name, args...)
 }
 
@@ -230,6 +234,17 @@ func TestMCPReadOnlyTools(t *testing.T) {
 	if logs.Output != "log line for web\n" {
 		t.Errorf("logs = %+v", logs)
 	}
+	if msg := h.call(t, "logs", map[string]any{"config": fakeSpec(t), "target": "fake", "service": "web", "timestamps": true}, &logs); msg != "" || !strings.HasPrefix(logs.Output, "2026-10-07T00:00:00Z log line") {
+		t.Errorf("logs with timestamps = %+v, %q", logs, msg)
+	}
+
+	var st statusOutput
+	if msg := h.call(t, "status", map[string]any{"config": fakeSpec(t), "target": "fake"}, &st); msg != "" {
+		t.Fatal(msg)
+	}
+	if st.Deployed || st.Healthy || st.Target != "fake" || st.Services == nil {
+		t.Errorf("status = %+v", st)
+	}
 }
 
 func TestMCPOnlyDryRunsWithoutAllowDeploy(t *testing.T) {
@@ -267,6 +282,9 @@ func TestMCPApplyCapturesCommandOutput(t *testing.T) {
 
 	if msg != "" || !result.OK || !slices.Equal(result.Messages, []string{"deployed"}) {
 		t.Fatalf("apply = %+v, %q", result, msg)
+	}
+	if len(result.Files) != 1 || filepath.Base(result.Files[0]) != "generated.yaml" {
+		t.Errorf("apply should name the files it wrote: %v", result.Files)
 	}
 	for _, want := range []string{"$ deploying\n", "from-stdout\n", "from-stderr\n"} {
 		if !strings.Contains(result.Output, want) {

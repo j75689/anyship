@@ -197,11 +197,14 @@ func TestMCPEndToEnd(t *testing.T) {
 	if !slices.Contains(applied.Messages, "web: http://app-web."+namespace+".svc:8000 (inside the cluster)") {
 		t.Errorf("apply messages = %v", applied.Messages)
 	}
+	if !slices.ContainsFunc(applied.Files, func(f string) bool { return filepath.Base(f) == "manifests.yaml" }) {
+		t.Errorf("apply should name the files it wrote: %v", applied.Files)
+	}
 
 	t.Log("== status and logs read the cluster")
-	var st adapter.Status
+	var st statusOutput
 	mustCall(deployer, "status", map[string]any{"target": "kubernetes"}, &st)
-	if !st.Deployed || !st.Healthy() || st.Location != cluster+"/"+namespace {
+	if !st.Deployed || !st.Healthy || st.Location != cluster+"/"+namespace {
 		t.Errorf("status = %+v", st)
 	}
 	// Without a readiness probe the rollout is done the moment the container
@@ -209,7 +212,7 @@ func TestMCPEndToEnd(t *testing.T) {
 	var logs logsOutput
 	for try := 0; try < 10; try++ {
 		started := time.Now()
-		mustCall(deployer, "logs", map[string]any{"target": "kubernetes", "tail": 20}, &logs)
+		mustCall(deployer, "logs", map[string]any{"target": "kubernetes", "tail": 20, "timestamps": true}, &logs)
 		if took := time.Since(started); took > liveLogWindow {
 			t.Errorf("logs took %s; a target that reads recent logs should return at once", took)
 		}
@@ -218,7 +221,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		}
 		time.Sleep(2 * time.Second)
 	}
-	if !strings.Contains(strings.ToLower(logs.Output), "gunicorn") || logs.Note != "" {
+	if !strings.Contains(strings.ToLower(logs.Output), "gunicorn") || logs.Note != "" || !strings.Contains(logs.Output, "2026-") {
 		t.Errorf("logs = %+v", logs)
 	}
 
@@ -268,7 +271,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		t.Errorf("destroy = %+v", destroyed)
 	}
 	mustCall(deployer, "status", map[string]any{"target": "kubernetes"}, &st)
-	if st.Deployed {
+	if st.Deployed || st.Healthy {
 		t.Errorf("status after destroy = %+v", st)
 	}
 }
