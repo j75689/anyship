@@ -16,6 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
+	"github.com/j75689/anyship"
 	"github.com/j75689/anyship/adapter"
 	"github.com/j75689/anyship/detect"
 	"github.com/j75689/anyship/diagnose"
@@ -26,7 +27,8 @@ const mcpInstructions = `anyship deploys an app described by anyship.yaml to a t
 
 Typical flow: detect (draft a spec for a directory) → write anyship.yaml → validate → plan → apply with dry_run → apply.
 Read-only tools never change anything. Deploying and destroying are only possible when the server was started with --allow-deploy.
-Never pass volumes=true to destroy unless the user explicitly asked to delete data; it deletes volumes and secrets for good.`
+Never pass volumes=true to destroy unless the user explicitly asked to delete data; it deletes volumes and secrets for good.
+Resources: anyship://schema is the JSON schema of anyship.yaml, and anyship://targets/<name> is each target's page with its options under spec.targets.<name>, how it deploys and what it refuses. Read a target's page before writing its options.`
 
 // mcpInstructionsIn adds where the server runs. An agent's own working
 // directory need not be the server's, and every relative path a tool takes
@@ -68,6 +70,19 @@ var (
 // toolFor names the tool behind a command, where the two differ.
 var toolFor = map[string]string{"init": "detect", "diagnose": "diagnose_context"}
 
+// docURL matches the link to a target's page that option hints end with; an
+// agent reads the page as a resource instead.
+var docURL = regexp.MustCompile(`https://github\.com/j75689/anyship/blob/main/docs/targets/([a-z]+)\.md`)
+
+// Resource URIs. The schema is made by the binary, so it is always the
+// schema of the spec this version reads; the target pages travel with it.
+const (
+	schemaURI     = "anyship://schema"
+	targetURIBase = "anyship://targets/"
+)
+
+func targetURI(name string) string { return targetURIBase + name }
+
 func agentText(text string) string {
 	tool := func(command string) string {
 		if name, ok := toolFor[command]; ok {
@@ -89,6 +104,9 @@ func agentText(text string) string {
 	})
 	text = bareCommand.ReplaceAllStringFunc(text, func(match string) string {
 		return tool(bareCommand.FindStringSubmatch(match)[1])
+	})
+	text = docURL.ReplaceAllStringFunc(text, func(match string) string {
+		return "the " + targetURI(docURL.FindStringSubmatch(match)[1]) + " resource"
 	})
 	return bareFlags.Replace(text)
 }
@@ -167,6 +185,8 @@ type targetInfo struct {
 	Name         string   `json:"name"`
 	Description  string   `json:"description"`
 	Capabilities []string `json:"capabilities"`
+	// Docs is the resource with the target's page, when it has one.
+	Docs string `json:"docs,omitempty"`
 }
 
 type detectInput struct {
@@ -270,11 +290,17 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: ptr(false)}
 	readsTarget := &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}
 
-	addTool(server, &mcp.Tool{Name: "targets", Description: "List deploy targets and what each supports.", Annotations: readOnly},
+	addResources(server, a.registry)
+
+	addTool(server, &mcp.Tool{Name: "targets", Description: "List deploy targets, what each supports, and the resource with each one's page (its options, how it deploys, what it refuses).", Annotations: readOnly},
 		func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, targetsOutput, error) {
 			out := targetsOutput{Targets: []targetInfo{}}
 			for _, ad := range a.registry.List() {
-				out.Targets = append(out.Targets, targetInfo{ad.Name(), ad.Description(), capabilities(ad)})
+				info := targetInfo{Name: ad.Name(), Description: ad.Description(), Capabilities: capabilities(ad)}
+				if _, err := targetDoc(ad.Name()); err == nil {
+					info.Docs = targetURI(ad.Name())
+				}
+				out.Targets = append(out.Targets, info)
 			}
 			return nil, out, nil
 		})
@@ -484,6 +510,40 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 	})
 
 	return server
+}
+
+// targetDoc is the page of a target, as carried by the binary.
+func targetDoc(name string) ([]byte, error) {
+	return anyship.TargetDocs.ReadFile("docs/targets/" + name + ".md")
+}
+
+// addResources serves the spec's JSON schema and each target's page, so an
+// agent writing anyship.yaml can read what a hint points at.
+func addResources(server *mcp.Server, registry *adapter.Registry) {
+	server.AddResource(&mcp.Resource{
+		URI: schemaURI, Name: "anyship.yaml schema", MIMEType: "application/schema+json",
+		Description: "JSON schema of anyship.yaml: every field, with the targets block left open; a target's own options are on its page.",
+	}, func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		data, err := spec.JSONSchema()
+		if err != nil {
+			return nil, err
+		}
+		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: schemaURI, MIMEType: "application/schema+json", Text: string(data)}}}, nil
+	})
+	for _, ad := range registry.List() {
+		name := ad.Name()
+		page, err := targetDoc(name)
+		if err != nil {
+			continue
+		}
+		uri := targetURI(name)
+		server.AddResource(&mcp.Resource{
+			URI: uri, Name: "the " + name + " target", MIMEType: "text/markdown", Size: int64(len(page)),
+			Description: fmt.Sprintf("The %s target: its options under spec.targets.%s, how it deploys a spec, what it refuses and why.", name, name),
+		}, func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+			return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: uri, MIMEType: "text/markdown", Text: string(page)}}}, nil
+		})
+	}
 }
 
 // prepareForMCP loads the spec and target like the CLI does, but routes all

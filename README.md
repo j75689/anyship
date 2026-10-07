@@ -322,6 +322,11 @@ that look like projects, so the agent can pass one as `dir`.
 | `apply` | deploy; `dry_run` runs the target's checks and generates the deployment files | `.anyship/<target>/`; deploys only with `--allow-deploy` |
 | `destroy` | remove a deployment; `volumes` also deletes data | no; removes only with `--allow-deploy` |
 
+The server also serves two kinds of resources, for an agent writing `anyship.yaml`: `anyship://schema`,
+the JSON schema of the spec, and `anyship://targets/<name>`, each target's page from `docs/targets/`
+with its options, how it deploys and what it refuses. The `targets` tool names each page, and a hint
+about a target's options points at it instead of a URL.
+
 The read-only tools leave your project alone, so a host can run them without asking: `plan` returns
 the compose file and any generated Dockerfile with their contents instead of writing them, and
 `diagnose_context` runs the target's checks in a temporary directory. Only `apply` writes

@@ -36,6 +36,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `maxReplicas` (a HorizontalPodAutoscaler on CPU use, needs metrics-server) and `resources`, which
   overrides the container's requests and limits slot by slot, with `none` to leave one unset, so a
   CPU limit can be dropped (#102).
+- `anyship mcp` serves the spec's JSON schema (`anyship://schema`) and each target's page
+  (`anyship://targets/<name>`) as resources, so an agent writing `anyship.yaml` can read a
+  target's options instead of being pointed at a URL; the `targets` tool names each page (#111).
 - The spec refuses an env value that reads as a reference to a service's URL but isn't written as
   `${services.<name>.url}` (`${service.api.url}`, `services.api.url`, `${services.api.port}`, …),
   since the container would get that text as it is (#104).

@@ -111,6 +111,21 @@ func TestMCPEndToEnd(t *testing.T) {
 	}
 	deployer := connect("--allow-deploy")
 
+	t.Log("== the target's page and the schema are resources")
+	var targets targetsOutput
+	mustCall(deployer, "targets", nil, &targets)
+	if !slices.ContainsFunc(targets.Targets, func(ti targetInfo) bool { return ti.Name == "kubernetes" && ti.Docs == "anyship://targets/kubernetes" }) {
+		t.Errorf("targets = %+v", targets.Targets)
+	}
+	page, err := deployer.ReadResource(ctx, &mcp.ReadResourceParams{URI: "anyship://targets/kubernetes"})
+	if err != nil || len(page.Contents) != 1 || !strings.Contains(page.Contents[0].Text, "ingressClass") {
+		t.Errorf("kubernetes page: %v %+v", err, page)
+	}
+	schema, err := deployer.ReadResource(ctx, &mcp.ReadResourceParams{URI: "anyship://schema"})
+	if err != nil || len(schema.Contents) != 1 || !strings.Contains(schema.Contents[0].Text, `"$schema"`) {
+		t.Errorf("schema: %v", err)
+	}
+
 	t.Log("== detect drafts the spec, which is written with the kubernetes target")
 	var detected detectOutput
 	mustCall(deployer, "detect", nil, &detected)

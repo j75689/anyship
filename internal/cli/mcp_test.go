@@ -185,6 +185,9 @@ func TestMCPReadOnlyTools(t *testing.T) {
 	if len(targets.Targets) != 3 || targets.Targets[2].Name != "vps" || !slices.Contains(targets.Targets[2].Capabilities, "status") {
 		t.Errorf("targets = %+v", targets)
 	}
+	if targets.Targets[2].Docs != "anyship://targets/vps" || targets.Targets[1].Docs != "" {
+		t.Errorf("targets should name the page of the targets that have one: %+v", targets.Targets)
+	}
 
 	var detected detectOutput
 	if msg := h.call(t, "detect", map[string]any{"dir": filepath.Join("..", "..", "dockerfile", "testdata", "apps", "go")}, &detected); msg != "" {
@@ -565,5 +568,45 @@ func TestMCPWordsMessagesForAnAgent(t *testing.T) {
 	}
 	if forAgent(nil) != nil {
 		t.Error("no error must stay no error")
+	}
+}
+
+// The schema and the target pages are resources, so an agent can read what
+// an option hint points at instead of a URL.
+func TestMCPResources(t *testing.T) {
+	h := connectMCP(t, false)
+	ctx := context.Background()
+	listed, err := h.session.ListResources(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var uris []string
+	for _, r := range listed.Resources {
+		uris = append(uris, r.URI)
+	}
+	slices.Sort(uris)
+	if want := []string{"anyship://schema", "anyship://targets/cloudflare", "anyship://targets/vps"}; !slices.Equal(uris, want) {
+		t.Errorf("resources = %v, want %v (the fake target has no page)", uris, want)
+	}
+	schema, err := h.session.ReadResource(ctx, &mcp.ReadResourceParams{URI: "anyship://schema"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(schema.Contents) != 1 || !strings.Contains(schema.Contents[0].Text, `"$schema"`) || !strings.Contains(schema.Contents[0].Text, `"services"`) {
+		t.Errorf("schema resource = %+v", schema.Contents)
+	}
+	page, err := h.session.ReadResource(ctx, &mcp.ReadResourceParams{URI: "anyship://targets/vps"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Contents) != 1 || page.Contents[0].MIMEType != "text/markdown" || !strings.HasPrefix(page.Contents[0].Text, "# The `vps` target") {
+		t.Errorf("vps page = %+v", page.Contents)
+	}
+	if _, err := h.session.ReadResource(ctx, &mcp.ReadResourceParams{URI: "anyship://targets/fake"}); err == nil {
+		t.Error("a target without a page shouldn't have a resource")
+	}
+	hint := agentText(adapter.OptionsHint("vps", "`host: deploy@203.0.113.10`"))
+	if !strings.HasSuffix(hint, "Every option: the anyship://targets/vps resource") {
+		t.Errorf("hint for an agent = %q", hint)
 	}
 }
