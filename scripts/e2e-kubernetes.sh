@@ -148,8 +148,15 @@ k get cronjob app-web-cron-0 app-web-cron-1 -o name || fail "both CronJobs shoul
 # Run each once now rather than waiting for its schedule.
 k create job --from=cronjob/app-web-cron-0 cron-path-run >/dev/null
 k create job --from=cronjob/app-web-cron-1 cron-command-run >/dev/null
-k wait --for=condition=complete job/cron-path-run --timeout=120s || { k logs job/cron-path-run; fail "the path job didn't complete"; }
-k wait --for=condition=complete job/cron-command-run --timeout=120s || { k logs job/cron-command-run; fail "the command job didn't complete"; }
+job_failed() {
+  k get job "$1" -o wide || true
+  k get pods -l "job-name=$1" -o wide || true
+  k describe pods -l "job-name=$1" | grep -A12 '^Events' || true
+  k logs "job/$1" --all-containers || true
+  fail "the $1 job didn't complete"
+}
+k wait --for=jsonpath='{.status.succeeded}'=1 job/cron-path-run --timeout=120s || job_failed cron-path-run
+k wait --for=jsonpath='{.status.succeeded}'=1 job/cron-command-run --timeout=120s || job_failed cron-command-run
 [ "$(k logs job/cron-path-run | tail -n 1)" = ok ] || fail "the path job should have got ok from the app"
 [ "$(k logs job/cron-command-run | tail -n 1)" = 42 ] || fail "the command job should have printed 42"
 "$ANYSHIP" logs -t kubernetes -n 50 | tee cron-logs.out
