@@ -31,7 +31,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `gcp`: the accounts of the spec's other services get `roles/run.invoker` on each service with an
   `internal` port, and `targets.gcp.services.<name>.ingress: all` opens such a service to requests
   from anywhere with the identity token as the only guard, so the services of a spec can call each
-  other without a VPC. Without it an internal port keeps internal ingress, as before.
+  other without a VPC. Without it an internal port keeps internal ingress, as before, and
+  `targets.gcp.network` and `subnet` name an existing VPC through which the services that refer to
+  it send their traffic, so they reach it there; preflight checks the subnet.
 - Services take `memory` (`512MB`, `4GB`) and `cpu` (`0.5`, `1`, `2`): what one instance needs,
   on any target. `gcp` sizes the Cloud Run instance and refuses a pair Cloud Run doesn't offer,
   `aws` sizes the task (the service's values win over `targets.aws.cpu` and `memory`), `vps` limits

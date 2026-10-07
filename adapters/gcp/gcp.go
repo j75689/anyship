@@ -63,6 +63,11 @@ type Options struct {
 	// access to its secrets. Every apply takes the access of any other
 	// service account away.
 	SecretReaders []string `json:"secretReaders,omitempty"`
+	// Network and Subnet name an existing VPC network and a subnet of it in
+	// Region. A service that refers to another one with an internal port
+	// sends all its traffic through them, which is how it reaches it.
+	Network string `json:"network,omitempty"`
+	Subnet  string `json:"subnet,omitempty"`
 }
 
 // ServiceOptions are the Cloud Run settings of one service. Timeout and
@@ -180,6 +185,9 @@ type service struct {
 	account string
 	// jobs are the Cloud Scheduler jobs that call the service.
 	jobs []cronJob
+	// vpc is whether the service sends its traffic through the target's
+	// VPC network, to reach a service with internal ingress.
+	vpc bool
 	// image is the image to deploy; for builds it is filled in by Apply.
 	image string
 	build *build
@@ -397,10 +405,14 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 			add(adapter.Info, "GCP_INTERNAL",
 				fmt.Sprintf("Port %d is internal with ingress \"all\", so %s takes requests from anywhere but answers only those that carry an identity token; the accounts the spec's other services run as may send them (roles/run.invoker, granted on apply).", sv.port, sv.cloudRun),
 				fmt.Sprintf("In the calling apps, attach an identity token with %s as audience (https://cloud.google.com/run/docs/authenticating/service-to-service).", "${services."+name+".url}"))
+		case sv.internal && opts.Network != "" && len(callersOf(name, s)) > 0:
+			add(adapter.Info, "GCP_INTERNAL_VPC",
+				fmt.Sprintf("Port %d is internal, so %s keeps internal ingress and requires authentication; %s reach it through VPC network %s with an identity token (roles/run.invoker, granted on apply).", sv.port, sv.cloudRun, strings.Join(callersOf(name, s), ", "), opts.Network),
+				fmt.Sprintf("In the calling apps, attach an identity token with %s as audience (https://cloud.google.com/run/docs/authenticating/service-to-service).", "${services."+name+".url}"))
 		case sv.internal:
 			add(adapter.Warning, "GCP_INTERNAL_CALLERS",
 				fmt.Sprintf("Port %d is internal, so %s is deployed with internal ingress and requires authentication: a request has to arrive through one of the project's VPC networks and carry an identity token. The accounts the spec's other services run as may call it (roles/run.invoker, granted on apply), but anyship sets up no network route, so as deployed they can't reach it.", sv.port, sv.cloudRun),
-				fmt.Sprintf("Send each caller's traffic through a VPC network (https://cloud.google.com/run/docs/securing/private-networking) and have its app attach an identity token with %s as audience; or set spec.targets.gcp.services.%s.ingress: all to let the token be the only guard, with no network to set up.", "${services."+name+".url}", name))
+				fmt.Sprintf("Name an existing VPC in spec.targets.gcp.network and subnet: services whose env refers to %s then send their traffic through it. Or set spec.targets.gcp.services.%s.ingress: all to let the token be the only guard, with no network at all. Either way the calling app attaches an identity token with %s as audience.", "${services."+name+".url}", name, "${services."+name+".url}"))
 		case opts.Services[name].Ingress != "":
 			add(adapter.Error, "GCP_INGRESS", fmt.Sprintf("spec.targets.gcp.services.%s.ingress is for a service with an internal port, and %s has none.", name, name), "")
 		}
@@ -462,6 +474,16 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	if sv.set.ServiceAccount != "" {
 		sv.account = sv.set.ServiceAccount
 	}
+	if opts.Network != "" {
+		for _, ref := range svc.RefersTo() {
+			if closed(ref, s, opts) {
+				sv.vpc = true
+				add(adapter.Info, "GCP_VPC_EGRESS",
+					fmt.Sprintf("%s sends all its traffic through VPC network %s (subnet %s) to reach %s. Traffic to the internet then needs Cloud NAT on that network.", name, opts.Network, opts.Subnet, ref), "")
+				break
+			}
+		}
+	}
 	if hc := svc.HealthCheck; hc != nil {
 		switch {
 		case hc.Path != "" && !strings.HasPrefix(hc.Path, "/"):
@@ -522,6 +544,25 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	add(adapter.Info, "GCP_GENERATED_DOCKERFILE", "No Dockerfile, so anyship generated one; review it in the plan's generated files.",
 		"To customize the build, commit your own Dockerfile and set services.<name>.dockerfile.")
 	return sv, findings
+}
+
+// closed reports whether a service keeps internal ingress, so that only a
+// request from the VPC reaches it.
+func closed(name string, s *spec.Spec, opts *Options) bool {
+	svc := s.Services[name]
+	return slices.ContainsFunc(svc.Ports, func(p spec.Port) bool { return p.Exposure == spec.ExposureInternal && p.Protocol == spec.ProtocolHTTP }) &&
+		opts.Services[name].Ingress != "all"
+}
+
+// callersOf names the services whose env refers to a service.
+func callersOf(name string, s *spec.Spec) []string {
+	var callers []string
+	for _, other := range s.ServiceNames() {
+		if other != name && slices.Contains(s.Services[other].RefersTo(), name) {
+			callers = append(callers, other)
+		}
+	}
+	return callers
 }
 
 // memoryLimits is the least and the most memory, in MB, that Cloud Run allows
@@ -669,6 +710,10 @@ func deployArgs(d *planData, sv service, image string) []string {
 	if sv.account != "" {
 		args = append(args, "--service-account", sv.account)
 	}
+	// A network set by hand stays: anyship only knows the one it set.
+	if sv.vpc {
+		args = append(args, "--network", o.Network, "--subnet", o.Subnet, "--vpc-egress", "all-traffic")
+	}
 	if hc := sv.svc.HealthCheck; hc != nil && hc.Path != "" {
 		args = append(args, "--startup-probe", listFlag([]string{
 			"httpGet.path=" + hc.Path,
@@ -749,6 +794,14 @@ func decodeOptions(raw json.RawMessage) (*Options, error) {
 		if !accountRe.MatchString(account) {
 			return nil, fmt.Errorf("secretReaders.%d: %q is not a service account email", i, account)
 		}
+	}
+	switch {
+	case opts.Network != "" && !repositoryRe.MatchString(opts.Network):
+		return nil, fmt.Errorf("network %q is not a VPC network name", opts.Network)
+	case opts.Subnet != "" && !repositoryRe.MatchString(opts.Subnet):
+		return nil, fmt.Errorf("subnet %q is not a subnet name", opts.Subnet)
+	case (opts.Network == "") != (opts.Subnet == ""):
+		return nil, errors.New("network and subnet go together: name an existing VPC network and a subnet of it in the region")
 	}
 	return opts, nil
 }
