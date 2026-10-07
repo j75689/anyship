@@ -157,8 +157,12 @@ job_failed() {
 }
 k wait --for=jsonpath='{.status.succeeded}'=1 job/cron-path-run --timeout=120s || job_failed cron-path-run
 k wait --for=jsonpath='{.status.succeeded}'=1 job/cron-command-run --timeout=120s || job_failed cron-command-run
-[ "$(k logs job/cron-path-run | tail -n 1)" = ok ] || fail "the path job should have got ok from the app"
-[ "$(k logs job/cron-command-run | tail -n 1)" = 42 ] || fail "the command job should have printed 42"
+# A run can fail and be retried (the service may be rolling right after the
+# apply), so the answer is read from the pod that succeeded, not any pod.
+succeeded_log() { k logs "$(k get pods -l "job-name=$1" --field-selector status.phase=Succeeded -o jsonpath='{.items[0].metadata.name}')" | tail -n 1; }
+k get pods -l job-name=cron-path-run -o wide
+[ "$(succeeded_log cron-path-run)" = ok ] || fail "the path job should have got ok from the app"
+[ "$(succeeded_log cron-command-run)" = 42 ] || fail "the command job should have printed 42"
 "$ANYSHIP" logs -t kubernetes -n 50 | tee cron-logs.out
 grep -q "cron-command-run" cron-logs.out || fail "anyship logs should include the jobs' pods"
 cp one-service.yaml anyship.yaml
