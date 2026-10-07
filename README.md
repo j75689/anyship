@@ -17,6 +17,7 @@ anyship is a single Go binary. It drives the tools you already use (`wrangler`, 
 [![CI](https://github.com/j75689/anyship/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/j75689/anyship/actions/workflows/ci.yml)
 [![Go version](https://img.shields.io/github/go-mod/go-version/j75689/anyship)](go.mod)
 [![License](https://img.shields.io/github/license/j75689/anyship)](LICENSE)
+[![M8ven Score](https://m8ven.ai/badge/mcp/j75689/anyship)](https://m8ven.ai/mcp/j75689/anyship?s=readme)
 
 > **Status: early (v0.3).** The spec, rule-based detection, the CLI, the MCP server and four targets
 > are implemented: Cloudflare Workers, VPS (Docker over SSH), Google Cloud Run and Amazon ECS Express
