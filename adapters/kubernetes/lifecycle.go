@@ -57,6 +57,37 @@ type pod struct {
 	} `json:"status"`
 }
 
+// serviceObject is what status reads from `kubectl get services -o json`:
+// the address a LoadBalancer was given.
+type serviceObject struct {
+	Metadata struct {
+		Name string `json:"name"`
+	} `json:"metadata"`
+	Spec struct {
+		Type string `json:"type"`
+	} `json:"spec"`
+	Status struct {
+		LoadBalancer struct {
+			Ingress []struct {
+				IP       string `json:"ip"`
+				Hostname string `json:"hostname"`
+			} `json:"ingress"`
+		} `json:"loadBalancer"`
+	} `json:"status"`
+}
+
+func (so serviceObject) address() string {
+	for _, in := range so.Status.LoadBalancer.Ingress {
+		if in.IP != "" {
+			return in.IP
+		}
+		if in.Hostname != "" {
+			return in.Hostname
+		}
+	}
+	return ""
+}
+
 func getJSON[T any](ctx context.Context, k kubectl, kind, selector string) ([]T, error) {
 	out, err := k.probe(ctx, "get", kind, "-l", selector, "-o", "json")
 	if err != nil {
@@ -86,9 +117,19 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 	if err != nil {
 		return nil, err
 	}
+	services, err := getJSON[serviceObject](ctx, k, "services", selector)
+	if err != nil {
+		return nil, err
+	}
 	found := map[string]deployment{}
 	for _, d := range deployments {
 		found[d.Metadata.Name] = d
+	}
+	balancers := map[string]serviceObject{}
+	for _, so := range services {
+		if so.Spec.Type == "LoadBalancer" {
+			balancers[so.Metadata.Name] = so
+		}
 	}
 
 	cluster := o.Context
@@ -106,6 +147,13 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 		}
 		ss.Desired, ss.Running = d.Spec.Replicas, d.Status.Available
 		ss.Detail = fmt.Sprintf("%d/%d available", d.Status.Available, d.Spec.Replicas)
+		if so, ok := balancers[objectName(s.Name, name)]; ok {
+			if addr := so.address(); addr != "" {
+				ss.Detail += ", load balancer " + addr
+			} else {
+				ss.Detail += ", load balancer address pending"
+			}
+		}
 		for _, p := range svc.Ports {
 			ss.Ports = append(ss.Ports, strconv.Itoa(p.Port)+"/"+string(p.Protocol))
 		}
@@ -192,7 +240,7 @@ func (a *Adapter) DestroySummary(s *spec.Spec, opts adapter.DestroyOptions) ([]s
 	if o.Context != "" {
 		where += " of " + o.Context
 	}
-	lines := []string{fmt.Sprintf("Delete the Deployments and Services %s in %s.", strings.Join(names, ", "), where)}
+	lines := []string{fmt.Sprintf("Delete the Deployments, Services and Ingresses %s in %s.", strings.Join(names, ", "), where)}
 	secrets := secretNames(s)
 	switch {
 	case opts.Volumes && len(secrets) > 0:
@@ -210,16 +258,16 @@ func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, o
 	}
 	k := newKubectl(env, *o)
 	selector := projectLabel + "=" + s.Name
-	found, err := k.probe(ctx, "get", "deployments,services", "-l", selector, "-o", "name")
+	found, err := k.probe(ctx, "get", "deployments,services,ingresses", "-l", selector, "-o", "name")
 	if err != nil {
 		return nil, fmt.Errorf("listing the objects of %s in namespace %s failed (%w)", s.Name, o.Namespace, err)
 	}
-	kinds := "deployments,services"
+	kinds := "deployments,services,ingresses"
 	if opts.Volumes {
 		kinds += ",secrets"
 	}
 	if found == "" && !opts.Volumes {
-		return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Nothing to remove: %s has no Deployments or Services in namespace %s.", s.Name, o.Namespace)}}, nil
+		return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Nothing to remove: %s has no Deployments, Services or Ingresses in namespace %s.", s.Name, o.Namespace)}}, nil
 	}
 	env.Logf("$ kubectl delete %s -l %s", kinds, selector)
 	if err := k.run(ctx, nil, nil, "delete", kinds, "-l", selector, "--ignore-not-found"); err != nil {

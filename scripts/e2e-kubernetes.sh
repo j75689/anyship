@@ -5,6 +5,13 @@
 # cluster with a registry at kind-registry:5001; on a laptop with OrbStack or
 # Docker Desktop, a `registry:2` container published on localhost:5000 does.
 #
+# With $ANYSHIP_K8S_INGRESS_CLASS set to the cluster's IngressClass, it also
+# deploys a service with a domain and checks that the ingress controller
+# routes the host (through the controller's Service, named by
+# $ANYSHIP_K8S_INGRESS_URL, http://ingress-nginx-controller.ingress-nginx.svc
+# by default). With $ANYSHIP_K8S_LB=1 it requires the cluster to give a
+# LoadBalancer Service an address.
+#
 #   ANYSHIP=./anyship ANYSHIP_K8S_REPOSITORY=localhost:5000/anyship-e2e scripts/e2e-kubernetes.sh
 set -euo pipefail
 
@@ -13,6 +20,8 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 context=${ANYSHIP_K8S_CONTEXT:-$(kubectl config current-context)}
 repository=${ANYSHIP_K8S_REPOSITORY:-localhost:5000/anyship-e2e}
 namespace=anyship-e2e
+ingress_class=${ANYSHIP_K8S_INGRESS_CLASS:-}
+ingress_url=${ANYSHIP_K8S_INGRESS_URL:-http://ingress-nginx-controller.ingress-nginx.svc}
 work=$(mktemp -d)
 cleanup() {
   rm -rf "$work"
@@ -74,19 +83,56 @@ step "logs come back"
 "$ANYSHIP" logs -t kubernetes -n 20 | tee logs.out
 grep -qi gunicorn logs.out || fail "expected gunicorn in the logs"
 
-step "a service taken out of the spec is pruned"
+step "a public TCP port gets a LoadBalancer Service, a service taken out of the spec is pruned"
 cp anyship.yaml one-service.yaml
 python3 - <<'PY'
 import pathlib
 p = pathlib.Path("anyship.yaml"); s = p.read_text()
-p.write_text(s.replace("  targets:\n", "    api:\n      kind: server\n      image: nginx:1.27\n      ports:\n        - port: 80\n          exposure: internal\n  targets:\n", 1))
+# http-echo listens on 5678, a port no ingress controller's load balancer holds.
+p.write_text(s.replace("  targets:\n", "    api:\n      kind: server\n      image: hashicorp/http-echo:1.0\n      ports:\n        - port: 5678\n          protocol: tcp\n  targets:\n", 1))
 PY
-"$ANYSHIP" apply -t kubernetes --yes
-k get deployment app-api -o name || fail "the api service should be deployed"
+"$ANYSHIP" apply -t kubernetes --yes | tee lb.out
+grep -q "api: .*:5678/tcp (LoadBalancer)" lb.out || fail "expected the LoadBalancer address line for api"
+[ "$(k get service app-api -o jsonpath='{.spec.type}')" = LoadBalancer ] || fail "app-api should be a LoadBalancer Service"
+if [ "${ANYSHIP_K8S_LB:-}" = 1 ]; then
+  for _ in $(seq 30); do
+    addr=$(k get service app-api -o jsonpath='{.status.loadBalancer.ingress[0].ip}{.status.loadBalancer.ingress[0].hostname}')
+    [ -n "$addr" ] && break
+    sleep 2
+  done
+  [ -n "$addr" ] || fail "the cluster should give app-api a load balancer address"
+  "$ANYSHIP" status -t kubernetes | tee lb-status.out
+  grep -q "load balancer $addr" lb-status.out || fail "status should show the load balancer address"
+fi
 cp one-service.yaml anyship.yaml
 "$ANYSHIP" apply -t kubernetes --yes | tee prune.out
 grep -q "app-api pruned" prune.out || fail "expected the api objects to be pruned"
 if k get deployment app-api -o name 2>/dev/null; then fail "the api Deployment should be gone"; fi
+
+if [ -n "$ingress_class" ]; then
+  step "a public port with a domain gets an Ingress the controller routes"
+  python3 - "$ingress_class" <<'PY'
+import pathlib, sys
+p = pathlib.Path("anyship.yaml"); s = p.read_text()
+s = s.replace("      ports:\n        - port: 8000\n", "      ports:\n        - port: 8000\n      domains: [app.example.test]\n", 1)
+s = s.replace("    kubernetes:\n", "    kubernetes:\n      ingressClass: %s\n" % sys.argv[1], 1)
+p.write_text(s)
+PY
+  "$ANYSHIP" plan -t kubernetes | tee ingress-plan.out
+  grep -q "routes app.example.test" ingress-plan.out || fail "plan should say the Ingress routes the domain"
+  "$ANYSHIP" apply -t kubernetes --yes | tee ingress.out
+  grep -q "web: http://app.example.test through ingress class $ingress_class" ingress.out || fail "expected the Ingress line for web"
+  [ "$(k get ingress app-web -o jsonpath='{.spec.rules[0].host}')" = app.example.test ] || fail "the Ingress should route the domain"
+  k run curl-ingress --image=curlimages/curl:8.14.1 --restart=Never -q -- curl -fsS --retry 15 --retry-all-errors --retry-delay 2 -H "Host: app.example.test" "$ingress_url/"
+  k wait --for=jsonpath='{.status.phase}'=Succeeded pod/curl-ingress --timeout=120s || { k logs curl-ingress; fail "the curl pod didn't reach the app through the Ingress"; }
+  answer=$(k logs curl-ingress | tail -n 1)
+  k delete pod curl-ingress --wait=false >/dev/null
+  [ "$answer" = ok ] || fail "the ingress controller should route app.example.test to the app, got: $answer"
+  cp one-service.yaml anyship.yaml
+  "$ANYSHIP" apply -t kubernetes --yes | tee ingress-prune.out
+  grep -q "app-web pruned" ingress-prune.out || fail "expected the Ingress to be pruned once the class is gone"
+  if k get ingress app-web -o name 2>/dev/null; then fail "the Ingress should be gone"; fi
+fi
 
 step "destroy removes the Deployments and Services"
 "$ANYSHIP" destroy -t kubernetes --yes

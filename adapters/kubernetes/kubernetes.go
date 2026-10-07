@@ -68,6 +68,10 @@ type Options struct {
 	// Platform is what images are built for, such as linux/arm64; the
 	// architecture of the cluster's nodes when empty.
 	Platform string `json:"platform,omitempty"`
+	// IngressClass is the IngressClass (`kubectl get ingressclass`) an
+	// Ingress is made with for every public HTTP port; without it no
+	// Ingress is made and a public port is reachable inside the cluster only.
+	IngressClass string `json:"ingressClass,omitempty"`
 }
 
 // The probes made from healthCheck: the startup probe asks every probePeriod
@@ -85,6 +89,9 @@ var (
 	dnsLabelRe   = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
 	repositoryRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]*[a-z0-9])?(:[0-9]+)?(/[a-z0-9]([a-z0-9._-]*[a-z0-9])?)+$`)
 	platformRe   = regexp.MustCompile(`^linux/[a-z0-9]+(/v[0-9]+)?$`)
+	// Object names other than labels, such as an IngressClass's, are DNS
+	// subdomains.
+	dnsSubdomainRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$`)
 )
 
 type Adapter struct{}
@@ -105,12 +112,21 @@ func (*Adapter) Description() string {
 
 // service is one spec service to deploy, as a Deployment and a Service.
 type service struct {
-	name     string // spec service name
-	object   string // name of the Deployment and the Service
-	svc      *spec.Service
+	name   string // spec service name
+	object string // name of the Deployment and the Service
+	svc    *spec.Service
+	// port is the HTTP port, if the service has one (http is true then),
+	// and internal whether it is reachable inside the cluster only.
 	port     int
+	http     bool
 	internal bool
-	argv     []string
+	// ports are all the service's ports, the HTTP one first.
+	ports []spec.Port
+	// ingress is whether an Ingress routes to the HTTP port, and lb whether
+	// the Service is a LoadBalancer, for a public TCP or UDP port.
+	ingress bool
+	lb      bool
+	argv    []string
 	// image is the image to deploy; for builds it is filled in by Apply.
 	image string
 	// moving is whether the image's tag can move, in which case every
@@ -171,6 +187,21 @@ func (d *planData) serviceURL(name string) string {
 	return fmt.Sprintf("http://%s.%s.svc:%d", objectName(d.project, name), d.opts.Namespace, port)
 }
 
+// httpPort is the port other services and an Ingress reach a service on:
+// its first HTTP port, or the default when it names no port at all. A
+// service with ports but no HTTP one has none.
+func httpPort(svc *spec.Service) (int, bool) {
+	for _, p := range svc.Ports {
+		if p.Protocol == spec.ProtocolHTTP {
+			return p.Port, true
+		}
+	}
+	if len(svc.Ports) == 0 {
+		return defaultPort, true
+	}
+	return 0, false
+}
+
 func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adapter.Plan, error) {
 	plan := &adapter.Plan{Target: Name}
 	opts, err := decodeOptions(s.Targets[Name])
@@ -222,7 +253,11 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 				plan.Files = append(plan.Files, adapter.File{Path: filepath.Join(env.OutDir, sv.name+".Dockerfile"), Contents: sv.build.generated.Dockerfile})
 			}
 		}
-		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpDeploy, Kind: "Deployment and Service", Name: sv.object,
+		kind := "Deployment and Service"
+		if sv.ingress {
+			kind = "Deployment, Service and Ingress"
+		}
+		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpDeploy, Kind: kind, Name: sv.object,
 			Detail: fmt.Sprintf("in namespace %s, %d replica(s), %s", opts.Namespace, replicas(sv.svc), sv.imageOrPlaceholder(*opts))})
 	}
 	contents, err := manifests(data)
@@ -270,32 +305,64 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	if len(svc.Cron) > 0 {
 		add(adapter.Error, "K8S_CRON", "cron isn't supported on the kubernetes target yet.", "Run the schedule on the gcp or cloudflare target for now, or drop the entry.")
 	}
-	if len(svc.Domains) > 0 {
-		add(adapter.Error, "K8S_DOMAIN_UNSUPPORTED",
-			fmt.Sprintf("anyship doesn't attach custom domains on Kubernetes yet (domains: %s).", strings.Join(svc.Domains, ", ")),
-			"Create an Ingress for them yourself for now, then drop domains from the spec.")
-	}
-
 	var http []spec.Port
 	for _, p := range svc.Ports {
-		if p.Protocol != spec.ProtocolHTTP {
-			add(adapter.Error, "K8S_NON_HTTP_PORT", fmt.Sprintf("Port %d uses %s; the kubernetes target serves HTTP only for now.", p.Port, p.Protocol), "Use the vps target for raw TCP or UDP.")
+		if p.Protocol == spec.ProtocolHTTP {
+			http = append(http, p)
 			continue
 		}
-		http = append(http, p)
+		sv.ports = append(sv.ports, p)
+		if p.Exposure != spec.ExposureInternal {
+			sv.lb = true
+		}
 	}
 	switch {
 	case len(http) > 1:
-		add(adapter.Error, "K8S_MULTIPLE_PORTS", "The kubernetes target sends traffic to one port per service.", "Keep one HTTP port, or split the service.")
+		add(adapter.Error, "K8S_MULTIPLE_PORTS", "The kubernetes target sends HTTP traffic to one port per service.", "Keep one HTTP port, or split the service.")
 	case len(http) == 1:
-		sv.port, sv.internal = http[0].Port, http[0].Exposure == spec.ExposureInternal
-		if !sv.internal {
+		sv.port, sv.http, sv.internal = http[0].Port, true, http[0].Exposure == spec.ExposureInternal
+		sv.ports = append([]spec.Port{http[0]}, sv.ports...)
+		switch {
+		case sv.internal:
+		case opts.IngressClass != "":
+			sv.ingress = true
+			hosts := "any host"
+			if len(svc.Domains) > 0 {
+				hosts = strings.Join(svc.Domains, ", ")
+			}
+			add(adapter.Info, "K8S_INGRESS",
+				fmt.Sprintf("Port %d is public: an Ingress of class %s routes %s to %s. anyship issues no certificate and makes no DNS record; TLS is the ingress controller's to add.", sv.port, opts.IngressClass, hosts, sv.object), "")
+		case len(svc.Domains) > 0:
+			add(adapter.Error, "K8S_DOMAINS_NEED_INGRESS",
+				fmt.Sprintf("domains (%s) are routed by an Ingress, and the spec names no IngressClass to make one with.", strings.Join(svc.Domains, ", ")),
+				"Set spec.targets.kubernetes.ingressClass to one of `kubectl get ingressclass`, or install an ingress controller first.")
+		default:
 			add(adapter.Warning, "K8S_PUBLIC_PORT",
-				fmt.Sprintf("Port %d is public, but anyship creates no Ingress yet: %s is reachable inside the cluster only, at http://%s.%s.svc:%d.", sv.port, sv.object, sv.object, opts.Namespace, sv.port),
-				fmt.Sprintf("From this machine, `kubectl port-forward -n %s svc/%s %d:%d` reaches it.", opts.Namespace, sv.object, sv.port, sv.port))
+				fmt.Sprintf("Port %d is public, but without spec.targets.kubernetes.ingressClass no Ingress is made: %s is reachable inside the cluster only, at http://%s.%s.svc:%d.", sv.port, sv.object, sv.object, opts.Namespace, sv.port),
+				fmt.Sprintf("Set ingressClass to one of `kubectl get ingressclass` to route it. Until then `kubectl port-forward -n %s svc/%s %d:%d` reaches it from this machine.", opts.Namespace, sv.object, sv.port, sv.port))
 		}
-	case svc.Kind == spec.KindServer:
+	case len(sv.ports) == 0 && svc.Kind == spec.KindServer:
 		add(adapter.Info, "K8S_PORT_ASSUMED", fmt.Sprintf("No port in the spec; the Service will send traffic to %d (also passed as $PORT).", defaultPort), "")
+		sv.http = true
+		sv.ports = []spec.Port{{Port: defaultPort, Protocol: spec.ProtocolHTTP}}
+	}
+	if sv.lb {
+		var public []string
+		for _, p := range sv.ports {
+			if p.Protocol != spec.ProtocolHTTP && p.Exposure != spec.ExposureInternal {
+				public = append(public, fmt.Sprintf("%d/%s", p.Port, p.Protocol))
+			}
+		}
+		add(adapter.Info, "K8S_LOAD_BALANCER",
+			fmt.Sprintf("Port %s is public, so %s is a Service of type LoadBalancer: the cluster's load balancer gives it an address, which `anyship status` shows once assigned.", strings.Join(public, ", "), sv.object),
+			"A cluster without a load balancer implementation (a bare kind or minikube) leaves the address pending for good.")
+	}
+	for _, ref := range svc.RefersTo() {
+		if other, ok := s.Services[ref]; ok {
+			if _, ok := httpPort(other); !ok {
+				add(adapter.Error, "K8S_SERVICE_URL", fmt.Sprintf("env refers to ${services.%s.url}, but %s has no HTTP port to reach it on.", ref, ref), "Give that service an HTTP port, or drop the reference.")
+			}
+		}
 	}
 
 	for _, resourceName := range svc.Uses {
@@ -427,6 +494,7 @@ type container struct {
 type containerPort struct {
 	Name          string `json:"name"`
 	ContainerPort int    `json:"containerPort"`
+	Protocol      string `json:"protocol"`
 }
 
 type envVar struct {
@@ -482,6 +550,58 @@ type servicePort struct {
 	Name       string `json:"name"`
 	Port       int    `json:"port"`
 	TargetPort int    `json:"targetPort"`
+	Protocol   string `json:"protocol"`
+}
+
+type ingressSpec struct {
+	IngressClassName string        `json:"ingressClassName"`
+	Rules            []ingressRule `json:"rules"`
+}
+
+type ingressRule struct {
+	Host string      `json:"host,omitempty"`
+	HTTP ingressHTTP `json:"http"`
+}
+
+type ingressHTTP struct {
+	Paths []ingressPath `json:"paths"`
+}
+
+type ingressPath struct {
+	Path     string         `json:"path"`
+	PathType string         `json:"pathType"`
+	Backend  ingressBackend `json:"backend"`
+}
+
+type ingressBackend struct {
+	Service ingressService `json:"service"`
+}
+
+type ingressService struct {
+	Name string `json:"name"`
+	Port struct {
+		Number int `json:"number"`
+	} `json:"port"`
+}
+
+// portEntries is a port as the container and the Service list it: one entry
+// per protocol, since tcp+udp is two.
+type portEntry struct {
+	name     string
+	port     int
+	protocol string
+}
+
+func portEntries(p spec.Port) []portEntry {
+	switch p.Protocol {
+	case spec.ProtocolHTTP:
+		return []portEntry{{name: "http", port: p.Port, protocol: "TCP"}}
+	case spec.ProtocolUDP:
+		return []portEntry{{name: fmt.Sprintf("udp-%d", p.Port), port: p.Port, protocol: "UDP"}}
+	case spec.ProtocolTCPUDP:
+		return []portEntry{{name: fmt.Sprintf("tcp-%d", p.Port), port: p.Port, protocol: "TCP"}, {name: fmt.Sprintf("udp-%d", p.Port), port: p.Port, protocol: "UDP"}}
+	}
+	return []portEntry{{name: fmt.Sprintf("tcp-%d", p.Port), port: p.Port, protocol: "TCP"}}
 }
 
 func (d *planData) labels(sv service) map[string]string {
@@ -496,12 +616,19 @@ func (d *planData) meta(name string, labels map[string]string) metadata {
 // setting anyship knows is in it, so a value taken out of the spec is taken
 // off the pods on the next apply.
 func (d *planData) deployment(sv service, img string) object {
-	c := container{Name: sv.name, Image: img, ImagePullPolicy: "IfNotPresent", Args: sv.argv,
-		Ports: []containerPort{{Name: "http", ContainerPort: sv.port}}}
+	c := container{Name: sv.name, Image: img, ImagePullPolicy: "IfNotPresent", Args: sv.argv}
+	for _, p := range sv.ports {
+		for _, e := range portEntries(p) {
+			c.Ports = append(c.Ports, containerPort{Name: e.name, ContainerPort: e.port, Protocol: e.protocol})
+		}
+	}
 	if sv.moving {
 		c.ImagePullPolicy = "Always"
 	}
-	env := map[string]string{"PORT": strconv.Itoa(sv.port)}
+	env := map[string]string{}
+	if sv.http {
+		env["PORT"] = strconv.Itoa(sv.port)
+	}
 	for k, v := range sv.svc.Env {
 		env[k] = spec.ExpandServiceURLs(v, d.serviceURL)
 	}
@@ -554,8 +681,32 @@ func (d *planData) deployment(sv service, img string) object {
 }
 
 func (d *planData) service(sv service) object {
-	return object{APIVersion: "v1", Kind: "Service", Metadata: d.meta(sv.object, d.labels(sv)),
-		Spec: serviceSpec{Type: "ClusterIP", Selector: d.labels(sv), Ports: []servicePort{{Name: "http", Port: sv.port, TargetPort: sv.port}}}}
+	spec := serviceSpec{Type: "ClusterIP", Selector: d.labels(sv)}
+	if sv.lb {
+		spec.Type = "LoadBalancer"
+	}
+	for _, p := range sv.ports {
+		for _, e := range portEntries(p) {
+			spec.Ports = append(spec.Ports, servicePort{Name: e.name, Port: e.port, TargetPort: e.port, Protocol: e.protocol})
+		}
+	}
+	return object{APIVersion: "v1", Kind: "Service", Metadata: d.meta(sv.object, d.labels(sv)), Spec: spec}
+}
+
+// ingress routes the service's domains, or any host, to its HTTP port. It
+// carries no TLS section: certificates are the ingress controller's to add.
+func (d *planData) ingress(sv service) object {
+	path := ingressPath{Path: "/", PathType: "Prefix"}
+	path.Backend.Service.Name = sv.object
+	path.Backend.Service.Port.Number = sv.port
+	spec := ingressSpec{IngressClassName: d.opts.IngressClass}
+	if len(sv.svc.Domains) == 0 {
+		spec.Rules = []ingressRule{{HTTP: ingressHTTP{Paths: []ingressPath{path}}}}
+	}
+	for _, host := range sv.svc.Domains {
+		spec.Rules = append(spec.Rules, ingressRule{Host: host, HTTP: ingressHTTP{Paths: []ingressPath{path}}})
+	}
+	return object{APIVersion: "networking.k8s.io/v1", Kind: "Ingress", Metadata: d.meta(sv.object, d.labels(sv)), Spec: spec}
 }
 
 func (d *planData) secret(sc secret, value string) object {
@@ -569,6 +720,9 @@ func manifests(d *planData) ([]byte, error) {
 	l := list{APIVersion: "v1", Kind: "List"}
 	for _, sv := range d.services {
 		l.Items = append(l.Items, d.deployment(sv, sv.imageOrPlaceholder(d.opts)), d.service(sv))
+		if sv.ingress {
+			l.Items = append(l.Items, d.ingress(sv))
+		}
 	}
 	return render(l, "# Generated by anyship from anyship.yaml. Edit anyship.yaml instead; this file is overwritten.\n")
 }
@@ -612,6 +766,8 @@ func decodeOptions(raw json.RawMessage) (*Options, error) {
 		return nil, fmt.Errorf("repository %q is not a registry path such as ghcr.io/me/my-app (lowercase, no tag)", opts.Repository)
 	case opts.Platform != "" && !platformRe.MatchString(opts.Platform):
 		return nil, fmt.Errorf("platform %q is not a platform such as linux/amd64 or linux/arm64", opts.Platform)
+	case opts.IngressClass != "" && !dnsSubdomainRe.MatchString(opts.IngressClass):
+		return nil, fmt.Errorf("ingressClass %q is not an IngressClass name", opts.IngressClass)
 	}
 	return opts, nil
 }

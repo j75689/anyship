@@ -48,16 +48,17 @@ type fakeCluster struct {
 func newFakeCluster() *fakeCluster {
 	return &fakeCluster{
 		out: map[string]string{
-			"kubectl version":                  "Client Version: v1.33.0",
-			"kubectl config current-context":   "kind-anyship",
-			"kubectl config get-contexts":      "orbstack",
-			"kubectl get namespace":            "namespace/apps",
-			"kubectl auth can-i":               "yes",
-			"kubectl get nodes":                "amd64",
-			"kubectl get deployments,services": "",
-			"kubectl get deployments":          `{"items": []}`,
-			"kubectl get pods":                 `{"items": []}`,
-			"kubectl get secret":               "4711",
+			"kubectl version":                            "Client Version: v1.33.0",
+			"kubectl config current-context":             "kind-anyship",
+			"kubectl config get-contexts":                "orbstack",
+			"kubectl get namespace":                      "namespace/apps",
+			"kubectl auth can-i":                         "yes",
+			"kubectl get nodes":                          "amd64",
+			"kubectl get deployments,services,ingresses": "",
+			"kubectl get deployments":                    `{"items": []}`,
+			"kubectl get services":                       `{"items": []}`,
+			"kubectl get pods":                           `{"items": []}`,
+			"kubectl get secret":                         "4711",
 		},
 		fail:   map[string]string{"kubectl get secret shop-api-key -o name": `Error from server (NotFound): secrets "shop-api-key" not found`},
 		digest: "sha256:" + strings.Repeat("a", 64),
@@ -310,16 +311,16 @@ func TestPlanHealthCheck(t *testing.T) {
 
 func TestPlanRefusesUnsupported(t *testing.T) {
 	for src, want := range map[string]string{
-		`"web": {"kind": "static", "path": "site"}`:                                                                        "K8S_STATIC",
-		`"web": {"kind": "worker", "image": "busybox:1"}`:                                                                  "K8S_WORKER",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "volumes": [{"name": "d", "mountPath": "/d", "size": "1GB"}]}`: "K8S_VOLUMES",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "cron": [{"schedule": "* * * * *", "path": "/tick"}]}`:         "K8S_CRON",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}], "domains": ["shop.example.com"]}`:     "K8S_DOMAIN_UNSUPPORTED",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 53, "protocol": "udp"}]}`:                   "K8S_NON_HTTP_PORT",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}, {"port": 81}]}`:                        "K8S_MULTIPLE_PORTS",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "uses": ["db"]}`:                                               "K8S_RESOURCE",
-		`"web": {"kind": "server", "start": "node server.js"}`:                                                             "K8S_NEEDS_IMAGE",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "start": "nginx 'unterminated"}`:                               "K8S_BAD_START",
+		`"web": {"kind": "static", "path": "site"}`:                                                                                                "K8S_STATIC",
+		`"web": {"kind": "worker", "image": "busybox:1"}`:                                                                                          "K8S_WORKER",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "volumes": [{"name": "d", "mountPath": "/d", "size": "1GB"}]}`:                         "K8S_VOLUMES",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "cron": [{"schedule": "* * * * *", "path": "/tick"}]}`:                                 "K8S_CRON",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}], "domains": ["shop.example.com"]}`:                             "K8S_DOMAINS_NEED_INGRESS",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 5432, "protocol": "tcp"}], "env": {"SELF": "${services.web.url}"}}`: "K8S_SERVICE_URL",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}, {"port": 81}]}`:                                                "K8S_MULTIPLE_PORTS",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "uses": ["db"]}`:                                                                       "K8S_RESOURCE",
+		`"web": {"kind": "server", "start": "node server.js"}`:                                                                                     "K8S_NEEDS_IMAGE",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "start": "nginx 'unterminated"}`:                                                       "K8S_BAD_START",
 	} {
 		s := parse(t, `{"name": "shop", "services": {`+src+`}, "resources": {"db": {"type": "postgres"}}, `+target+`}`)
 		env, _ := newEnv(t, t.TempDir(), nil)
@@ -534,7 +535,7 @@ func TestApplyPlatformFollowsTheNodes(t *testing.T) {
 }
 
 func TestApplyPreflight(t *testing.T) {
-	src := `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27.0"}}, `
+	src := `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}]}}, `
 	for name, tc := range map[string]struct {
 		options string
 		fail    map[string]string
@@ -547,6 +548,8 @@ func TestApplyPreflight(t *testing.T) {
 		"missing namespace":  {fail: map[string]string{"kubectl get namespace": `Error from server (NotFound): namespaces "apps" not found`}, want: "K8S_PREFLIGHT_NAMESPACE"},
 		"unreachable":        {fail: map[string]string{"kubectl get namespace": "The connection to the server 127.0.0.1:6443 was refused"}, want: "K8S_PREFLIGHT_CLUSTER"},
 		"no access":          {out: map[string]string{"kubectl auth can-i": "no"}, want: "K8S_PREFLIGHT_ACCESS"},
+		"no ingress class": {options: `{"namespace": "apps", "ingressClass": "nginx"}`, fail: map[string]string{"kubectl get ingressclass nginx": `Error from server (NotFound): ingressclasses.networking.k8s.io "nginx" not found`},
+			out: map[string]string{"kubectl get ingressclass -o name": "ingressclass.networking.k8s.io/traefik\ningressclass.networking.k8s.io/haproxy"}, want: "K8S_PREFLIGHT_INGRESS_CLASS"},
 	} {
 		full := src + target + "}"
 		if tc.options != "" {
@@ -566,6 +569,17 @@ func TestApplyPreflight(t *testing.T) {
 		}
 		if fc.find("kubectl apply") != nil {
 			t.Errorf("%s: nothing should be applied after a failed check", name)
+		}
+		if name == "no ingress class" {
+			var hint string
+			for _, f := range r.Findings {
+				if f.Code == tc.want {
+					hint = f.Hint
+				}
+			}
+			if !strings.Contains(hint, "The cluster has traefik, haproxy.") {
+				t.Errorf("hint %q should list the cluster's ingress classes", hint)
+			}
 		}
 	}
 
@@ -623,6 +637,9 @@ func TestStatus(t *testing.T) {
 		{"metadata": {"name": "shop-api"}, "spec": {"replicas": 1}, "status": {"availableReplicas": 0, "updatedReplicas": 1, "conditions": [{"type": "Progressing", "status": "True"}]}}]}`
 	fc.out["kubectl get pods"] = `{"items": [
 		{"metadata": {"labels": {"anyship-service": "api"}}, "status": {"containerStatuses": [{"ready": false, "state": {"waiting": {"reason": "CrashLoopBackOff", "message": "back-off 5m restarting failed container"}}}]}}]}`
+	fc.out["kubectl get services"] = `{"items": [
+		{"metadata": {"name": "shop-web"}, "spec": {"type": "LoadBalancer"}, "status": {"loadBalancer": {"ingress": [{"ip": "203.0.113.5"}]}}},
+		{"metadata": {"name": "shop-api"}, "spec": {"type": "ClusterIP"}, "status": {}}]}`
 	st, err := New().Status(context.Background(), s, env)
 	if err != nil {
 		t.Fatal(err)
@@ -634,7 +651,7 @@ func TestStatus(t *testing.T) {
 	for _, ss := range st.Services {
 		byName[ss.Name] = ss
 	}
-	if web := byName["web"]; web.State != "running" || web.Running != 2 || web.Desired != 2 || web.Health != "healthy" || !slices.Equal(web.Ports, []string{"80/http"}) {
+	if web := byName["web"]; web.State != "running" || web.Running != 2 || web.Desired != 2 || web.Health != "healthy" || !slices.Equal(web.Ports, []string{"80/http"}) || web.Detail != "2/2 available, load balancer 203.0.113.5" {
 		t.Errorf("web = %+v", web)
 	}
 	if api := byName["api"]; api.State != "CrashLoopBackOff" || api.Health != "unhealthy" || !strings.Contains(api.Detail, "back-off") {
@@ -675,7 +692,7 @@ func TestDestroy(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(summary, "\n")
-	for _, want := range []string{"Delete the Deployments and Services shop-web in namespace apps of orbstack.", "Keep the Secrets shop-api-key"} {
+	for _, want := range []string{"Delete the Deployments, Services and Ingresses shop-web in namespace apps of orbstack.", "Keep the Secrets shop-api-key"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("summary lacks %q:\n%s", want, joined)
 		}
@@ -695,19 +712,19 @@ func TestDestroy(t *testing.T) {
 	}
 
 	env, fc = newEnv(t, t.TempDir(), nil)
-	fc.out["kubectl get deployments,services"] = "deployment.apps/shop-web\nservice/shop-web"
+	fc.out["kubectl get deployments,services,ingresses"] = "deployment.apps/shop-web\nservice/shop-web"
 	r, err = a.Destroy(context.Background(), s, env, adapter.DestroyOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !r.OK || fc.find("kubectl delete deployments,services -l anyship-project=shop --ignore-not-found") == nil {
+	if !r.OK || fc.find("kubectl delete deployments,services,ingresses -l anyship-project=shop --ignore-not-found") == nil {
 		t.Errorf("destroy: %+v", r)
 	}
 	env, fc = newEnv(t, t.TempDir(), nil)
 	if _, err := a.Destroy(context.Background(), s, env, adapter.DestroyOptions{Volumes: true}); err != nil {
 		t.Fatal(err)
 	}
-	if fc.find("kubectl delete deployments,services,secrets -l anyship-project=shop") == nil {
+	if fc.find("kubectl delete deployments,services,ingresses,secrets -l anyship-project=shop") == nil {
 		t.Error("destroy --volumes should delete the secrets too")
 	}
 }
@@ -732,5 +749,99 @@ func TestDeployOrderFollowsDependsOn(t *testing.T) {
 	}
 	if !slices.Equal(waits, []string{"deployment/shop-api", "deployment/shop-web"}) {
 		t.Errorf("rollouts waited for in order %v", waits)
+	}
+}
+
+// A public HTTP port gets an Ingress when the spec names an IngressClass,
+// with the service's domains as hosts, or any host without them.
+func TestPlanIngress(t *testing.T) {
+	withClass := `"targets": {"kubernetes": {"namespace": "apps", "ingressClass": "nginx"}}`
+	s := parse(t, `{"name": "shop", "services": {
+		"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}], "domains": ["shop.example.com", "www.shop.example.com"]},
+		"api": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 9000}]},
+		"db": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 9001, "exposure": "internal"}]}}, `+withClass+`}`)
+	env, fc := newEnv(t, t.TempDir(), nil)
+	p := plan(t, s, env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if warnings := codes(p, adapter.Warning); len(warnings) > 0 {
+		t.Errorf("warnings = %v, want none with an ingress class", warnings)
+	}
+	m := manifestsOf(t, p)
+	for _, want := range []string{
+		`"kind": "Ingress"`, `"ingressClassName": "nginx"`, `"host": "shop.example.com"`, `"host": "www.shop.example.com"`,
+		`"pathType": "Prefix"`, `"name": "shop-web"`, `"number": 80`, `"number": 9000`,
+	} {
+		if !strings.Contains(m, want) {
+			t.Errorf("manifests lack %s", want)
+		}
+	}
+	if n := strings.Count(m, `"kind": "Ingress"`); n != 2 {
+		t.Errorf("%d Ingresses, want 2 (web and api; db is internal)", n)
+	}
+	var names []string
+	for _, a := range p.Actions {
+		names = append(names, a.Kind+" "+a.Name)
+	}
+	for _, want := range []string{"Deployment, Service and Ingress shop-web", "Deployment and Service shop-db"} {
+		if !slices.Contains(names, want) {
+			t.Errorf("actions %v lack %q", names, want)
+		}
+	}
+	fc.out["kubectl get ingressclass"] = "ingressclass.networking.k8s.io/nginx"
+	r := apply(t, s, env)
+	if !r.OK {
+		t.Fatalf("apply failed: %v", r.Messages)
+	}
+	if a := fc.find("kubectl apply -f - --prune"); !strings.Contains(a.line(), "--prune-allowlist networking.k8s.io/v1/Ingress") {
+		t.Errorf("apply args should prune Ingresses: %s", a.line())
+	}
+	for _, want := range []string{"web: http://shop.example.com, http://www.shop.example.com through ingress class nginx", "api: any host through ingress class nginx"} {
+		if !slices.Contains(r.Messages, want) {
+			t.Errorf("messages %v lack %q", r.Messages, want)
+		}
+	}
+}
+
+// A public TCP or UDP port makes the Service a LoadBalancer; an internal
+// one stays on the ClusterIP. A service without an HTTP port gets no $PORT.
+func TestPlanLoadBalancer(t *testing.T) {
+	s := parse(t, `{"name": "shop", "services": {
+		"db": {"kind": "server", "image": "postgres:16", "ports": [{"port": 5432, "protocol": "tcp"}, {"port": 9999, "protocol": "tcp", "exposure": "internal"}]},
+		"dns": {"kind": "server", "image": "coredns/coredns:1.11", "ports": [{"port": 53, "protocol": "tcp+udp"}]},
+		"cache": {"kind": "server", "image": "redis:7", "ports": [{"port": 6379, "protocol": "tcp", "exposure": "internal"}]}}, `+target+`}`)
+	env, fc := newEnv(t, t.TempDir(), nil)
+	p := plan(t, s, env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if n := len(slices.DeleteFunc(codes(p, adapter.Info), func(c string) bool { return c != "K8S_LOAD_BALANCER" })); n != 2 {
+		t.Errorf("%d K8S_LOAD_BALANCER infos, want 2 (db and dns)", n)
+	}
+	m := manifestsOf(t, p)
+	for _, want := range []string{
+		`"type": "LoadBalancer"`, `"name": "tcp-5432"`, `"protocol": "TCP"`, `"name": "tcp-9999"`,
+		`"name": "tcp-53"`, `"name": "udp-53"`, `"protocol": "UDP"`, `"name": "tcp-6379"`,
+	} {
+		if !strings.Contains(m, want) {
+			t.Errorf("manifests lack %s", want)
+		}
+	}
+	if n := strings.Count(m, `"type": "LoadBalancer"`); n != 2 {
+		t.Errorf("%d LoadBalancers, want 2", n)
+	}
+	if strings.Contains(m, `"name": "PORT"`) {
+		t.Error("a service without an HTTP port shouldn't get $PORT")
+	}
+	fc.out["kubectl get service shop-db"] = "203.0.113.5"
+	r := apply(t, s, env)
+	if !r.OK {
+		t.Fatalf("apply failed: %v", r.Messages)
+	}
+	for _, want := range []string{"db: 203.0.113.5:5432/tcp (LoadBalancer)", "dns: <address pending; anyship status shows it once assigned>:53/tcp+udp (LoadBalancer)"} {
+		if !slices.Contains(r.Messages, want) {
+			t.Errorf("messages %v lack %q", r.Messages, want)
+		}
 	}
 }

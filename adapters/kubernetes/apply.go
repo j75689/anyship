@@ -161,18 +161,49 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		if err := k.run(ctx, nil, nil, "rollout", "status", "deployment/"+sv.object, "--timeout", rolloutTimeout.String()); err != nil {
 			return result(false, rolloutFailure(ctx, k, data, sv, err)...), nil
 		}
-		messages = append(messages, fmt.Sprintf("%s: %s (inside the cluster)", sv.name, data.serviceURL(sv.name)))
+		messages = append(messages, reachableAt(ctx, k, data, sv)...)
 	}
 	return result(true, messages...), nil
 }
 
-// applyArgs applies the manifests from stdin and removes the Deployments and
-// Services of the spec that aren't in them any more: those are the kinds
-// anyship makes from a service, and a Secret keeps its value until destroy
-// --volumes.
+// reachableAt says where a service answers: inside the cluster, through its
+// Ingress, and at its load balancer's address once the cluster assigns one.
+func reachableAt(ctx context.Context, k kubectl, d *planData, sv service) []string {
+	var lines []string
+	if sv.http {
+		lines = append(lines, fmt.Sprintf("%s: %s (inside the cluster)", sv.name, d.serviceURL(sv.name)))
+	}
+	if sv.ingress {
+		hosts := []string{"any host"}
+		if len(sv.svc.Domains) > 0 {
+			hosts = nil
+			for _, host := range sv.svc.Domains {
+				hosts = append(hosts, "http://"+host)
+			}
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s through ingress class %s", sv.name, strings.Join(hosts, ", "), d.opts.IngressClass))
+	}
+	if sv.lb {
+		addr, _ := k.probe(ctx, "get", "service", sv.object, "-o", "jsonpath={.status.loadBalancer.ingress[0].ip}{.status.loadBalancer.ingress[0].hostname}")
+		if addr == "" {
+			addr = "<address pending; anyship status shows it once assigned>"
+		}
+		for _, p := range sv.ports {
+			if p.Protocol != spec.ProtocolHTTP && p.Exposure != spec.ExposureInternal {
+				lines = append(lines, fmt.Sprintf("%s: %s:%d/%s (LoadBalancer)", sv.name, addr, p.Port, p.Protocol))
+			}
+		}
+	}
+	return lines
+}
+
+// applyArgs applies the manifests from stdin and removes the Deployments,
+// Services and Ingresses of the spec that aren't in them any more: those are
+// the kinds anyship makes from a service, and a Secret keeps its value until
+// destroy --volumes.
 func applyArgs(project string) []string {
 	return []string{"apply", "-f", "-", "--prune", "-l", projectLabel + "=" + project,
-		"--prune-allowlist", "apps/v1/Deployment", "--prune-allowlist", "core/v1/Service"}
+		"--prune-allowlist", "apps/v1/Deployment", "--prune-allowlist", "core/v1/Service", "--prune-allowlist", "networking.k8s.io/v1/Ingress"}
 }
 
 // rolloutFailure explains a rollout that didn't finish: the service's pods
@@ -240,6 +271,17 @@ func preflight(ctx context.Context, k kubectl, d *planData) (string, []adapter.F
 		return cluster, findings
 	}
 
+	if slices.ContainsFunc(d.services, func(sv service) bool { return sv.ingress }) {
+		if _, err := k.probe(ctx, "get", "ingressclass", d.opts.IngressClass, "-o", "name"); err != nil {
+			classes, _ := k.probe(ctx, "get", "ingressclass", "-o", "name")
+			have := "The cluster has none: install an ingress controller (ingress-nginx, Traefik) first."
+			if classes != "" {
+				have = "The cluster has " + strings.ReplaceAll(strings.ReplaceAll(classes, "ingressclass.networking.k8s.io/", ""), "\n", ", ") + "."
+			}
+			add(adapter.Error, "K8S_PREFLIGHT_INGRESS_CLASS", fmt.Sprintf("IngressClass %s doesn't exist in %s.", d.opts.IngressClass, cluster),
+				have+" Set spec.targets.kubernetes.ingressClass to one of them.")
+		}
+	}
 	if slices.ContainsFunc(d.services, func(sv service) bool { return sv.build != nil }) {
 		if d.platform == "" {
 			d.platform = nodePlatform(ctx, k, add)

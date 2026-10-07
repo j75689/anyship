@@ -19,6 +19,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fails. `status`, `logs -f` and `destroy` work. An Ingress for public ports and `domains`, cron,
   volumes, static sites and workers are refused for now, each with a pointer to its issue. CI runs
   the target end to end on a kind cluster.
+- `kubernetes`: a public HTTP port gets an Ingress when `targets.kubernetes.ingressClass` names
+  the cluster's IngressClass, with `domains` as its host rules (any host without them); preflight
+  checks the class exists and lists the cluster's when it doesn't. A public TCP or UDP port makes
+  the service's Service a LoadBalancer, whose address `apply` and `status` show once assigned.
+  Without `ingressClass` a public port stays reachable inside the cluster only, as before (#99).
 - The spec refuses an env value that reads as a reference to a service's URL but isn't written as
   `${services.<name>.url}` (`${service.api.url}`, `services.api.url`, `${services.api.port}`, …),
   since the container would get that text as it is (#104).
