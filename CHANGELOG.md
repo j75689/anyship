@@ -28,6 +28,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   by curl (`targets.kubernetes.cronImage` names another image), a `command` runs in the service's
   image with its env and secrets. Runs don't overlap, an entry taken out of the spec loses its
   CronJob on the next `apply` (#100).
+- `kubernetes`: `volumes` become PersistentVolumeClaims from `targets.kubernetes.storageClass` or
+  the cluster's default, mounted by a Deployment that replaces its pod rather than overlapping it,
+  kept until `destroy --volumes`; `static` sites are served by nginx; `worker` services run with
+  no Service (#101).
 - The spec refuses an env value that reads as a reference to a service's URL but isn't written as
   `${services.<name>.url}` (`${service.api.url}`, `services.api.url`, `${services.api.port}`, …),
   since the container would get that text as it is (#104).

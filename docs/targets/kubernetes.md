@@ -13,9 +13,10 @@ spec:
       platform: linux/arm64               # optional; what to build images for, the nodes' architecture when empty
       ingressClass: nginx                 # optional; the IngressClass public HTTP ports get an Ingress with
       cronImage: curlimages/curl:8.14.1   # optional; what a cron entry with a path calls it from
+      storageClass: fast                  # optional; the StorageClass volumes are claimed from, the default when empty
 ```
 
-- Each service becomes a Deployment and a ClusterIP Service named `<spec name>-<service>`, labeled
+- Each `server` becomes a Deployment and a ClusterIP Service named `<spec name>-<service>`, labeled
   `anyship-project=<spec name>`. The objects are rendered to `.anyship/kubernetes/manifests.yaml`
   for review and sent with `kubectl apply --prune`: a service taken out of the spec loses its
   Deployment and Service on the next `apply`, and `status`, `logs` and `destroy` find everything by
@@ -67,6 +68,16 @@ spec:
   stay as set by a previous deploy. A changed value rolls the pods of the services that use it.
   `destroy --volumes` deletes the secrets; plain `destroy` keeps them, and the images stay in the
   registry.
+- A `static` site is built into an nginx image from a generated Dockerfile (`build.command` runs
+  first for a JavaScript project) and served on port 80 behind its Service, on the spec's port or
+  80. A `worker` is a Deployment with no Service: no port, no `$PORT`, no address for
+  `${services.<name>.url}`, and `healthCheck.command` as its only probe.
+- `volumes` become PersistentVolumeClaims named `<spec name>-<service>-<volume>`, ReadWriteOnce,
+  of `size`, from `storageClass` or the cluster's default (preflight checks one exists and lists
+  the cluster's classes when it doesn't); `class` isn't applied. One pod holds a volume at a time,
+  so such a service runs one replica (`K8S_VOLUME_REPLICAS`) and a deploy stops the old pod before
+  it starts the new one. The claims are never pruned: a volume taken out of the spec keeps its
+  claim and its data, and `destroy --volumes` deletes them (plain `destroy` keeps them).
 - A `cron` entry becomes a CronJob named `<spec name>-<service>-cron-<n>`, read in UTC, that runs
   one Job per schedule tick: an entry with a `path` runs curl from `cronImage` against
   `http://<spec name>-<service>.<namespace>.svc:<port><path>` with `method` (`POST` by default), and
@@ -79,8 +90,7 @@ spec:
   next `apply`, and `destroy` removes them all.
 - `logs` runs `kubectl logs` over every pod of the spec, prefixed with the pod's name, and follows
   with `-f`. `status` reads the Deployments and their pods.
-- Not yet, each refused with a reason: volumes, static sites and workers
-  ([#101](https://github.com/j75689/anyship/issues/101)), a replica ceiling and a service account
+- Not yet, each refused with a reason: a replica ceiling, a service account and resource overrides
   ([#102](https://github.com/j75689/anyship/issues/102)), and resources anyship would have to
   provision.
 

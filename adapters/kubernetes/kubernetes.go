@@ -80,6 +80,9 @@ type Options struct {
 	// curlimages/curl when empty. Name another one on a cluster that can
 	// only pull from its own registry.
 	CronImage string `json:"cronImage,omitempty"`
+	// StorageClass is the StorageClass (`kubectl get storageclass`) volumes
+	// are claimed from; the cluster's default when empty.
+	StorageClass string `json:"storageClass,omitempty"`
 }
 
 // defaultCronImage calls the path of a cron entry; pinned, so a deploy
@@ -143,11 +146,19 @@ type service struct {
 	name   string // spec service name
 	object string // name of the Deployment and the Service
 	svc    *spec.Service
-	// port is the HTTP port, if the service has one (http is true then),
-	// and internal whether it is reachable inside the cluster only.
+	// port is the HTTP port of the Service, if the service has one (http
+	// is true then), target the container's port behind it (nginx's for a
+	// static site), and internal whether it is reachable inside the
+	// cluster only.
 	port     int
+	target   int
 	http     bool
 	internal bool
+	// static serves built files from nginx; worker runs with no Service.
+	static bool
+	worker bool
+	// claims are the service's volumes, as PersistentVolumeClaims.
+	claims []claim
 	// ports are all the service's ports, the HTTP one first.
 	ports []spec.Port
 	// ingress is whether an Ingress routes to the HTTP port, and lb whether
@@ -163,6 +174,17 @@ type service struct {
 	// apply rolls the pods so the tag is pulled again.
 	moving bool
 	build  *build
+}
+
+// claim is one volume of a service, as a PersistentVolumeClaim.
+type claim struct {
+	object string // PersistentVolumeClaim name
+	volume spec.Volume
+}
+
+// storage writes a volume size the way Kubernetes takes it: "20Gi", "2Ti".
+func storage(size string) string {
+	return strings.TrimSuffix(strings.TrimSuffix(size, "GB"), "TB") + map[bool]string{true: "Ti", false: "Gi"}[strings.HasSuffix(size, "TB")]
 }
 
 // cronJob is one cron entry of a service: a path to call, or a command to
@@ -232,18 +254,25 @@ func (d *planData) serviceURL(name string) string {
 }
 
 // httpPort is the port other services and an Ingress reach a service on:
-// its first HTTP port, or the default when it names no port at all. A
-// service with ports but no HTTP one has none.
+// its first HTTP port, or the default when it names no port at all (nginx's
+// for a static site). A worker, or a service with ports but no HTTP one,
+// has none.
 func httpPort(svc *spec.Service) (int, bool) {
+	if svc.Kind == spec.KindWorker {
+		return 0, false
+	}
 	for _, p := range svc.Ports {
 		if p.Protocol == spec.ProtocolHTTP {
 			return p.Port, true
 		}
 	}
-	if len(svc.Ports) == 0 {
-		return defaultPort, true
+	switch {
+	case len(svc.Ports) > 0:
+		return 0, false
+	case svc.Kind == spec.KindStatic:
+		return dockerfile.StaticPort, true
 	}
-	return 0, false
+	return defaultPort, true
 }
 
 func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adapter.Plan, error) {
@@ -297,8 +326,15 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 				plan.Files = append(plan.Files, adapter.File{Path: filepath.Join(env.OutDir, sv.name+".Dockerfile"), Contents: sv.build.generated.Dockerfile})
 			}
 		}
+		for _, c := range sv.claims {
+			plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpCreate, Kind: "PersistentVolumeClaim", Name: c.object,
+				Detail: fmt.Sprintf("%s at %s, kept until destroy --volumes", c.volume.Size, c.volume.MountPath)})
+		}
 		kind := "Deployment and Service"
-		if sv.ingress {
+		switch {
+		case sv.worker:
+			kind = "Deployment"
+		case sv.ingress:
 			kind = "Deployment, Service and Ingress"
 		}
 		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpDeploy, Kind: kind, Name: sv.object,
@@ -346,12 +382,37 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	}
 	switch svc.Kind {
 	case spec.KindStatic:
-		add(adapter.Error, "K8S_STATIC", "Static sites aren't deployed to Kubernetes by anyship yet.", "Deploy the site to the cloudflare or vps target for now.")
+		sv.static = true
 	case spec.KindWorker:
-		add(adapter.Error, "K8S_WORKER", "Background workers aren't supported on the kubernetes target yet.", "Run the worker on the vps target for now.")
+		sv.worker = true
+		if len(svc.Ports) > 0 {
+			add(adapter.Error, "K8S_WORKER_PORTS", "A worker runs with no Service, so nothing reaches its ports.", "Make it a server if something has to reach it, or drop the ports.")
+		}
+		if svc.HealthCheck != nil && svc.HealthCheck.Path != "" {
+			add(adapter.Error, "K8S_WORKER_HEALTH_PATH", "healthCheck.path needs an HTTP port, and a worker has none.", "Use healthCheck.command instead.")
+		}
 	}
-	if len(svc.Volumes) > 0 {
-		add(adapter.Error, "K8S_VOLUMES", "Volumes aren't supported on the kubernetes target yet.", "Store data in an external database, or use the vps target for now.")
+	for _, v := range svc.Volumes {
+		c := claim{object: objectName(s.Name, name) + "-" + v.Name, volume: v}
+		if !dnsLabelRe.MatchString(c.object) {
+			add(adapter.Error, "K8S_NAME", fmt.Sprintf("The PersistentVolumeClaim name %q is invalid or longer than 63 characters.", c.object), "Shorten the spec, service or volume name.")
+			continue
+		}
+		if v.Class != "" {
+			add(adapter.Info, "K8S_VOLUME_CLASS_IGNORED", fmt.Sprintf("volume %s: class %s isn't applied; the StorageClass decides what the volume is on.", v.Name, v.Class), "")
+		}
+		sv.claims = append(sv.claims, c)
+	}
+	if len(sv.claims) > 0 {
+		class := "the cluster's default StorageClass"
+		if opts.StorageClass != "" {
+			class = "StorageClass " + opts.StorageClass
+		}
+		if replicas(svc) > 1 {
+			add(adapter.Error, "K8S_VOLUME_REPLICAS", fmt.Sprintf("replicas %d: a volume is mounted by one pod at a time, so a service with volumes runs one replica.", svc.Replicas), "Set replicas: 1, or drop the volumes.")
+		}
+		add(adapter.Info, "K8S_VOLUMES",
+			fmt.Sprintf("volumes become PersistentVolumeClaims named %s-<volume>, from %s, kept until destroy --volumes; a volume taken out of the spec keeps its claim and its data. A deploy stops the old pod before it starts the new one, since one pod holds a volume at a time.", sv.object, class), "")
 	}
 	var http []spec.Port
 	for _, p := range svc.Ports {
@@ -364,11 +425,16 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 			sv.lb = true
 		}
 	}
+	sv.target = sv.port
 	switch {
 	case len(http) > 1:
 		add(adapter.Error, "K8S_MULTIPLE_PORTS", "The kubernetes target sends HTTP traffic to one port per service.", "Keep one HTTP port, or split the service.")
 	case len(http) == 1:
 		sv.port, sv.http, sv.internal = http[0].Port, true, http[0].Exposure == spec.ExposureInternal
+		sv.target = sv.port
+		if sv.static {
+			sv.target = dockerfile.StaticPort
+		}
 		sv.ports = append([]spec.Port{http[0]}, sv.ports...)
 		switch {
 		case sv.internal:
@@ -389,6 +455,9 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 				fmt.Sprintf("Port %d is public, but without spec.targets.kubernetes.ingressClass no Ingress is made: %s is reachable inside the cluster only, at http://%s.%s.svc:%d.", sv.port, sv.object, sv.object, opts.Namespace, sv.port),
 				fmt.Sprintf("Set ingressClass to one of `kubectl get ingressclass` to route it. Until then `kubectl port-forward -n %s svc/%s %d:%d` reaches it from this machine.", opts.Namespace, sv.object, sv.port, sv.port))
 		}
+	case len(sv.ports) == 0 && sv.static:
+		sv.http, sv.port, sv.target = true, dockerfile.StaticPort, dockerfile.StaticPort
+		sv.ports = []spec.Port{{Port: dockerfile.StaticPort, Protocol: spec.ProtocolHTTP}}
 	case len(sv.ports) == 0 && svc.Kind == spec.KindServer:
 		add(adapter.Info, "K8S_PORT_ASSUMED", fmt.Sprintf("No port in the spec; the Service will send traffic to %d (also passed as $PORT).", defaultPort), "")
 		sv.http = true
@@ -536,7 +605,18 @@ type list struct {
 type deploymentSpec struct {
 	Replicas int         `json:"replicas"`
 	Selector selector    `json:"selector"`
+	Strategy *strategy   `json:"strategy,omitempty"`
 	Template podTemplate `json:"template"`
+}
+
+type strategy struct {
+	Type string `json:"type"`
+}
+
+type pvcSpec struct {
+	AccessModes      []string  `json:"accessModes"`
+	StorageClassName string    `json:"storageClassName,omitempty"`
+	Resources        resources `json:"resources"`
 }
 
 type selector struct {
@@ -622,6 +702,11 @@ type execAction struct {
 type volume struct {
 	Name   string        `json:"name"`
 	Secret *secretVolume `json:"secret,omitempty"`
+	Claim  *claimSource  `json:"persistentVolumeClaim,omitempty"`
+}
+
+type claimSource struct {
+	ClaimName string `json:"claimName"`
 }
 
 type secretVolume struct {
@@ -714,13 +799,17 @@ func (d *planData) deployment(sv service, img string) object {
 	c := container{Name: sv.name, Image: img, ImagePullPolicy: "IfNotPresent", Args: sv.argv}
 	for _, p := range sv.ports {
 		for _, e := range portEntries(p) {
-			c.Ports = append(c.Ports, containerPort{Name: e.name, ContainerPort: e.port, Protocol: e.protocol})
+			port := e.port
+			if e.name == "http" {
+				port = sv.target
+			}
+			c.Ports = append(c.Ports, containerPort{Name: e.name, ContainerPort: port, Protocol: e.protocol})
 		}
 	}
 	if sv.moving {
 		c.ImagePullPolicy = "Always"
 	}
-	c.Env = d.env(sv, sv.http)
+	c.Env = d.env(sv, sv.http && !sv.static)
 	if sv.svc.CPU != 0 || sv.svc.MemoryMB() != 0 {
 		size := map[string]string{}
 		if sv.svc.CPU != 0 {
@@ -734,7 +823,7 @@ func (d *planData) deployment(sv service, img string) object {
 	if hc := sv.svc.HealthCheck; hc != nil && (hc.Path != "" || hc.Command != "") {
 		startup := probe{PeriodSeconds: probePeriod, TimeoutSeconds: probeTimeout, FailureThreshold: probeFailures}
 		if hc.Path != "" {
-			startup.HTTPGet = &httpGet{Path: hc.Path, Port: sv.port}
+			startup.HTTPGet = &httpGet{Path: hc.Path, Port: sv.target}
 		} else {
 			startup.Exec = &execAction{Command: []string{"sh", "-c", hc.Command}}
 		}
@@ -752,6 +841,10 @@ func (d *planData) deployment(sv service, img string) object {
 	if len(sv.svc.Secrets) > 0 {
 		annotations[secretsAnnotation] = d.versions
 	}
+	for _, cl := range sv.claims {
+		pod.Volumes = append(pod.Volumes, volume{Name: cl.object, Claim: &claimSource{ClaimName: cl.object}})
+		c.VolumeMounts = append(c.VolumeMounts, volumeMount{Name: cl.object, MountPath: cl.volume.MountPath})
+	}
 	pod.Containers = []container{c}
 	template := podTemplate{Metadata: metadata{Labels: d.labels(sv)}, Spec: pod}
 	if sv.moving {
@@ -760,8 +853,21 @@ func (d *planData) deployment(sv service, img string) object {
 	if len(annotations) > 0 {
 		template.Metadata.Annotations = annotations
 	}
-	return object{APIVersion: "apps/v1", Kind: "Deployment", Metadata: d.meta(sv.object, d.labels(sv)),
-		Spec: deploymentSpec{Replicas: replicas(sv.svc), Selector: selector{MatchLabels: d.labels(sv)}, Template: template}}
+	spec := deploymentSpec{Replicas: replicas(sv.svc), Selector: selector{MatchLabels: d.labels(sv)}, Template: template}
+	// One pod holds a ReadWriteOnce volume at a time, so the old pod has to
+	// go before the new one can mount it.
+	if len(sv.claims) > 0 {
+		spec.Strategy = &strategy{Type: "Recreate"}
+	}
+	return object{APIVersion: "apps/v1", Kind: "Deployment", Metadata: d.meta(sv.object, d.labels(sv)), Spec: spec}
+}
+
+// pvc is the PersistentVolumeClaim for one volume. It isn't pruned: the
+// data outlives the spec entry, until destroy --volumes.
+func (d *planData) pvc(sv service, cl claim) object {
+	return object{APIVersion: "v1", Kind: "PersistentVolumeClaim", Metadata: d.meta(cl.object, d.labels(sv)),
+		Spec: pvcSpec{AccessModes: []string{"ReadWriteOnce"}, StorageClassName: d.opts.StorageClass,
+			Resources: resources{Requests: map[string]string{"storage": storage(cl.volume.Size)}}}}
 }
 
 // env is the service's environment, with $PORT when asked and references
@@ -828,7 +934,11 @@ func (d *planData) service(sv service) object {
 	}
 	for _, p := range sv.ports {
 		for _, e := range portEntries(p) {
-			spec.Ports = append(spec.Ports, servicePort{Name: e.name, Port: e.port, TargetPort: e.port, Protocol: e.protocol})
+			target := e.port
+			if e.name == "http" {
+				target = sv.target
+			}
+			spec.Ports = append(spec.Ports, servicePort{Name: e.name, Port: e.port, TargetPort: target, Protocol: e.protocol})
 		}
 	}
 	return object{APIVersion: "v1", Kind: "Service", Metadata: d.meta(sv.object, d.labels(sv)), Spec: spec}
@@ -860,7 +970,13 @@ func (d *planData) secret(sc secret, value string) object {
 func manifests(d *planData) ([]byte, error) {
 	l := list{APIVersion: "v1", Kind: "List"}
 	for _, sv := range d.services {
-		l.Items = append(l.Items, d.deployment(sv, sv.imageOrPlaceholder(d.opts)), d.service(sv))
+		for _, cl := range sv.claims {
+			l.Items = append(l.Items, d.pvc(sv, cl))
+		}
+		l.Items = append(l.Items, d.deployment(sv, sv.imageOrPlaceholder(d.opts)))
+		if !sv.worker {
+			l.Items = append(l.Items, d.service(sv))
+		}
 		if sv.ingress {
 			l.Items = append(l.Items, d.ingress(sv))
 		}
@@ -914,6 +1030,8 @@ func decodeOptions(raw json.RawMessage) (*Options, error) {
 		return nil, fmt.Errorf("ingressClass %q is not an IngressClass name", opts.IngressClass)
 	case opts.CronImage != "" && (strings.ContainsAny(opts.CronImage, " \t\n") || strings.HasPrefix(opts.CronImage, "-")):
 		return nil, fmt.Errorf("cronImage %q is not an image reference", opts.CronImage)
+	case opts.StorageClass != "" && !dnsSubdomainRe.MatchString(opts.StorageClass):
+		return nil, fmt.Errorf("storageClass %q is not a StorageClass name", opts.StorageClass)
 	}
 	return opts, nil
 }

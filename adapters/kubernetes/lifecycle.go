@@ -89,7 +89,11 @@ func (so serviceObject) address() string {
 }
 
 func getJSON[T any](ctx context.Context, k kubectl, kind, selector string) ([]T, error) {
-	out, err := k.probe(ctx, "get", kind, "-l", selector, "-o", "json")
+	args := []string{"get", kind, "-o", "json"}
+	if selector != "" {
+		args = []string{"get", kind, "-l", selector, "-o", "json"}
+	}
+	out, err := k.probe(ctx, args...)
 	if err != nil {
 		return nil, fmt.Errorf("listing %s in namespace %s failed (%w)", kind, k.namespace, err)
 	}
@@ -248,6 +252,18 @@ func (a *Adapter) DestroySummary(s *spec.Spec, opts adapter.DestroyOptions) ([]s
 	case len(secrets) > 0:
 		lines = append(lines, fmt.Sprintf("Keep the Secrets %s; destroy --volumes deletes them.", strings.Join(secrets, ", ")))
 	}
+	var claims []string
+	for _, name := range s.ServiceNames() {
+		for _, v := range s.Services[name].Volumes {
+			claims = append(claims, objectName(s.Name, name)+"-"+v.Name)
+		}
+	}
+	switch {
+	case opts.Volumes && len(claims) > 0:
+		lines = append(lines, fmt.Sprintf("DELETE the volumes %s (PersistentVolumeClaims). Their data cannot be recovered.", strings.Join(claims, ", ")))
+	case len(claims) > 0:
+		lines = append(lines, fmt.Sprintf("Keep the volumes %s; destroy --volumes deletes them.", strings.Join(claims, ", ")))
+	}
 	return append(lines, "Keep the namespace and the images in the registry."), nil
 }
 
@@ -264,7 +280,7 @@ func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, o
 	}
 	kinds := "deployments,services,ingresses,cronjobs"
 	if opts.Volumes {
-		kinds += ",secrets"
+		kinds += ",secrets,persistentvolumeclaims"
 	}
 	if found == "" && !opts.Volumes {
 		return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Nothing to remove: %s has no Deployments, Services, Ingresses or CronJobs in namespace %s.", s.Name, o.Namespace)}}, nil

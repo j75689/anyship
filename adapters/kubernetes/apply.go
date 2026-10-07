@@ -150,7 +150,7 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 	if err := os.WriteFile(filepath.Join(env.OutDir, manifestsFile), contents, 0o644); err != nil {
 		return nil, err
 	}
-	env.Logf("$ kubectl apply --prune -l %s=%s (%d objects)", projectLabel, data.project, 2*len(data.services))
+	env.Logf("$ kubectl apply --prune -l %s=%s", projectLabel, data.project)
 	if err := k.run(ctx, bytes.NewReader(contents), nil, applyArgs(data.project)...); err != nil {
 		return result(false, fmt.Sprintf("kubectl apply failed: %v", err)), nil
 	}
@@ -283,6 +283,9 @@ func preflight(ctx context.Context, k kubectl, d *planData) (string, []adapter.F
 				have+" Set spec.targets.kubernetes.ingressClass to one of them.")
 		}
 	}
+	if slices.ContainsFunc(d.services, func(sv service) bool { return len(sv.claims) > 0 }) {
+		checkStorageClass(ctx, k, d, cluster, add)
+	}
 	if slices.ContainsFunc(d.services, func(sv service) bool { return sv.build != nil }) {
 		if d.platform == "" {
 			d.platform = nodePlatform(ctx, k, add)
@@ -352,4 +355,42 @@ func ensureSecret(ctx context.Context, k kubectl, d *planData, sc secret) error 
 		return fmt.Errorf("writing secret %s failed: %w", sc.object, err)
 	}
 	return nil
+}
+
+// storageClass is what preflight reads from `kubectl get storageclass -o json`.
+type storageClass struct {
+	Metadata struct {
+		Name        string            `json:"name"`
+		Annotations map[string]string `json:"annotations"`
+	} `json:"metadata"`
+}
+
+// checkStorageClass makes sure the volumes have a StorageClass to be claimed
+// from: the one the spec names, or the cluster's default.
+func checkStorageClass(ctx context.Context, k kubectl, d *planData, cluster string, add func(level adapter.Level, code, message, hint string)) {
+	classes, err := getJSON[storageClass](ctx, k, "storageclass", "")
+	if err != nil {
+		add(adapter.Error, "K8S_PREFLIGHT_STORAGE_CLASS", fmt.Sprintf("Can't list the StorageClasses of %s: %v.", cluster, err), "")
+		return
+	}
+	var names []string
+	var byDefault string
+	for _, c := range classes {
+		names = append(names, c.Metadata.Name)
+		if c.Metadata.Annotations["storageclass.kubernetes.io/is-default-class"] == "true" {
+			byDefault = c.Metadata.Name
+		}
+	}
+	have := "The cluster has none: install a storage provisioner first."
+	if len(names) > 0 {
+		have = "The cluster has " + strings.Join(names, ", ") + "."
+	}
+	switch {
+	case d.opts.StorageClass != "" && !slices.Contains(names, d.opts.StorageClass):
+		add(adapter.Error, "K8S_PREFLIGHT_STORAGE_CLASS", fmt.Sprintf("StorageClass %s doesn't exist in %s.", d.opts.StorageClass, cluster),
+			have+" Set spec.targets.kubernetes.storageClass to one of them.")
+	case d.opts.StorageClass == "" && byDefault == "":
+		add(adapter.Error, "K8S_PREFLIGHT_STORAGE_CLASS", fmt.Sprintf("%s has no default StorageClass, and the spec names none for its volumes.", cluster),
+			have+" Set spec.targets.kubernetes.storageClass to one of them.")
+	}
 }
