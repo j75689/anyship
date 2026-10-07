@@ -12,6 +12,7 @@ spec:
       repository: ghcr.io/me/my-app       # registry path to push images built from source to
       platform: linux/arm64               # optional; what to build images for, the nodes' architecture when empty
       ingressClass: nginx                 # optional; the IngressClass public HTTP ports get an Ingress with
+      cronImage: curlimages/curl:8.14.1   # optional; what a cron entry with a path calls it from
 ```
 
 - Each service becomes a Deployment and a ClusterIP Service named `<spec name>-<service>`, labeled
@@ -66,10 +67,19 @@ spec:
   stay as set by a previous deploy. A changed value rolls the pods of the services that use it.
   `destroy --volumes` deletes the secrets; plain `destroy` keeps them, and the images stay in the
   registry.
+- A `cron` entry becomes a CronJob named `<spec name>-<service>-cron-<n>`, read in UTC, that runs
+  one Job per schedule tick: an entry with a `path` runs curl from `cronImage` against
+  `http://<spec name>-<service>.<namespace>.svc:<port><path>` with `method` (`POST` by default), and
+  an entry with a `command` runs it in the service's image, split like `start`, with the service's
+  env and secrets. A call gives up connecting after 10 seconds and waits 30 minutes at most for the
+  response, so a pod gone mid-call fails the run instead of hanging it. Runs don't overlap (a tick
+  while the last run is still going is skipped), a failed run is retried twice, and the last three
+  successful and failed Jobs are kept for `kubectl get jobs`; their logs are part of `anyship logs`. The jobs' pods don't carry the service's label,
+  so the Service never sends them traffic. An entry taken out of the spec loses its CronJob on the
+  next `apply`, and `destroy` removes them all.
 - `logs` runs `kubectl logs` over every pod of the spec, prefixed with the pod's name, and follows
   with `-f`. `status` reads the Deployments and their pods.
-- Not yet, each refused with a reason: `cron`
-  ([#100](https://github.com/j75689/anyship/issues/100)), volumes, static sites and workers
+- Not yet, each refused with a reason: volumes, static sites and workers
   ([#101](https://github.com/j75689/anyship/issues/101)), a replica ceiling and a service account
   ([#102](https://github.com/j75689/anyship/issues/102)), and resources anyship would have to
   provision.
