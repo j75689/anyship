@@ -228,10 +228,10 @@ type planFile struct {
 }
 
 type logsInput struct {
-	Config  string `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
-	Target  string `json:"target" jsonschema:"deploy target such as vps or cloudflare"`
-	Service string `json:"service,omitempty" jsonschema:"only this service's logs"`
-	Tail    int    `json:"tail,omitempty" jsonschema:"recent lines per service; the target's default when 0"`
+	Config     string `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
+	Target     string `json:"target" jsonschema:"deploy target such as vps or cloudflare"`
+	Service    string `json:"service,omitempty" jsonschema:"only this service's logs"`
+	Tail       int    `json:"tail,omitempty" jsonschema:"recent lines per service; the target's default when 0"`
 	Since      string `json:"since,omitempty" jsonschema:"only logs newer than a duration such as 10m or an RFC 3339 timestamp"`
 	Timestamps bool   `json:"timestamps,omitempty" jsonschema:"prefix each line with its time"`
 }
