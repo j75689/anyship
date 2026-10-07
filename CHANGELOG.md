@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `kubernetes` target: deploys a spec to any cluster through `kubectl`, as a Deployment and a
+  ClusterIP Service per service in a namespace you name (#97, #98). Images are built locally and
+  pushed to a registry you name, for the nodes' architecture, and deployed by digest; secrets are
+  Secret objects mounted as files under `/run/secrets`; `healthCheck` becomes startup and readiness
+  probes, `memory` and `cpu` resource requests and limits, `replicas` the replica count. Every
+  object goes in one `kubectl apply --prune`, so a service taken out of the spec is removed on the
+  next `apply`, and `apply` waits for each rollout and reports the pods and warnings of one that
+  fails. `status`, `logs -f` and `destroy` work. An Ingress for public ports and `domains`, cron,
+  volumes, static sites and workers are refused for now, each with a pointer to its issue. CI runs
+  the target end to end on a kind cluster.
+
 ## [0.4.1] - 2026-10-07
 
 ### Fixed
@@ -207,6 +222,7 @@ The first tagged release. It covers everything built up to that point.
   deploy it.
 - Release binaries built with GoReleaser, and `install.sh`, which verifies checksums.
 
+[Unreleased]: https://github.com/j75689/anyship/compare/v0.4.1...HEAD
 [0.4.1]: https://github.com/j75689/anyship/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/j75689/anyship/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/j75689/anyship/compare/v0.3.0...v0.3.1

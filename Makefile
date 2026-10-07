@@ -9,7 +9,7 @@ VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || ech
 # The platforms release archives are built for (scripts/dist.sh).
 PLATFORMS     := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
-.PHONY: help check build build-all test vet fmt fmt-check lint tidy-check schema test-images e2e-vps dist release-notes clean
+.PHONY: help check build build-all test vet fmt fmt-check lint tidy-check schema test-images e2e-vps e2e-kubernetes dist release-notes clean
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z0-9-]+:.*## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -52,6 +52,9 @@ test-images: ## Build and run an image for every sample app (needs Docker)
 
 e2e-vps: build ## Deploy a sample app to localhost over ssh and remove it (needs Docker and sshd)
 	ANYSHIP=./$(BIN) scripts/e2e-vps.sh
+
+e2e-kubernetes: build ## Deploy a sample app to the current kubectl context and remove it (needs a cluster and a registry it pulls from)
+	ANYSHIP=./$(BIN) scripts/e2e-kubernetes.sh
 
 dist: ## Build every release archive and checksums.txt into dist/
 	scripts/dist.sh $(VERSION)

@@ -42,17 +42,17 @@ Each adapter talks to its provider through the provider's own CLI, so your exist
 and anyship handles no cloud credentials. Each target has a page under [targets/](targets/) with its options
 and limits.
 
-| anyship.yaml asks for | cloudflare | vps | gcp | aws |
-|---|---|---|---|---|
-| HTTP `server` | Worker | container | Cloud Run service | ECS Express Mode service |
-| image or Dockerfile | refused | built on the host | built locally, pushed to Artifact Registry | built locally, pushed to ECR |
-| `static` site | Worker assets | nginx container | refused (use cloudflare) | refused (use cloudflare) |
-| volumes, TCP/UDP ports | refused | Docker volumes, published ports | refused (use vps) | refused (use vps) |
-| `domains` | custom-domain routes | refused (no HTTP router yet) | refused (map them yourself) | refused (CNAME the `on.aws` URL) |
-| `replicas` | automatic | Compose replicas | min instances | min tasks |
-| `secrets` | `wrangler secret` | files on the host | Secret Manager, by name | Secrets Manager, by name |
-| databases | D1, KV, R2, Hyperdrive by id | external only | external only | external only |
-| status, logs, destroy | logs, destroy | all three | all three | all three |
+| anyship.yaml asks for | cloudflare | vps | gcp | aws | kubernetes |
+|---|---|---|---|---|---|
+| HTTP `server` | Worker | container | Cloud Run service | ECS Express Mode service | Deployment and ClusterIP Service |
+| image or Dockerfile | refused | built on the host | built locally, pushed to Artifact Registry | built locally, pushed to ECR | built locally, pushed to a registry you name |
+| `static` site | Worker assets | nginx container | refused (use cloudflare) | refused (use cloudflare) | refused (planned) |
+| volumes, TCP/UDP ports | refused | Docker volumes, published ports | refused (use vps) | refused (use vps) | refused (planned) |
+| `domains` | custom-domain routes | refused (no HTTP router yet) | refused (map them yourself) | refused (CNAME the `on.aws` URL) | refused (Ingress planned) |
+| `replicas` | automatic | Compose replicas | min instances | min tasks | Deployment replicas |
+| `secrets` | `wrangler secret` | files on the host | Secret Manager, by name | Secrets Manager, by name | Secret objects, files in the pod |
+| databases | D1, KV, R2, Hyperdrive by id | external only | external only | external only | external only |
+| status, logs, destroy | logs, destroy | all three | all three | all three | all three |
 
 `services.<name>.domains` is the platform-neutral place to name the hosts a service answers on. Per
 "applications, not infrastructure", anyship attaches them to the platform's HTTP router where it can
@@ -69,7 +69,7 @@ different hosts than the rest of the spec, and `plan` notes the substitution (`C
 Nothing on the host changes until preflight passes. CI runs this path against its own runner on every
 pull request (`vps-e2e`).
 
-### `apply` on a cloud target (gcp, aws)
+### `apply` on a cloud target (gcp, aws, kubernetes)
 
 1. **plan**: render the provider's service settings and the Dockerfile, as for vps.
 2. **preflight**: check the CLI login, project or account, region, required APIs and registry access.
@@ -77,6 +77,8 @@ pull request (`vps-e2e`).
    apply rolls out exactly the image it built.
 4. **deploy**: create or update the service by its name (`<spec name>-<service>`), labeled or tagged
    `anyship-project=<spec name>`. Later commands find it by that name or label, without state.
+   On kubernetes every object goes in one `kubectl apply --prune` by that label, which also removes
+   what the spec no longer names, and apply then waits for each rollout.
 
 ### `diagnose`
 

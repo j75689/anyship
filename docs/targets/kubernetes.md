@@ -1,0 +1,68 @@
+# The `kubernetes` target
+
+Deploys to any Kubernetes cluster through your `kubectl`, as a Deployment and a Service per spec
+service, in a namespace you name.
+
+```yaml
+spec:
+  targets:
+    kubernetes:
+      namespace: my-app                   # existing namespace the spec is deployed to
+      context: my-cluster                 # optional; kubeconfig context, the current one when empty
+      repository: ghcr.io/me/my-app       # registry path to push images built from source to
+      platform: linux/arm64               # optional; what to build images for, the nodes' architecture when empty
+```
+
+- Each service becomes a Deployment and a ClusterIP Service named `<spec name>-<service>`, labeled
+  `anyship-project=<spec name>`. The objects are rendered to `.anyship/kubernetes/manifests.yaml`
+  for review and sent with `kubectl apply --prune`: a service taken out of the spec loses its
+  Deployment and Service on the next `apply`, and `status`, `logs` and `destroy` find everything by
+  the label. anyship keeps no state and creates no namespace: preflight checks that the context and
+  the namespace exist and that your login may create Deployments there, and names the command that
+  creates a missing namespace.
+- `apply` waits for each Deployment to roll out, 5 minutes at most. A revision whose pods don't
+  become ready fails the apply and leaves the previous pods serving; the result names the pods and
+  the cluster's warnings about them (an image that can't be pulled, a container that keeps
+  crashing), and `status` shows the pod's state (`ImagePullBackOff`, `CrashLoopBackOff`) with its
+  message.
+- Services without `image` or `dockerfile` are built from a generated Dockerfile
+  (`.anyship/kubernetes/<service>.Dockerfile`) with `docker buildx build --push`, pushed to
+  `<repository>/<spec name>-<service>` and deployed by digest. The registry has to be one the
+  cluster's nodes can pull from; a local cluster that shares the Docker daemon (OrbStack, Docker
+  Desktop) can use a `registry:2` container at `localhost:5000`. Images are built for the nodes'
+  architecture, read from the cluster; `platform` overrides that, and a cluster with mixed nodes
+  gets `linux/amd64` unless it does.
+- A service that sets `image` runs that image. If the tag can move (`:latest`, `:main`, no tag),
+  every `apply` rolls the pods and pulls it again (`imagePullPolicy: Always`), so they run what the
+  tag points at then; `plan` notes it (`K8S_MUTABLE_TAG`). A versioned tag or a digest rolls out only
+  when the spec changes, and `--image <service>=<image>` deploys another image for one run.
+- One HTTP port per service (default 8080, also passed as `$PORT`), served by the ClusterIP Service.
+  `${services.<name>.url}` in `env` becomes `http://<spec name>-<name>.<namespace>.svc:<port>`, which
+  follows from the names, so it is known before the first deploy. An `internal` port is reachable
+  inside the cluster only. A `public` port is too, for now: anyship creates no Ingress yet, `plan`
+  says so (`K8S_PUBLIC_PORT`) and `kubectl port-forward` reaches the service from your machine.
+- `replicas` is the Deployment's replica count. `memory` and `cpu` become the container's resource
+  requests and limits, both, so the pods get what the spec says and no more.
+- `start` runs as the container's arguments (`args`), exactly as written and without a shell, with
+  the image's own entrypoint; wrap it in `sh -c '...'` if you need pipes or variables.
+- `healthCheck.path` becomes the startup and readiness probes: a new pod gets traffic once `GET`
+  on the path answers with a 2xx or 3xx status, the rollout fails if it hasn't within 4 minutes, and
+  a pod that stops answering three times in a row is taken out of the Service. `healthCheck.command`
+  runs in the container through `sh -c` instead. The spec decides: a deploy without `healthCheck`
+  removes the probes.
+- Secrets are Secret objects named `<spec name>-<secret>` in lowercase, labeled with the project,
+  and reach the container as files at `/run/secrets/<NAME>`. `generate: "hex32"` secrets are created
+  on first deploy and kept; others come from the same-named environment variable at `apply` time, or
+  stay as set by a previous deploy. A changed value rolls the pods of the services that use it.
+  `destroy --volumes` deletes the secrets; plain `destroy` keeps them, and the images stay in the
+  registry.
+- `logs` runs `kubectl logs` over every pod of the spec, prefixed with the pod's name, and follows
+  with `-f`. `status` reads the Deployments and their pods.
+- Not yet, each refused with a reason: an Ingress for public ports and `domains`
+  ([#99](https://github.com/j75689/anyship/issues/99)), `cron`
+  ([#100](https://github.com/j75689/anyship/issues/100)), volumes, static sites and workers
+  ([#101](https://github.com/j75689/anyship/issues/101)), TCP/UDP ports, a replica ceiling and a
+  service account ([#102](https://github.com/j75689/anyship/issues/102)), and resources anyship would
+  have to provision.
+
+[All targets](../../README.md#targets)
