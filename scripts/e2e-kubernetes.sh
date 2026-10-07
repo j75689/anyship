@@ -170,6 +170,36 @@ cp one-service.yaml anyship.yaml
 grep -q "app-web-cron-0 pruned" cron-prune.out || fail "expected the CronJobs to be pruned"
 if k get cronjob app-web-cron-0 -o name 2>/dev/null; then fail "the CronJob should be gone"; fi
 
+step "a volume outlives a redeploy, a static site is served, a worker runs with no Service"
+mkdir -p site && echo '<h1>static ok</h1>' > site/index.html
+python3 - <<'PY'
+import pathlib
+p = pathlib.Path("anyship.yaml"); s = p.read_text()
+s = s.replace("      ports:\n        - port: 8000\n", "      ports:\n        - port: 8000\n      volumes:\n        - name: data\n          mountPath: /data\n          size: 1GB\n", 1)
+s = s.replace("  targets:\n", "    site:\n      kind: static\n      path: site\n    worker:\n      kind: worker\n      image: busybox:1.36\n      start: sleep 3600\n  targets:\n", 1)
+p.write_text(s)
+PY
+"$ANYSHIP" apply -t kubernetes --yes | tee volumes.out
+grep -q "PersistentVolumeClaim app-web-data" volumes.out || fail "plan should list the claim"
+k get pvc app-web-data -o name || fail "the claim should exist"
+[ "$(k get deployment app-web -o jsonpath='{.spec.strategy.type}')" = Recreate ] || fail "a service with a volume should recreate its pod"
+web=$(k get pods -l anyship-service=web --field-selector status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+k exec "$web" -- sh -c 'echo kept > /data/marker'
+# A new image digest rolls the pod; the file has to be there afterwards.
+echo "# $(date +%s)" >> app.py
+"$ANYSHIP" apply -t kubernetes --yes >/dev/null
+web=$(k get pods -l anyship-service=web --field-selector status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+[ "$(k exec "$web" -- cat /data/marker)" = kept ] || fail "the volume's data should survive a redeploy"
+k run curl-static --image=curlimages/curl:8.14.1 --restart=Never -q -- curl -fsS --retry 10 --retry-all-errors --retry-delay 2 http://app-site.anyship-e2e.svc:80/
+k wait --for=jsonpath='{.status.phase}'=Succeeded pod/curl-static --timeout=120s || { k logs curl-static; fail "the static site didn't answer"; }
+k logs curl-static | grep -q "static ok" || fail "the static site should serve index.html"
+k delete pod curl-static --wait=false >/dev/null
+k get deployment app-worker -o name || fail "the worker should be deployed"
+if k get service app-worker -o name 2>/dev/null; then fail "a worker should get no Service"; fi
+cp one-service.yaml anyship.yaml
+"$ANYSHIP" apply -t kubernetes --yes >/dev/null
+k get pvc app-web-data -o name || fail "a volume taken out of the spec should keep its claim"
+
 step "destroy removes the Deployments and Services"
 "$ANYSHIP" destroy -t kubernetes --yes
 if "$ANYSHIP" status -t kubernetes; then fail "status should fail once destroyed"; fi
@@ -178,5 +208,10 @@ if "$ANYSHIP" status -t kubernetes; then fail "status should fail once destroyed
 step "destroying again is a no-op"
 "$ANYSHIP" destroy -t kubernetes --yes | tee again.out
 grep -q "Nothing to remove" again.out || fail "expected a not-deployed message"
+k get pvc app-web-data -o name || fail "destroy without --volumes should keep the claim"
+
+step "destroy --volumes deletes the claim"
+"$ANYSHIP" destroy -t kubernetes --volumes --yes
+if k get pvc app-web-data -o name 2>/dev/null; then fail "destroy --volumes should delete the claim"; fi
 
 printf '\n\033[32mkubernetes end-to-end test passed\033[0m\n'

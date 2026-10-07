@@ -59,6 +59,7 @@ func newFakeCluster() *fakeCluster {
 			"kubectl get services":                                `{"items": []}`,
 			"kubectl get pods":                                    `{"items": []}`,
 			"kubectl get secret":                                  "4711",
+			"kubectl get storageclass":                            `{"items": [{"metadata": {"name": "local-path", "annotations": {"storageclass.kubernetes.io/is-default-class": "true"}}}, {"metadata": {"name": "fast"}}]}`,
 		},
 		fail:   map[string]string{"kubectl get secret shop-api-key -o name": `Error from server (NotFound): secrets "shop-api-key" not found`},
 		digest: "sha256:" + strings.Repeat("a", 64),
@@ -311,9 +312,9 @@ func TestPlanHealthCheck(t *testing.T) {
 
 func TestPlanRefusesUnsupported(t *testing.T) {
 	for src, want := range map[string]string{
-		`"web": {"kind": "static", "path": "site"}`:                                                                                                              "K8S_STATIC",
-		`"web": {"kind": "worker", "image": "busybox:1"}`:                                                                                                        "K8S_WORKER",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "volumes": [{"name": "d", "mountPath": "/d", "size": "1GB"}]}`:                                       "K8S_VOLUMES",
+		`"web": {"kind": "worker", "image": "busybox:1.36", "ports": [{"port": 80}]}`:                                                                            "K8S_WORKER_PORTS",
+		`"web": {"kind": "worker", "image": "busybox:1.36", "healthCheck": {"path": "/healthz"}}`:                                                                "K8S_WORKER_HEALTH_PATH",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "replicas": 2, "volumes": [{"name": "d", "mountPath": "/d", "size": "1GB"}]}`:                        "K8S_VOLUME_REPLICAS",
 		`"web": {"kind": "server", "image": "nginx:1.27.0", "cron": [{"schedule": "* * * * *"}]}`:                                                                "K8S_CRON",
 		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 5432, "protocol": "tcp"}], "cron": [{"schedule": "* * * * *", "path": "/tick"}]}`: "K8S_CRON_PATH",
 		`"web": {"kind": "server", "image": "nginx:1.27.0", "cron": [{"schedule": "* * * * *", "command": "sh -c 'oops"}]}`:                                      "K8S_BAD_CRON",
@@ -537,9 +538,9 @@ func TestApplyPlatformFollowsTheNodes(t *testing.T) {
 }
 
 func TestApplyPreflight(t *testing.T) {
-	src := `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}]}}, `
 	for name, tc := range map[string]struct {
 		options string
+		spec    string
 		fail    map[string]string
 		out     map[string]string
 		want    string
@@ -550,9 +551,17 @@ func TestApplyPreflight(t *testing.T) {
 		"missing namespace":  {fail: map[string]string{"kubectl get namespace": `Error from server (NotFound): namespaces "apps" not found`}, want: "K8S_PREFLIGHT_NAMESPACE"},
 		"unreachable":        {fail: map[string]string{"kubectl get namespace": "The connection to the server 127.0.0.1:6443 was refused"}, want: "K8S_PREFLIGHT_CLUSTER"},
 		"no access":          {out: map[string]string{"kubectl auth can-i": "no"}, want: "K8S_PREFLIGHT_ACCESS"},
+		"no storage class":   {options: `{"namespace": "apps", "storageClass": "gold"}`, spec: `"web": {"kind": "server", "image": "nginx:1.27.0", "volumes": [{"name": "d", "mountPath": "/d", "size": "1GB"}]}`, want: "K8S_PREFLIGHT_STORAGE_CLASS"},
+		"no default storage class": {spec: `"web": {"kind": "server", "image": "nginx:1.27.0", "volumes": [{"name": "d", "mountPath": "/d", "size": "1GB"}]}`,
+			out: map[string]string{"kubectl get storageclass": `{"items": [{"metadata": {"name": "fast"}}]}`}, want: "K8S_PREFLIGHT_STORAGE_CLASS"},
 		"no ingress class": {options: `{"namespace": "apps", "ingressClass": "nginx"}`, fail: map[string]string{"kubectl get ingressclass nginx": `Error from server (NotFound): ingressclasses.networking.k8s.io "nginx" not found`},
 			out: map[string]string{"kubectl get ingressclass -o name": "ingressclass.networking.k8s.io/traefik\ningressclass.networking.k8s.io/haproxy"}, want: "K8S_PREFLIGHT_INGRESS_CLASS"},
 	} {
+		web := `"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}]}`
+		if tc.spec != "" {
+			web = tc.spec
+		}
+		src := `{"name": "shop", "services": {` + web + `}, `
 		full := src + target + "}"
 		if tc.options != "" {
 			full = src + `"targets": {"kubernetes": ` + tc.options + `}}`
@@ -572,20 +581,21 @@ func TestApplyPreflight(t *testing.T) {
 		if fc.find("kubectl apply") != nil {
 			t.Errorf("%s: nothing should be applied after a failed check", name)
 		}
-		if name == "no ingress class" {
-			var hint string
-			for _, f := range r.Findings {
-				if f.Code == tc.want {
-					hint = f.Hint
-				}
+		var hint string
+		for _, f := range r.Findings {
+			if f.Code == tc.want {
+				hint = f.Hint
 			}
-			if !strings.Contains(hint, "The cluster has traefik, haproxy.") {
-				t.Errorf("hint %q should list the cluster's ingress classes", hint)
-			}
+		}
+		if name == "no ingress class" && !strings.Contains(hint, "The cluster has traefik, haproxy.") {
+			t.Errorf("hint %q should list the cluster's ingress classes", hint)
+		}
+		if name == "no storage class" && !strings.Contains(hint, "The cluster has local-path, fast.") {
+			t.Errorf("hint %q should list the cluster's storage classes", hint)
 		}
 	}
 
-	s := parse(t, src+target+"}")
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}]}}, `+target+"}")
 	env, fc := newEnv(t, t.TempDir(), nil)
 	fc.fail["kubectl get namespace"] = `Error from server (NotFound): namespaces "apps" not found`
 	r := apply(t, s, env)
@@ -726,7 +736,7 @@ func TestDestroy(t *testing.T) {
 	if _, err := a.Destroy(context.Background(), s, env, adapter.DestroyOptions{Volumes: true}); err != nil {
 		t.Fatal(err)
 	}
-	if fc.find("kubectl delete deployments,services,ingresses,cronjobs,secrets -l anyship-project=shop") == nil {
+	if fc.find("kubectl delete deployments,services,ingresses,cronjobs,secrets,persistentvolumeclaims -l anyship-project=shop") == nil {
 		t.Error("destroy --volumes should delete the secrets too")
 	}
 }
@@ -914,5 +924,134 @@ func TestPlanCron(t *testing.T) {
 	}
 	if a := fc.find("kubectl apply -f - --prune"); !strings.Contains(a.line(), "--prune-allowlist batch/v1/CronJob") {
 		t.Errorf("apply args should prune CronJobs: %s", a.line())
+	}
+}
+
+// Volumes become PersistentVolumeClaims mounted by a Deployment that
+// replaces its pod rather than overlapping it; they aren't pruned, and
+// destroy --volumes deletes them.
+func TestPlanVolumes(t *testing.T) {
+	s := parse(t, `{"name": "shop", "services": {
+		"db": {"kind": "server", "image": "postgres:16", "ports": [{"port": 5432, "protocol": "tcp", "exposure": "internal"}],
+			"volumes": [{"name": "data", "mountPath": "/var/lib/postgresql/data", "size": "20GB"}, {"name": "wal", "mountPath": "/wal", "size": "2TB", "class": "nvme"}]}},
+		"targets": {"kubernetes": {"namespace": "apps", "storageClass": "fast"}}}`)
+	env, fc := newEnv(t, t.TempDir(), nil)
+	p := plan(t, s, env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	for _, want := range []string{"K8S_VOLUMES", "K8S_VOLUME_CLASS_IGNORED"} {
+		if !slices.Contains(codes(p, adapter.Info), want) {
+			t.Errorf("infos = %v, want %s", codes(p, adapter.Info), want)
+		}
+	}
+	m := manifestsOf(t, p)
+	for _, want := range []string{
+		`"kind": "PersistentVolumeClaim"`, `"name": "shop-db-data"`, `"name": "shop-db-wal"`, `"ReadWriteOnce"`, `"storageClassName": "fast"`,
+		`"storage": "20Gi"`, `"storage": "2Ti"`, `"claimName": "shop-db-data"`, `"mountPath": "/var/lib/postgresql/data"`, `"mountPath": "/wal"`,
+		`"type": "Recreate"`,
+	} {
+		if !strings.Contains(m, want) {
+			t.Errorf("manifests lack %s", want)
+		}
+	}
+	var names []string
+	for _, a := range p.Actions {
+		names = append(names, string(a.Op)+" "+a.Kind+" "+a.Name)
+	}
+	if !slices.Contains(names, "create PersistentVolumeClaim shop-db-data") {
+		t.Errorf("actions %v lack the claim", names)
+	}
+	r := apply(t, s, env)
+	if !r.OK {
+		t.Fatalf("apply failed: %v", r.Messages)
+	}
+	if a := fc.find("kubectl apply -f - --prune"); strings.Contains(a.line(), "PersistentVolumeClaim") {
+		t.Error("claims must never be pruned")
+	}
+	summary, _ := New().DestroySummary(s, adapter.DestroyOptions{Volumes: true})
+	if !strings.Contains(strings.Join(summary, "\n"), "DELETE the volumes shop-db-data, shop-db-wal") {
+		t.Errorf("summary = %v", summary)
+	}
+	summary, _ = New().DestroySummary(s, adapter.DestroyOptions{})
+	if !strings.Contains(strings.Join(summary, "\n"), "Keep the volumes shop-db-data, shop-db-wal") {
+		t.Errorf("summary = %v", summary)
+	}
+	s = parse(t, `{"name": "shop", "services": {"db": {"kind": "server", "image": "postgres:16", "volumes": [{"name": "data", "mountPath": "/data", "size": "1GB"}]}}, `+target+`}`)
+	if m := manifestsOf(t, plan(t, s, env)); strings.Contains(m, "storageClassName") {
+		t.Error("without the option the claim should take the cluster's default class")
+	}
+}
+
+// A static site is built into the nginx image and served on port 80 behind
+// the Service's port; it gets no $PORT.
+func TestPlanStatic(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<h1>hi</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := parse(t, `{"name": "shop", "services": {"site": {"kind": "static", "ports": [{"port": 8080}]}, "plain": {"kind": "static"}}, `+target+`}`)
+	env, _ := newEnv(t, dir, nil)
+	p := plan(t, s, env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	m := manifestsOf(t, p)
+	site := strings.SplitN(strings.SplitN(m, `"name": "shop-site"`, 2)[1], `"name": "shop-plain"`, 2)[0]
+	for _, want := range []string{`"containerPort": 80`, `"port": 8080`, `"targetPort": 80`, `"image": "localhost:5000/shop/shop-site@<digest from the build>"`} {
+		if !strings.Contains(site, want) {
+			t.Errorf("the site's objects lack %s", want)
+		}
+	}
+	if strings.Contains(site, `"name": "PORT"`) {
+		t.Error("a static site shouldn't get $PORT")
+	}
+	plain := strings.SplitN(m, `"name": "shop-plain"`, 2)[1]
+	if !strings.Contains(plain, `"port": 80`) || !strings.Contains(plain, `"targetPort": 80`) {
+		t.Errorf("a static site without ports should be served on 80:\n%s", plain)
+	}
+	var files []string
+	for _, f := range p.Files {
+		files = append(files, filepath.Base(f.Path))
+	}
+	if !slices.Contains(files, "site.Dockerfile") {
+		t.Errorf("files = %v, want the generated nginx Dockerfile", files)
+	}
+}
+
+// A worker is a Deployment with no Service: no port, no $PORT, no address
+// for others to refer to, and a command probe at most.
+func TestPlanWorker(t *testing.T) {
+	s := parse(t, `{"name": "shop", "services": {
+		"jobs": {"kind": "worker", "image": "busybox:1.36", "start": "sh -c 'while true; do sleep 60; done'", "healthCheck": {"command": "test -f /tmp/alive"}, "secrets": ["API_KEY"]},
+		"web": {"kind": "server", "image": "nginx:1.27.0", "env": {"JOBS": "${services.jobs.url}"}}},
+		"secrets": {"API_KEY": {}}, `+target+`}`)
+	env, _ := newEnv(t, t.TempDir(), nil)
+	p := plan(t, s, env)
+	if errs := codes(p, adapter.Error); !slices.Equal(errs, []string{"K8S_SERVICE_URL"}) {
+		t.Errorf("errors = %v, want only K8S_SERVICE_URL for the reference to the worker", errs)
+	}
+	s = parse(t, `{"name": "shop", "services": {
+		"jobs": {"kind": "worker", "image": "busybox:1.36", "start": "sh -c 'while true; do sleep 60; done'", "healthCheck": {"command": "test -f /tmp/alive"}, "secrets": ["API_KEY"]}},
+		"secrets": {"API_KEY": {}}, `+target+`}`)
+	p = plan(t, s, env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	m := manifestsOf(t, p)
+	if strings.Contains(m, `"kind": "Service"`) || strings.Contains(m, `"name": "PORT"`) || strings.Contains(m, `"containerPort"`) {
+		t.Errorf("a worker should get no Service, port or $PORT:\n%s", m)
+	}
+	for _, want := range []string{`"kind": "Deployment"`, `"exec"`, `"test -f /tmp/alive"`, `"mountPath": "/run/secrets/API_KEY"`} {
+		if !strings.Contains(m, want) {
+			t.Errorf("manifests lack %s", want)
+		}
+	}
+	var names []string
+	for _, a := range p.Actions {
+		names = append(names, a.Kind+" "+a.Name)
+	}
+	if !slices.Contains(names, "Deployment shop-jobs") {
+		t.Errorf("actions %v lack the worker's Deployment", names)
 	}
 }
