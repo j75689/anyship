@@ -186,3 +186,7 @@ jobs:
           ANYSHIP_K8S_INGRESS_CLASS: nginx
           ANYSHIP_K8S_LB: "1"
           ANYSHIP_K8S_METRICS: "1"
+      # The MCP server, driven over stdio through a deploy to the same cluster.
+      - run: make e2e-mcp
+        env:
+          ANYSHIP_K8S_REPOSITORY: ${{ steps.kind.outputs.LOCAL_REGISTRY }}/anyship-e2e

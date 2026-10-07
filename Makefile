@@ -9,7 +9,7 @@ VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || ech
 # The platforms release archives are built for (scripts/dist.sh).
 PLATFORMS     := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
-.PHONY: help check build build-all test vet fmt fmt-check lint tidy-check schema test-images e2e-vps e2e-kubernetes dist release-notes clean
+.PHONY: help check build build-all test vet fmt fmt-check lint tidy-check schema test-images e2e-vps e2e-kubernetes e2e-mcp dist release-notes clean
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z0-9-]+:.*## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -55,6 +55,9 @@ e2e-vps: build ## Deploy a sample app to localhost over ssh and remove it (needs
 
 e2e-kubernetes: build ## Deploy a sample app to the current kubectl context and remove it (needs a cluster and a registry it pulls from)
 	ANYSHIP=./$(BIN) scripts/e2e-kubernetes.sh
+
+e2e-mcp: build ## Drive the MCP server over stdio through a deploy to the current kubectl context (same needs as e2e-kubernetes)
+	ANYSHIP=$(CURDIR)/$(BIN) ANYSHIP_MCP_E2E=1 go test ./internal/cli -run TestMCPEndToEnd -count=1 -v -timeout 20m
 
 dist: ## Build every release archive and checksums.txt into dist/
 	scripts/dist.sh $(VERSION)
