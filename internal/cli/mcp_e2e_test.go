@@ -189,14 +189,22 @@ func TestMCPEndToEnd(t *testing.T) {
 	if !st.Deployed || !st.Healthy() || st.Location != cluster+"/"+namespace {
 		t.Errorf("status = %+v", st)
 	}
-	started := time.Now()
+	// Without a readiness probe the rollout is done the moment the container
+	// runs, which can be before the server has printed anything.
 	var logs logsOutput
-	mustCall(deployer, "logs", map[string]any{"target": "kubernetes", "tail": 20}, &logs)
+	for try := 0; try < 10; try++ {
+		started := time.Now()
+		mustCall(deployer, "logs", map[string]any{"target": "kubernetes", "tail": 20}, &logs)
+		if took := time.Since(started); took > liveLogWindow {
+			t.Errorf("logs took %s; a target that reads recent logs should return at once", took)
+		}
+		if strings.Contains(strings.ToLower(logs.Output), "gunicorn") {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
 	if !strings.Contains(strings.ToLower(logs.Output), "gunicorn") || logs.Note != "" {
 		t.Errorf("logs = %+v", logs)
-	}
-	if took := time.Since(started); took > liveLogWindow {
-		t.Errorf("logs took %s; a target that reads recent logs should return at once", took)
 	}
 
 	t.Log("== diagnose_context collects everything and leaves .anyship/ alone")
