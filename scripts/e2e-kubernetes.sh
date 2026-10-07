@@ -10,7 +10,8 @@
 # routes the host (through the controller's Service, named by
 # $ANYSHIP_K8S_INGRESS_URL, http://ingress-nginx-controller.ingress-nginx.svc
 # by default). With $ANYSHIP_K8S_LB=1 it requires the cluster to give a
-# LoadBalancer Service an address.
+# LoadBalancer Service an address, and with $ANYSHIP_K8S_METRICS=1 it
+# expects metrics-server, for an autoscaler.
 #
 #   ANYSHIP=./anyship ANYSHIP_K8S_REPOSITORY=localhost:5000/anyship-e2e scripts/e2e-kubernetes.sh
 set -euo pipefail
@@ -199,6 +200,38 @@ if k get service app-worker -o name 2>/dev/null; then fail "a worker should get 
 cp one-service.yaml anyship.yaml
 "$ANYSHIP" apply -t kubernetes --yes >/dev/null
 k get pvc app-web-data -o name || fail "a volume taken out of the spec should keep its claim"
+
+if [ "${ANYSHIP_K8S_METRICS:-}" = 1 ]; then
+  step "a service account, an autoscaler and resource overrides"
+  k create serviceaccount app-web >/dev/null
+  python3 - <<'PY'
+import pathlib
+p = pathlib.Path("anyship.yaml"); s = p.read_text()
+s = s.replace("      ports:\n        - port: 8000\n", "      ports:\n        - port: 8000\n      cpu: 0.1\n      memory: 128MB\n", 1)
+s = s.replace("    kubernetes:\n", "    kubernetes:\n      services:\n        web:\n          serviceAccount: app-web\n          maxReplicas: 3\n          resources:\n            limits:\n              cpu: none\n              memory: 256MB\n", 1)
+p.write_text(s)
+PY
+  "$ANYSHIP" apply -t kubernetes --yes | tee options.out
+  grep -q "HorizontalPodAutoscaler app-web" options.out || fail "plan should list the autoscaler"
+  [ "$(k get hpa app-web -o jsonpath='{.spec.minReplicas}-{.spec.maxReplicas}')" = 1-3 ] || fail "the autoscaler should keep 1 to 3 pods"
+  [ "$(k get deployment app-web -o jsonpath='{.spec.template.spec.serviceAccountName}')" = app-web ] || fail "the pods should run as app-web"
+  limits=$(k get deployment app-web -o jsonpath='{.spec.template.spec.containers[0].resources.limits}')
+  requests=$(k get deployment app-web -o jsonpath='{.spec.template.spec.containers[0].resources.requests}')
+  echo "requests $requests limits $limits"
+  [ "$limits" = '{"memory":"256Mi"}' ] || fail "limits should be memory 256Mi only, got $limits"
+  [ "$requests" = '{"cpu":"100m","memory":"128Mi"}' ] || fail "requests should be the spec's, got $requests"
+  for _ in $(seq 45); do
+    [ -n "$(k get hpa app-web -o jsonpath='{.status.currentMetrics[0].resource.current.averageUtilization}')" ] && break
+    sleep 4
+  done
+  k get hpa app-web
+  [ -n "$(k get hpa app-web -o jsonpath='{.status.currentMetrics[0].resource.current.averageUtilization}')" ] || fail "the autoscaler should read CPU use from the metrics API"
+  cp one-service.yaml anyship.yaml
+  "$ANYSHIP" apply -t kubernetes --yes | tee options-prune.out
+  grep -q "app-web pruned" options-prune.out || fail "expected the autoscaler to be pruned"
+  if k get hpa app-web -o name 2>/dev/null; then fail "the autoscaler should be gone"; fi
+  [ "$(k get deployment app-web -o jsonpath='{.spec.replicas}')" = 1 ] || fail "the replica count should be back on the Deployment"
+fi
 
 step "destroy removes the Deployments and Services"
 "$ANYSHIP" destroy -t kubernetes --yes

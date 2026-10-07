@@ -32,6 +32,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the cluster's default, mounted by a Deployment that replaces its pod rather than overlapping it,
   kept until `destroy --volumes`; `static` sites are served by nginx; `worker` services run with
   no Service (#101).
+- `kubernetes`: per-service settings under `targets.kubernetes.services.<name>`: `serviceAccount`,
+  `maxReplicas` (a HorizontalPodAutoscaler on CPU use, needs metrics-server) and `resources`, which
+  overrides the container's requests and limits slot by slot, with `none` to leave one unset, so a
+  CPU limit can be dropped (#102).
 - The spec refuses an env value that reads as a reference to a service's URL but isn't written as
   `${services.<name>.url}` (`${service.api.url}`, `services.api.url`, `${services.api.port}`, …),
   since the container would get that text as it is (#104).

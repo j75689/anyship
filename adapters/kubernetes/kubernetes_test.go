@@ -48,18 +48,20 @@ type fakeCluster struct {
 func newFakeCluster() *fakeCluster {
 	return &fakeCluster{
 		out: map[string]string{
-			"kubectl version":                                     "Client Version: v1.33.0",
-			"kubectl config current-context":                      "kind-anyship",
-			"kubectl config get-contexts":                         "orbstack",
-			"kubectl get namespace":                               "namespace/apps",
-			"kubectl auth can-i":                                  "yes",
-			"kubectl get nodes":                                   "amd64",
-			"kubectl get deployments,services,ingresses,cronjobs": "",
-			"kubectl get deployments":                             `{"items": []}`,
-			"kubectl get services":                                `{"items": []}`,
-			"kubectl get pods":                                    `{"items": []}`,
-			"kubectl get secret":                                  "4711",
-			"kubectl get storageclass":                            `{"items": [{"metadata": {"name": "local-path", "annotations": {"storageclass.kubernetes.io/is-default-class": "true"}}}, {"metadata": {"name": "fast"}}]}`,
+			"kubectl version":                "Client Version: v1.33.0",
+			"kubectl config current-context": "kind-anyship",
+			"kubectl config get-contexts":    "orbstack",
+			"kubectl get namespace":          "namespace/apps",
+			"kubectl auth can-i":             "yes",
+			"kubectl get nodes":              "amd64",
+			"kubectl get deployments,services,ingresses,cronjobs,horizontalpodautoscalers": "",
+			"kubectl get deployments":    `{"items": []}`,
+			"kubectl get services":       `{"items": []}`,
+			"kubectl get pods":           `{"items": []}`,
+			"kubectl get secret":         "4711",
+			"kubectl get serviceaccount": "serviceaccount/shop-web",
+			"kubectl get apiservice":     "True",
+			"kubectl get storageclass":   `{"items": [{"metadata": {"name": "local-path", "annotations": {"storageclass.kubernetes.io/is-default-class": "true"}}}, {"metadata": {"name": "fast"}}]}`,
 		},
 		fail:   map[string]string{"kubectl get secret shop-api-key -o name": `Error from server (NotFound): secrets "shop-api-key" not found`},
 		digest: "sha256:" + strings.Repeat("a", 64),
@@ -554,6 +556,8 @@ func TestApplyPreflight(t *testing.T) {
 		"no storage class":   {options: `{"namespace": "apps", "storageClass": "gold"}`, spec: `"web": {"kind": "server", "image": "nginx:1.27.0", "volumes": [{"name": "d", "mountPath": "/d", "size": "1GB"}]}`, want: "K8S_PREFLIGHT_STORAGE_CLASS"},
 		"no default storage class": {spec: `"web": {"kind": "server", "image": "nginx:1.27.0", "volumes": [{"name": "d", "mountPath": "/d", "size": "1GB"}]}`,
 			out: map[string]string{"kubectl get storageclass": `{"items": [{"metadata": {"name": "fast"}}]}`}, want: "K8S_PREFLIGHT_STORAGE_CLASS"},
+		"no service account": {options: `{"namespace": "apps", "services": {"web": {"serviceAccount": "shop-web"}}}`, fail: map[string]string{"kubectl get serviceaccount": `Error from server (NotFound): serviceaccounts "shop-web" not found`}, want: "K8S_PREFLIGHT_SERVICE_ACCOUNT"},
+		"no metrics api":     {options: `{"namespace": "apps", "services": {"web": {"maxReplicas": 3}}}`, spec: `"web": {"kind": "server", "image": "nginx:1.27.0", "cpu": 0.5}`, fail: map[string]string{"kubectl get apiservice": `Error from server (NotFound): apiservices.apiregistration.k8s.io "v1beta1.metrics.k8s.io" not found`}, want: "K8S_PREFLIGHT_METRICS"},
 		"no ingress class": {options: `{"namespace": "apps", "ingressClass": "nginx"}`, fail: map[string]string{"kubectl get ingressclass nginx": `Error from server (NotFound): ingressclasses.networking.k8s.io "nginx" not found`},
 			out: map[string]string{"kubectl get ingressclass -o name": "ingressclass.networking.k8s.io/traefik\ningressclass.networking.k8s.io/haproxy"}, want: "K8S_PREFLIGHT_INGRESS_CLASS"},
 	} {
@@ -704,7 +708,7 @@ func TestDestroy(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(summary, "\n")
-	for _, want := range []string{"Delete the Deployments, Services, Ingresses and CronJobs of shop-web in namespace apps of orbstack.", "Keep the Secrets shop-api-key"} {
+	for _, want := range []string{"Delete the Deployments, Services, Ingresses, CronJobs and autoscalers of shop-web in namespace apps of orbstack.", "Keep the Secrets shop-api-key"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("summary lacks %q:\n%s", want, joined)
 		}
@@ -724,19 +728,19 @@ func TestDestroy(t *testing.T) {
 	}
 
 	env, fc = newEnv(t, t.TempDir(), nil)
-	fc.out["kubectl get deployments,services,ingresses,cronjobs"] = "deployment.apps/shop-web\nservice/shop-web"
+	fc.out["kubectl get deployments,services,ingresses,cronjobs,horizontalpodautoscalers"] = "deployment.apps/shop-web\nservice/shop-web"
 	r, err = a.Destroy(context.Background(), s, env, adapter.DestroyOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !r.OK || fc.find("kubectl delete deployments,services,ingresses,cronjobs -l anyship-project=shop --ignore-not-found") == nil {
+	if !r.OK || fc.find("kubectl delete deployments,services,ingresses,cronjobs,horizontalpodautoscalers -l anyship-project=shop --ignore-not-found") == nil {
 		t.Errorf("destroy: %+v", r)
 	}
 	env, fc = newEnv(t, t.TempDir(), nil)
 	if _, err := a.Destroy(context.Background(), s, env, adapter.DestroyOptions{Volumes: true}); err != nil {
 		t.Fatal(err)
 	}
-	if fc.find("kubectl delete deployments,services,ingresses,cronjobs,secrets,persistentvolumeclaims -l anyship-project=shop") == nil {
+	if fc.find("kubectl delete deployments,services,ingresses,cronjobs,horizontalpodautoscalers,secrets,persistentvolumeclaims -l anyship-project=shop") == nil {
 		t.Error("destroy --volumes should delete the secrets too")
 	}
 }
@@ -1053,5 +1057,112 @@ func TestPlanWorker(t *testing.T) {
 	}
 	if !slices.Contains(names, "Deployment shop-jobs") {
 		t.Errorf("actions %v lack the worker's Deployment", names)
+	}
+}
+
+// The target's services block overrides the container's requests and limits
+// slot by slot; "none" leaves one unset, so a CPU limit can be dropped.
+func TestPlanResourceOverrides(t *testing.T) {
+	plans := func(t *testing.T, resources string) (*adapter.Plan, string) {
+		t.Helper()
+		s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27.0", "memory": "512MB", "cpu": 0.25}},
+			"targets": {"kubernetes": {"namespace": "apps", "services": {"web": {"resources": `+resources+`}}}}}`)
+		env, _ := newEnv(t, t.TempDir(), nil)
+		p := plan(t, s, env)
+		if adapter.HasErrors(p.Findings) {
+			return p, ""
+		}
+		return p, manifestsOf(t, p)
+	}
+	p, m := plans(t, `{"limits": {"cpu": "none", "memory": "1GB"}}`)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	limits := strings.SplitN(strings.SplitN(m, `"limits"`, 2)[1], "}", 2)[0]
+	requests := strings.SplitN(strings.SplitN(m, `"requests"`, 2)[1], "}", 2)[0]
+	if strings.Contains(limits, "cpu") || !strings.Contains(limits, `"memory": "1Gi"`) {
+		t.Errorf("limits = %s, want memory 1Gi and no cpu", limits)
+	}
+	if !strings.Contains(requests, `"cpu": "0.25"`) || !strings.Contains(requests, `"memory": "512Mi"`) {
+		t.Errorf("requests = %s, want the spec's values", requests)
+	}
+	p, _ = plans(t, `{"requests": {"cpu": "0.1"}, "limits": {"cpu": "2"}}`)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Errorf("a limit above the request should pass: %v", errs)
+	}
+	for resources, want := range map[string]string{
+		`{"limits": {"memory": "256MB"}}`:                       "below the request",
+		`{"requests": {"cpu": "none"}, "limits": {"cpu": "1"}}`: "with no cpu request",
+	} {
+		p, _ := plans(t, resources)
+		var found bool
+		for _, f := range p.Findings {
+			if f.Code == "K8S_RESOURCES" && strings.Contains(f.Message, want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: findings %v should refuse with %q", resources, p.Findings, want)
+		}
+	}
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27.0"}}, "targets": {"kubernetes": {"namespace": "apps", "services": {"web": {"resources": {"limits": {"cpu": "fast"}}}}}}}`)
+	env, _ := newEnv(t, t.TempDir(), nil)
+	if p := plan(t, s, env); !slices.Equal(codes(p, adapter.Error), []string{"K8S_BAD_OPTIONS"}) || !strings.Contains(p.Findings[0].Message, "resources.limits.cpu") {
+		t.Errorf("a bad cpu value should be refused as an option: %v", p.Findings)
+	}
+	s = parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27.0"}}, "targets": {"kubernetes": {"namespace": "apps", "services": {"api": {"maxReplicas": 2}}}}}`)
+	if p := plan(t, s, env); !slices.Equal(codes(p, adapter.Error), []string{"K8S_BAD_OPTIONS"}) {
+		t.Errorf("a service the spec doesn't have should be refused: %v", codes(p, adapter.Error))
+	}
+}
+
+// maxReplicas adds a HorizontalPodAutoscaler and takes the replica count
+// out of the Deployment; it needs a cpu request.
+func TestPlanAutoscaler(t *testing.T) {
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27.0", "cpu": 0.5, "replicas": 2}},
+		"targets": {"kubernetes": {"namespace": "apps", "services": {"web": {"maxReplicas": 6, "serviceAccount": "shop-web"}}}}}`)
+	env, fc := newEnv(t, t.TempDir(), nil)
+	p := plan(t, s, env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if !slices.Contains(codes(p, adapter.Info), "K8S_HPA") {
+		t.Errorf("infos = %v, want K8S_HPA", codes(p, adapter.Info))
+	}
+	m := manifestsOf(t, p)
+	for _, want := range []string{`"kind": "HorizontalPodAutoscaler"`, `"minReplicas": 2`, `"maxReplicas": 6`, `"averageUtilization": 80`, `"name": "cpu"`, `"serviceAccountName": "shop-web"`} {
+		if !strings.Contains(m, want) {
+			t.Errorf("manifests lack %s", want)
+		}
+	}
+	if strings.Contains(m, `"replicas": 2`) {
+		t.Error("the Deployment shouldn't carry a replica count next to an autoscaler")
+	}
+	r := apply(t, s, env)
+	if !r.OK {
+		t.Fatalf("apply failed: %v", r.Messages)
+	}
+	if a := fc.find("kubectl apply -f - --prune"); !strings.Contains(a.line(), "--prune-allowlist autoscaling/v2/HorizontalPodAutoscaler") {
+		t.Errorf("apply args should prune autoscalers: %s", a.line())
+	}
+	if fc.find("kubectl get serviceaccount shop-web") == nil || fc.find("kubectl get apiservice v1beta1.metrics.k8s.io") == nil {
+		t.Error("preflight should check the service account and the metrics API")
+	}
+	for options, want := range map[string]string{
+		`{"maxReplicas": 1}`: "K8S_MAX_REPLICAS",
+		`{"maxReplicas": 4, "resources": {"requests": {"cpu": "none"}}}`: "K8S_HPA_CPU",
+	} {
+		s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27.0", "cpu": 0.5, "replicas": 2}}, "targets": {"kubernetes": {"namespace": "apps", "services": {"web": `+options+`}}}}`)
+		if errs := codes(plan(t, s, env), adapter.Error); !slices.Contains(errs, want) {
+			t.Errorf("%s: errors = %v, want %s", options, errs, want)
+		}
+	}
+	s = parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27.0"}}, "targets": {"kubernetes": {"namespace": "apps", "services": {"web": {"maxReplicas": 3}}}}}`)
+	if errs := codes(plan(t, s, env), adapter.Error); !slices.Contains(errs, "K8S_HPA_CPU") {
+		t.Errorf("without cpu in the spec: errors = %v, want K8S_HPA_CPU", errs)
+	}
+	s = parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27.0", "cpu": 0.5}}, "targets": {"kubernetes": {"namespace": "apps"}}}`)
+	if m := manifestsOf(t, plan(t, s, env)); !strings.Contains(m, `"replicas": 1`) || strings.Contains(m, "HorizontalPodAutoscaler") {
+		t.Error("without maxReplicas the Deployment carries its replica count and there is no autoscaler")
 	}
 }
