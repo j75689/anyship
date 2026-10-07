@@ -306,8 +306,18 @@ func preflight(ctx context.Context, g gcloud, d *planData) (string, []adapter.Fi
 		network, access, _ := strings.Cut(out, "\t")
 		switch {
 		case err != nil:
-			add(adapter.Error, "GCP_PREFLIGHT_SUBNET", fmt.Sprintf("Subnet %s doesn't exist in %s, or can't be read: %v.", d.opts.Subnet, d.opts.Region, err),
-				"Name an existing subnet of the network in spec.targets.gcp.subnet (gcloud compute networks subnets list).")
+			// Say how to make what is missing: the subnet, or the network
+			// and a subnet in it. anyship won't make them itself.
+			subnet := fmt.Sprintf("gcloud compute networks subnets create %s --network %s --region %s --range 10.8.0.0/24 --enable-private-ip-google-access --project %s",
+				d.opts.Subnet, d.opts.Network, d.opts.Region, d.opts.Project)
+			if _, err := g.probe(ctx, "compute", "networks", "describe", d.opts.Network, "--format", "value(name)"); err != nil {
+				add(adapter.Error, "GCP_PREFLIGHT_SUBNET", fmt.Sprintf("VPC network %s doesn't exist in %s, or can't be read: %v.", d.opts.Network, d.opts.Project, err),
+					fmt.Sprintf("Name an existing network and subnet in spec.targets.gcp (gcloud compute networks subnets list), or create them: gcloud compute networks create %s --subnet-mode custom --project %s && %s",
+						d.opts.Network, d.opts.Project, subnet))
+			} else {
+				add(adapter.Error, "GCP_PREFLIGHT_SUBNET", fmt.Sprintf("Subnet %s doesn't exist in %s, or can't be read: %v.", d.opts.Subnet, d.opts.Region, err),
+					fmt.Sprintf("Name an existing subnet of %s in spec.targets.gcp.subnet (gcloud compute networks subnets list --network %s), or create one: %s", d.opts.Network, d.opts.Network, subnet))
+			}
 		case network != d.opts.Network:
 			add(adapter.Error, "GCP_PREFLIGHT_SUBNET", fmt.Sprintf("Subnet %s belongs to network %s, not %s.", d.opts.Subnet, network, d.opts.Network), "")
 		case access != "True":

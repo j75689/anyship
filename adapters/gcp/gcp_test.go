@@ -626,14 +626,18 @@ func TestApplyChecksTheSubnet(t *testing.T) {
 		"api off":           {"", "vpc\tTrue", "GCP_PREFLIGHT_API", "gcloud services enable compute.googleapis.com"},
 		"no private access": {"\ncompute.googleapis.com", "vpc\tFalse", "GCP_PREFLIGHT_SUBNET", "--enable-private-ip-google-access"},
 		"wrong network":     {"\ncompute.googleapis.com", "other\tTrue", "GCP_PREFLIGHT_SUBNET", ""},
-		"no such subnet":    {"\ncompute.googleapis.com", "", "GCP_PREFLIGHT_SUBNET", "subnets list"},
+		"no such subnet":    {"\ncompute.googleapis.com", "", "GCP_PREFLIGHT_SUBNET", "gcloud compute networks subnets create apps --network vpc --region us-central1 --range 10.8.0.0/24 --enable-private-ip-google-access"},
+		"no such network":   {"\ncompute.googleapis.com", "none", "GCP_PREFLIGHT_SUBNET", "gcloud compute networks create vpc --subnet-mode custom"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			env, fc := newEnv(t, t.TempDir(), nil)
 			fc.out["gcloud services list"] += tc.apis
-			if tc.subnet == "" {
+			switch tc.subnet {
+			case "":
 				fc.fail = []string{"gcloud compute networks subnets describe"}
-			} else {
+			case "none":
+				fc.fail = []string{"gcloud compute networks subnets describe", "gcloud compute networks describe"}
+			default:
 				fc.out["gcloud compute networks subnets describe apps"] = tc.subnet
 			}
 			res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
