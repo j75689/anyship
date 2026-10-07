@@ -244,7 +244,7 @@ func (a *Adapter) DestroySummary(s *spec.Spec, opts adapter.DestroyOptions) ([]s
 	if o.Context != "" {
 		where += " of " + o.Context
 	}
-	lines := []string{fmt.Sprintf("Delete the Deployments, Services, Ingresses and CronJobs of %s in %s.", strings.Join(names, ", "), where)}
+	lines := []string{fmt.Sprintf("Delete the Deployments, Services, Ingresses, CronJobs and autoscalers of %s in %s.", strings.Join(names, ", "), where)}
 	secrets := secretNames(s)
 	switch {
 	case opts.Volumes && len(secrets) > 0:
@@ -274,16 +274,16 @@ func (a *Adapter) Destroy(ctx context.Context, s *spec.Spec, env *adapter.Env, o
 	}
 	k := newKubectl(env, *o)
 	selector := projectLabel + "=" + s.Name
-	found, err := k.probe(ctx, "get", "deployments,services,ingresses,cronjobs", "-l", selector, "-o", "name")
+	found, err := k.probe(ctx, "get", "deployments,services,ingresses,cronjobs,horizontalpodautoscalers", "-l", selector, "-o", "name")
 	if err != nil {
 		return nil, fmt.Errorf("listing the objects of %s in namespace %s failed (%w)", s.Name, o.Namespace, err)
 	}
-	kinds := "deployments,services,ingresses,cronjobs"
+	kinds := "deployments,services,ingresses,cronjobs,horizontalpodautoscalers"
 	if opts.Volumes {
 		kinds += ",secrets,persistentvolumeclaims"
 	}
 	if found == "" && !opts.Volumes {
-		return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Nothing to remove: %s has no Deployments, Services, Ingresses or CronJobs in namespace %s.", s.Name, o.Namespace)}}, nil
+		return &adapter.Result{OK: true, Messages: []string{fmt.Sprintf("Nothing to remove: %s has no Deployments, Services, Ingresses, CronJobs or autoscalers in namespace %s.", s.Name, o.Namespace)}}, nil
 	}
 	env.Logf("$ kubectl delete %s -l %s", kinds, selector)
 	if err := k.run(ctx, nil, nil, "delete", kinds, "-l", selector, "--ignore-not-found"); err != nil {

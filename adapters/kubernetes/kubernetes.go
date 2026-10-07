@@ -83,7 +83,44 @@ type Options struct {
 	// StorageClass is the StorageClass (`kubectl get storageclass`) volumes
 	// are claimed from; the cluster's default when empty.
 	StorageClass string `json:"storageClass,omitempty"`
+	// Services holds the settings of single services, by their name in the
+	// spec.
+	Services map[string]ServiceOptions `json:"services,omitempty"`
 }
+
+// ServiceOptions are the Kubernetes settings of one service.
+type ServiceOptions struct {
+	// ServiceAccount is the existing ServiceAccount in the namespace the
+	// service's pods run as; the namespace's default when empty.
+	ServiceAccount string `json:"serviceAccount,omitempty"`
+	// MaxReplicas adds a HorizontalPodAutoscaler that scales the service
+	// between replicas and this on CPU use. It needs a cpu request and the
+	// cluster's metrics API.
+	MaxReplicas int `json:"maxReplicas,omitempty"`
+	// Resources overrides, slot by slot, what memory and cpu put in the
+	// container's requests and limits.
+	Resources *ResourceOptions `json:"resources,omitempty"`
+}
+
+// ResourceOptions are the container's resource requests and limits.
+type ResourceOptions struct {
+	Requests ResourceValues `json:"requests,omitempty"`
+	Limits   ResourceValues `json:"limits,omitempty"`
+}
+
+// ResourceValues are a cpu and a memory amount written as in the spec
+// ("0.25", "1GB"), or "none" to leave that slot unset.
+type ResourceValues struct {
+	CPU    string `json:"cpu,omitempty"`
+	Memory string `json:"memory,omitempty"`
+}
+
+// none leaves a resource slot unset.
+const none = "none"
+
+// hpaTargetCPU is the average CPU use, as a share of the request, an
+// autoscaler keeps the pods at.
+const hpaTargetCPU = 80
 
 // defaultCronImage calls the path of a cron entry; pinned, so a deploy
 // doesn't change under a moving tag.
@@ -159,6 +196,11 @@ type service struct {
 	worker bool
 	// claims are the service's volumes, as PersistentVolumeClaims.
 	claims []claim
+	// set holds the service's own settings from the target's options, and
+	// requests and limits what the container asks for after them.
+	set      ServiceOptions
+	requests map[string]string
+	limits   map[string]string
 	// ports are all the service's ports, the HTTP one first.
 	ports []spec.Port
 	// ingress is whether an Ingress routes to the HTTP port, and lb whether
@@ -289,6 +331,14 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 	data := &planData{opts: *opts, project: s.Name, platform: opts.Platform, rollout: "<time of the apply>", versions: "<resource versions of the secrets>"}
 	used := map[string]bool{}
 	dependsNoted := false
+	for _, name := range sortedKeys(opts.Services) {
+		if _, ok := s.Services[name]; !ok {
+			plan.Findings = append(plan.Findings, adapter.Finding{
+				Level: adapter.Error, Code: "K8S_BAD_OPTIONS",
+				Message: fmt.Sprintf("spec.targets.kubernetes.services.%s: the spec has no service named %q (it has %s).", name, name, strings.Join(sortedKeys(s.Services), ", ")),
+			})
+		}
+	}
 	for _, name := range s.DeployOrder() {
 		svc := s.Services[name]
 		sv, findings := checkService(name, svc, s, opts, env.Dir)
@@ -339,6 +389,10 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 		}
 		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpDeploy, Kind: kind, Name: sv.object,
 			Detail: fmt.Sprintf("in namespace %s, %d replica(s), %s", opts.Namespace, replicas(sv.svc), sv.imageOrPlaceholder(*opts))})
+		if sv.set.MaxReplicas > 0 {
+			plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpDeploy, Kind: "HorizontalPodAutoscaler", Name: sv.object,
+				Detail: fmt.Sprintf("%d to %d pods on CPU use", replicas(sv.svc), sv.set.MaxReplicas)})
+		}
 		for _, job := range sv.jobs {
 			detail := fmt.Sprintf("%q runs %s in the service's image", job.schedule, strings.Join(job.argv, " "))
 			if job.path != "" {
@@ -354,6 +408,73 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 	plan.Files = append(plan.Files, adapter.File{Path: filepath.Join(env.OutDir, manifestsFile), Contents: contents})
 	plan.Data = data
 	return plan, nil
+}
+
+// sizeFrom works out the container's requests and limits: memory and cpu
+// from the spec fill both, then the service's resources options replace
+// slot by slot, and "none" empties one. A limit below its request, or a
+// limit for a resource with no request, is refused.
+func (sv *service) sizeFrom(svc *spec.Service) []adapter.Finding {
+	var findings []adapter.Finding
+	refuse := func(message, hint string) {
+		findings = append(findings, adapter.Finding{Level: adapter.Error, Code: "K8S_RESOURCES", Service: sv.name, Message: message, Hint: hint})
+	}
+	base := map[string]string{}
+	if svc.CPU != 0 {
+		base["cpu"] = strconv.FormatFloat(svc.CPU, 'f', -1, 64)
+	}
+	if mb := svc.MemoryMB(); mb != 0 {
+		base["memory"] = quantity(mb)
+	}
+	sv.requests, sv.limits = map[string]string{}, map[string]string{}
+	for k, v := range base {
+		sv.requests[k], sv.limits[k] = v, v
+	}
+	if r := sv.set.Resources; r != nil {
+		override(sv.requests, r.Requests)
+		override(sv.limits, r.Limits)
+	}
+	for _, resource := range []string{"cpu", "memory"} {
+		request, limit := sv.requests[resource], sv.limits[resource]
+		switch {
+		case limit != "" && request == "":
+			refuse(fmt.Sprintf("resources.limits.%s is set with no %s request, which would make the request the limit.", resource, resource),
+				fmt.Sprintf("Set %s in the spec, or resources.requests.%s.", resource, resource))
+		case limit != "" && request != "" && amount(limit) < amount(request):
+			refuse(fmt.Sprintf("resources.limits.%s %s is below the request %s.", resource, limit, request), "")
+		}
+	}
+	return findings
+}
+
+// override replaces the slots the values name; "none" empties one.
+func override(slots map[string]string, values ResourceValues) {
+	for resource, value := range map[string]string{"cpu": values.CPU, "memory": values.Memory} {
+		switch value {
+		case "":
+		case none:
+			delete(slots, resource)
+		default:
+			if resource == "memory" {
+				value = quantity((&spec.Service{Memory: value}).MemoryMB())
+			}
+			slots[resource] = value
+		}
+	}
+}
+
+// amount reads a quantity back as a number: CPUs, or MB for "512Mi"/"4Gi".
+func amount(q string) float64 {
+	switch {
+	case strings.HasSuffix(q, "Gi"):
+		n, _ := strconv.ParseFloat(strings.TrimSuffix(q, "Gi"), 64)
+		return n * 1024
+	case strings.HasSuffix(q, "Mi"):
+		n, _ := strconv.ParseFloat(strings.TrimSuffix(q, "Mi"), 64)
+		return n
+	}
+	n, _ := strconv.ParseFloat(q, 64)
+	return n
 }
 
 func (sv service) imageOrPlaceholder(o Options) string {
@@ -501,6 +622,21 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 		add(adapter.Info, "K8S_CRON",
 			fmt.Sprintf("cron entries become CronJobs named %s-cron-<n>, read in UTC. A path is called inside the cluster at http://%s.%s.svc:%d<path> by %s; a command runs in the service's image with its env and secrets. Jobs don't overlap: a run still going when the next is due skips it.", sv.object, sv.object, opts.Namespace, sv.port, opts.cronImage()), "")
 	}
+	sv.set = opts.Services[name]
+	findings = append(findings, sv.sizeFrom(svc)...)
+	if sv.set.MaxReplicas > 0 {
+		switch {
+		case sv.set.MaxReplicas < replicas(svc):
+			add(adapter.Error, "K8S_MAX_REPLICAS", fmt.Sprintf("maxReplicas %d is below replicas %d, the number of pods kept running.", sv.set.MaxReplicas, replicas(svc)), "Raise maxReplicas or lower replicas.")
+		case sv.requests["cpu"] == "":
+			add(adapter.Error, "K8S_HPA_CPU", "maxReplicas scales the service on CPU use, which is measured against a cpu request, and the service has none.",
+				"Set cpu in the spec (or spec.targets.kubernetes.services."+name+".resources.requests.cpu).")
+		case len(sv.claims) > 0:
+			add(adapter.Error, "K8S_HPA_VOLUMES", "maxReplicas can't apply to a service with volumes: one pod holds a volume at a time.", "Drop maxReplicas or the volumes.")
+		default:
+			add(adapter.Info, "K8S_HPA", fmt.Sprintf("A HorizontalPodAutoscaler keeps between %d and %d pods, adding one when CPU use passes %d%% of the request; needs the cluster's metrics API (metrics-server), which preflight checks.", replicas(svc), sv.set.MaxReplicas, hpaTargetCPU), "")
+		}
+	}
 	for _, ref := range svc.RefersTo() {
 		if other, ok := s.Services[ref]; ok {
 			if _, ok := httpPort(other); !ok {
@@ -603,7 +739,7 @@ type list struct {
 }
 
 type deploymentSpec struct {
-	Replicas int         `json:"replicas"`
+	Replicas int         `json:"replicas,omitempty"`
 	Selector selector    `json:"selector"`
 	Strategy *strategy   `json:"strategy,omitempty"`
 	Template podTemplate `json:"template"`
@@ -629,9 +765,38 @@ type podTemplate struct {
 }
 
 type podSpec struct {
-	Containers    []container `json:"containers"`
-	Volumes       []volume    `json:"volumes,omitempty"`
-	RestartPolicy string      `json:"restartPolicy,omitempty"`
+	Containers         []container `json:"containers"`
+	Volumes            []volume    `json:"volumes,omitempty"`
+	RestartPolicy      string      `json:"restartPolicy,omitempty"`
+	ServiceAccountName string      `json:"serviceAccountName,omitempty"`
+}
+
+type hpaSpec struct {
+	ScaleTargetRef scaleTarget `json:"scaleTargetRef"`
+	MinReplicas    int         `json:"minReplicas"`
+	MaxReplicas    int         `json:"maxReplicas"`
+	Metrics        []hpaMetric `json:"metrics"`
+}
+
+type scaleTarget struct {
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+}
+
+type hpaMetric struct {
+	Type     string         `json:"type"`
+	Resource resourceMetric `json:"resource"`
+}
+
+type resourceMetric struct {
+	Name   string       `json:"name"`
+	Target metricTarget `json:"target"`
+}
+
+type metricTarget struct {
+	Type               string `json:"type"`
+	AverageUtilization int    `json:"averageUtilization"`
 }
 
 type cronJobSpec struct {
@@ -810,15 +975,8 @@ func (d *planData) deployment(sv service, img string) object {
 		c.ImagePullPolicy = "Always"
 	}
 	c.Env = d.env(sv, sv.http && !sv.static)
-	if sv.svc.CPU != 0 || sv.svc.MemoryMB() != 0 {
-		size := map[string]string{}
-		if sv.svc.CPU != 0 {
-			size["cpu"] = strconv.FormatFloat(sv.svc.CPU, 'f', -1, 64)
-		}
-		if mb := sv.svc.MemoryMB(); mb != 0 {
-			size["memory"] = quantity(mb)
-		}
-		c.Resources = &resources{Requests: size, Limits: size}
+	if len(sv.requests) > 0 || len(sv.limits) > 0 {
+		c.Resources = &resources{Requests: sv.requests, Limits: sv.limits}
 	}
 	if hc := sv.svc.HealthCheck; hc != nil && (hc.Path != "" || hc.Command != "") {
 		startup := probe{PeriodSeconds: probePeriod, TimeoutSeconds: probeTimeout, FailureThreshold: probeFailures}
@@ -835,7 +993,7 @@ func (d *planData) deployment(sv service, img string) object {
 	// of /run/secrets would be read-only and keep the kubelet from putting
 	// the service account token under /var/run/secrets, which is the same
 	// place in most images.
-	pod := podSpec{}
+	pod := podSpec{ServiceAccountName: sv.set.ServiceAccount}
 	annotations := map[string]string{}
 	pod.Volumes, c.VolumeMounts = d.secretMounts(sv)
 	if len(sv.svc.Secrets) > 0 {
@@ -854,12 +1012,26 @@ func (d *planData) deployment(sv service, img string) object {
 		template.Metadata.Annotations = annotations
 	}
 	spec := deploymentSpec{Replicas: replicas(sv.svc), Selector: selector{MatchLabels: d.labels(sv)}, Template: template}
+	// With an autoscaler the replica count is its to set: a count in the
+	// manifest would put the pods back to the minimum on every apply.
+	if sv.set.MaxReplicas > 0 {
+		spec.Replicas = 0
+	}
 	// One pod holds a ReadWriteOnce volume at a time, so the old pod has to
 	// go before the new one can mount it.
 	if len(sv.claims) > 0 {
 		spec.Strategy = &strategy{Type: "Recreate"}
 	}
 	return object{APIVersion: "apps/v1", Kind: "Deployment", Metadata: d.meta(sv.object, d.labels(sv)), Spec: spec}
+}
+
+// hpa is the HorizontalPodAutoscaler that scales the service on CPU use
+// between the spec's replicas and maxReplicas.
+func (d *planData) hpa(sv service) object {
+	return object{APIVersion: "autoscaling/v2", Kind: "HorizontalPodAutoscaler", Metadata: d.meta(sv.object, d.labels(sv)),
+		Spec: hpaSpec{ScaleTargetRef: scaleTarget{APIVersion: "apps/v1", Kind: "Deployment", Name: sv.object},
+			MinReplicas: replicas(sv.svc), MaxReplicas: sv.set.MaxReplicas,
+			Metrics: []hpaMetric{{Type: "Resource", Resource: resourceMetric{Name: "cpu", Target: metricTarget{Type: "Utilization", AverageUtilization: hpaTargetCPU}}}}}}
 }
 
 // pvc is the PersistentVolumeClaim for one volume. It isn't pruned: the
@@ -919,6 +1091,7 @@ func (d *planData) cronJob(sv service, job cronJob, img string) object {
 		c.Args = job.argv
 		c.Env = d.env(sv, false)
 		pod.Volumes, c.VolumeMounts = d.secretMounts(sv)
+		pod.ServiceAccountName = sv.set.ServiceAccount
 	}
 	pod.Containers = []container{c}
 	return object{APIVersion: "batch/v1", Kind: "CronJob", Metadata: d.meta(job.id, labels),
@@ -980,6 +1153,9 @@ func manifests(d *planData) ([]byte, error) {
 		if sv.ingress {
 			l.Items = append(l.Items, d.ingress(sv))
 		}
+		if sv.set.MaxReplicas > 0 {
+			l.Items = append(l.Items, d.hpa(sv))
+		}
 		for _, job := range sv.jobs {
 			l.Items = append(l.Items, d.cronJob(sv, job, sv.imageOrPlaceholder(d.opts)))
 		}
@@ -1033,7 +1209,37 @@ func decodeOptions(raw json.RawMessage) (*Options, error) {
 	case opts.StorageClass != "" && !dnsSubdomainRe.MatchString(opts.StorageClass):
 		return nil, fmt.Errorf("storageClass %q is not a StorageClass name", opts.StorageClass)
 	}
+	for _, name := range sortedKeys(opts.Services) {
+		if err := opts.Services[name].check(); err != nil {
+			return nil, fmt.Errorf("services.%s: %w", name, err)
+		}
+	}
 	return opts, nil
+}
+
+var memoryRe = regexp.MustCompile(spec.MemoryPattern)
+
+func (o ServiceOptions) check() error {
+	switch {
+	case o.ServiceAccount != "" && !dnsSubdomainRe.MatchString(o.ServiceAccount):
+		return fmt.Errorf("serviceAccount %q is not a ServiceAccount name", o.ServiceAccount)
+	case o.MaxReplicas < 0:
+		return fmt.Errorf("maxReplicas %d is not a number of replicas, 1 or more", o.MaxReplicas)
+	}
+	if o.Resources == nil {
+		return nil
+	}
+	for slot, values := range map[string]ResourceValues{"requests": o.Resources.Requests, "limits": o.Resources.Limits} {
+		if values.CPU != "" && values.CPU != none {
+			if cpu, err := strconv.ParseFloat(values.CPU, 64); err != nil || cpu <= 0 {
+				return fmt.Errorf("resources.%s.cpu %q is not a number of CPUs such as \"0.25\" or \"2\", or none", slot, values.CPU)
+			}
+		}
+		if values.Memory != "" && values.Memory != none && !memoryRe.MatchString(values.Memory) {
+			return fmt.Errorf("resources.%s.memory %q is not a size such as \"512MB\" or \"4GB\", or none", slot, values.Memory)
+		}
+	}
+	return nil
 }
 
 func sortedKeys[V any](m map[string]V) []string {

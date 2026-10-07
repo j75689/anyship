@@ -204,7 +204,7 @@ func reachableAt(ctx context.Context, k kubectl, d *planData, sv service) []stri
 func applyArgs(project string) []string {
 	return []string{"apply", "-f", "-", "--prune", "-l", projectLabel + "=" + project,
 		"--prune-allowlist", "apps/v1/Deployment", "--prune-allowlist", "core/v1/Service", "--prune-allowlist", "networking.k8s.io/v1/Ingress",
-		"--prune-allowlist", "batch/v1/CronJob"}
+		"--prune-allowlist", "batch/v1/CronJob", "--prune-allowlist", "autoscaling/v2/HorizontalPodAutoscaler"}
 }
 
 // rolloutFailure explains a rollout that didn't finish: the service's pods
@@ -285,6 +285,21 @@ func preflight(ctx context.Context, k kubectl, d *planData) (string, []adapter.F
 	}
 	if slices.ContainsFunc(d.services, func(sv service) bool { return len(sv.claims) > 0 }) {
 		checkStorageClass(ctx, k, d, cluster, add)
+	}
+	for _, sv := range d.services {
+		if sv.set.ServiceAccount == "" {
+			continue
+		}
+		if _, err := k.probe(ctx, "get", "serviceaccount", sv.set.ServiceAccount, "-o", "name"); err != nil {
+			add(adapter.Error, "K8S_PREFLIGHT_SERVICE_ACCOUNT", fmt.Sprintf("ServiceAccount %s doesn't exist in namespace %s of %s (for %s).", sv.set.ServiceAccount, k.namespace, cluster, sv.name),
+				fmt.Sprintf("Create it (kubectl --context %s -n %s create serviceaccount %s) and bind its roles, or name an existing one.", cluster, k.namespace, sv.set.ServiceAccount))
+		}
+	}
+	if slices.ContainsFunc(d.services, func(sv service) bool { return sv.set.MaxReplicas > 0 }) {
+		if available, err := k.probe(ctx, "get", "apiservice", "v1beta1.metrics.k8s.io", "-o", `jsonpath={.status.conditions[?(@.type=="Available")].status}`); err != nil || available != "True" {
+			add(adapter.Error, "K8S_PREFLIGHT_METRICS", fmt.Sprintf("%s has no metrics API, which maxReplicas scales on.", cluster),
+				"Install metrics-server (https://github.com/kubernetes-sigs/metrics-server#installation), or drop maxReplicas.")
+		}
 	}
 	if slices.ContainsFunc(d.services, func(sv service) bool { return sv.build != nil }) {
 		if d.platform == "" {

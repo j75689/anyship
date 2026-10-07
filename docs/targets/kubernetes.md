@@ -14,6 +14,13 @@ spec:
       ingressClass: nginx                 # optional; the IngressClass public HTTP ports get an Ingress with
       cronImage: curlimages/curl:8.14.1   # optional; what a cron entry with a path calls it from
       storageClass: fast                  # optional; the StorageClass volumes are claimed from, the default when empty
+      services:                           # optional; settings of single services
+        web:
+          serviceAccount: web             # existing ServiceAccount the pods run as
+          maxReplicas: 10                 # autoscale between replicas and this on CPU use
+          resources:                      # override what memory and cpu put in each slot
+            limits:
+              cpu: none                   # no CPU limit; "0.5", "2", "1GB" or none per slot
 ```
 
 - Each `server` becomes a Deployment and a ClusterIP Service named `<spec name>-<service>`, labeled
@@ -54,7 +61,23 @@ spec:
   ports of it): the cluster's load balancer gives it an address, which `apply` prints once assigned
   and `anyship status` shows. A cluster without a load balancer implementation leaves it pending.
 - `replicas` is the Deployment's replica count. `memory` and `cpu` become the container's resource
-  requests and limits, both, so the pods get what the spec says and no more.
+  requests and limits, both, so the pods get what the spec says and no more. A CPU limit throttles
+  the container when it reaches it, even while the node has idle CPU, which raises latency at peaks
+  and shows up nowhere in `status`; `services.<name>.resources` overrides any of the four slots
+  (`requests`/`limits` × `cpu`/`memory`) in the spec's formats, and `none` leaves a slot unset, so
+  `limits.cpu: none` is how to run with CPU requests only. A limit below its request, or a limit
+  for a resource with no request, is refused (`K8S_RESOURCES`). The spec decides: removing an
+  override puts the spec's value back on the next `apply`.
+- `services.<name>.maxReplicas` adds a HorizontalPodAutoscaler that keeps between `replicas` and
+  that many pods, adding one when average CPU use passes 80% of the request; it needs `cpu` (or a
+  cpu request override) and the cluster's metrics API, which preflight checks
+  (`K8S_PREFLIGHT_METRICS`; install metrics-server). The Deployment then carries no replica count,
+  so an `apply` doesn't put the pods back to the minimum; the first `apply` after adding the
+  option may drop them to one for a moment until the autoscaler takes over. A service with volumes
+  can't autoscale.
+- `services.<name>.serviceAccount` names the existing ServiceAccount the pods (and the cron
+  command jobs) run as; preflight checks it exists in the namespace
+  (`K8S_PREFLIGHT_SERVICE_ACCOUNT`). Bind its roles yourself.
 - `start` runs as the container's arguments (`args`), exactly as written and without a shell, with
   the image's own entrypoint; wrap it in `sh -c '...'` if you need pipes or variables.
 - `healthCheck.path` becomes the startup and readiness probes: a new pod gets traffic once `GET`
@@ -90,8 +113,7 @@ spec:
   next `apply`, and `destroy` removes them all.
 - `logs` runs `kubectl logs` over every pod of the spec, prefixed with the pod's name, and follows
   with `-f`. `status` reads the Deployments and their pods.
-- Not yet, each refused with a reason: a replica ceiling, a service account and resource overrides
-  ([#102](https://github.com/j75689/anyship/issues/102)), and resources anyship would have to
-  provision.
+- Refused with a reason: resources anyship would have to provision (`K8S_RESOURCE`; run the
+  database yourself and mark it external).
 
 [All targets](../../README.md#targets)
