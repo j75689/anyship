@@ -232,7 +232,15 @@ type logsInput struct {
 	Target  string `json:"target" jsonschema:"deploy target such as vps or cloudflare"`
 	Service string `json:"service,omitempty" jsonschema:"only this service's logs"`
 	Tail    int    `json:"tail,omitempty" jsonschema:"recent lines per service; the target's default when 0"`
-	Since   string `json:"since,omitempty" jsonschema:"only logs newer than a duration such as 10m or an RFC 3339 timestamp"`
+	Since      string `json:"since,omitempty" jsonschema:"only logs newer than a duration such as 10m or an RFC 3339 timestamp"`
+	Timestamps bool   `json:"timestamps,omitempty" jsonschema:"prefix each line with its time"`
+}
+
+// statusOutput is the target's status with the verdict the CLI's exit code
+// gives: deployed, every service running as desired and none unhealthy.
+type statusOutput struct {
+	adapter.Status
+	Healthy bool `json:"healthy"`
 }
 
 type logsOutput struct {
@@ -277,6 +285,8 @@ type resultOutput struct {
 	// Output is what the target's tools (ssh, wrangler, ...) printed.
 	Output    string `json:"output"`
 	Truncated bool   `json:"truncated"`
+	// Files are the generated files apply wrote under .anyship/<target>/.
+	Files []string `json:"files,omitempty"`
 }
 
 func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
@@ -362,18 +372,24 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		return nil, out, nil
 	})
 
-	addTool(server, &mcp.Tool{Name: "status", Description: "Show what is running for the spec on a target.", Annotations: readsTarget},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in targetInput) (*mcp.CallToolResult, *adapter.Status, error) {
+	addTool(server, &mcp.Tool{Name: "status", Description: "Show what is running for the spec on a target; healthy says whether everything runs as the spec asks.", Annotations: readsTarget},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in targetInput) (*mcp.CallToolResult, statusOutput, error) {
 			d, _, err := a.prepareForMCP(in.Config, in.Target, false)
 			if err != nil {
-				return nil, nil, err
+				return nil, statusOutput{}, err
 			}
 			reader, ok := d.adapter.(adapter.StatusReader)
 			if !ok {
-				return nil, nil, fmt.Errorf("the %s target does not report status yet", d.adapter.Name())
+				return nil, statusOutput{}, fmt.Errorf("the %s target does not report status yet", d.adapter.Name())
 			}
 			st, err := reader.Status(ctx, d.spec, d.env)
-			return nil, st, err
+			if err != nil {
+				return nil, statusOutput{}, err
+			}
+			if st.Services == nil {
+				st.Services = []adapter.ServiceStatus{}
+			}
+			return nil, statusOutput{Status: *st, Healthy: st.Healthy()}, nil
 		})
 
 	addTool(server, &mcp.Tool{
@@ -399,7 +415,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		}
 		window, cancel := context.WithTimeout(ctx, liveLogWindow)
 		defer cancel()
-		err = reader.Logs(window, d.spec, d.env, adapter.LogOptions{Service: in.Service, Tail: in.Tail, Since: in.Since})
+		err = reader.Logs(window, d.spec, d.env, adapter.LogOptions{Service: in.Service, Tail: in.Tail, Since: in.Since, Timestamps: in.Timestamps})
 		out := logsOutput{}
 		out.Output, out.Truncated = output.String()
 		if window.Err() != nil && ctx.Err() == nil {
@@ -471,7 +487,11 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		if err != nil {
 			return nil, resultOutput{}, err
 		}
-		return nil, toResultOutput(result, nil, output), nil
+		out := toResultOutput(result, nil, output)
+		for _, f := range p.Files {
+			out.Files = append(out.Files, f.Path)
+		}
+		return nil, out, nil
 	})
 
 	addTool(server, &mcp.Tool{

@@ -317,9 +317,9 @@ that look like projects, so the agent can pass one as `dir`.
 | `detect` | draft an `anyship.yaml` for a directory (returned, not written) | no |
 | `validate` | check `anyship.yaml` | no |
 | `plan` | what a deploy would do, every unmet need, and the generated files with their contents | no |
-| `status`, `logs` | what runs on the target, and its recent logs | no |
+| `status`, `logs` | what runs on the target (with a `healthy` verdict), and its recent logs (`timestamps` to date them) | no |
 | `diagnose_context` | everything above plus dry-run checks, redacted, for diagnosing a failure | no |
-| `apply` | deploy; `dry_run` runs the target's checks and generates the deployment files | `.anyship/<target>/`; deploys only with `--allow-deploy` |
+| `apply` | deploy; `dry_run` runs the target's checks and generates the deployment files; the result names the files written | `.anyship/<target>/`; deploys only with `--allow-deploy` |
 | `destroy` | remove a deployment; `volumes` also deletes data | no; removes only with `--allow-deploy` |
 
 The server also serves two kinds of resources, for an agent writing `anyship.yaml`: `anyship://schema`,
