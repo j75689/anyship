@@ -76,7 +76,8 @@ spec:
   (`GCP_INTERNAL_VPC`, `GCP_VPC_EGRESS`); preflight checks that the subnet exists, belongs to the
   network and has Private Google Access, which traffic from it to Cloud Run needs. Such a caller
   reaches the internet only through Cloud NAT on that network. A network set by hand on a service
-  stays. Without `network`, `plan` warns that the spec's other services can't reach the internal
+  stays. Right after the subnet or the caller's network is set up, internal ingress can keep
+  answering 404 to the caller for a few minutes before the new path is recognised. Without `network`, `plan` warns that the spec's other services can't reach the internal
   one as deployed (`GCP_INTERNAL_CALLERS`). With `services.<name>.ingress: all` the token is the
   only guard: the service takes requests from anywhere and the spec's services reach it with no
   network at all (`GCP_INTERNAL`).

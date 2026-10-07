@@ -407,7 +407,7 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 				fmt.Sprintf("In the calling apps, attach an identity token with %s as audience (https://cloud.google.com/run/docs/authenticating/service-to-service).", "${services."+name+".url}"))
 		case sv.internal && opts.Network != "" && len(callersOf(name, s)) > 0:
 			add(adapter.Info, "GCP_INTERNAL_VPC",
-				fmt.Sprintf("Port %d is internal, so %s keeps internal ingress and requires authentication; %s reach it through VPC network %s with an identity token (roles/run.invoker, granted on apply).", sv.port, sv.cloudRun, strings.Join(callersOf(name, s), ", "), opts.Network),
+				fmt.Sprintf("Port %d is internal, so %s keeps internal ingress and requires authentication; the services that refer to it (%s) reach it through VPC network %s with an identity token (roles/run.invoker, granted on apply).", sv.port, sv.cloudRun, strings.Join(callersOf(name, s), ", "), opts.Network),
 				fmt.Sprintf("In the calling apps, attach an identity token with %s as audience (https://cloud.google.com/run/docs/authenticating/service-to-service).", "${services."+name+".url}"))
 		case sv.internal:
 			add(adapter.Warning, "GCP_INTERNAL_CALLERS",
