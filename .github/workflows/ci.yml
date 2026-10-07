@@ -134,3 +134,23 @@ jobs:
           ssh-keyscan -H localhost >> ~/.ssh/known_hosts
           ssh -o BatchMode=yes localhost 'docker version --format "docker {{.Server.Version}}"'
       - run: make e2e-vps
+
+  # Deploys a sample app to a kind cluster on the runner, with a registry the
+  # nodes pull from, exercising the kubernetes target end to end: preflight,
+  # apply, status, logs, prune and destroy.
+  kubernetes-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Start a kind cluster with a local registry
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          cluster_name: anyship
+          registry: true
+          registry_port: 5001
+      - run: make e2e-kubernetes
+        env:
+          ANYSHIP_K8S_REPOSITORY: localhost:5001/anyship-e2e
