@@ -17,6 +17,17 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # setup-go's cache holds what the first job to finish after a go.sum
+      # change compiled, with go test's flags, for linux/amd64. dist.sh builds
+      # with -trimpath for six platforms, so none of that is reused: every run
+      # compiled the stdlib and every dependency six times, 35s per platform.
+      # The CI run on main after a merge saves this entry; a tag can read it.
+      - name: Build cache for the release platforms
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/go-build
+          key: dist-go-build-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: dist-go-build-${{ runner.os }}-
       - name: Release only what is on main
         run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       # Fails before anything is built if CHANGELOG.md has no dated section
