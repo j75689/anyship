@@ -71,9 +71,10 @@ spec:
   one Job per schedule tick: an entry with a `path` runs curl from `cronImage` against
   `http://<spec name>-<service>.<namespace>.svc:<port><path>` with `method` (`POST` by default), and
   an entry with a `command` runs it in the service's image, split like `start`, with the service's
-  env and secrets. Runs don't overlap (a tick while the last run is still going is skipped), a
-  failed run is retried twice, and the last three successful and failed Jobs are kept for `kubectl
-  get jobs`; their logs are part of `anyship logs`. The jobs' pods don't carry the service's label,
+  env and secrets. A call gives up connecting after 10 seconds and waits 30 minutes at most for the
+  response, so a pod gone mid-call fails the run instead of hanging it. Runs don't overlap (a tick
+  while the last run is still going is skipped), a failed run is retried twice, and the last three
+  successful and failed Jobs are kept for `kubectl get jobs`; their logs are part of `anyship logs`. The jobs' pods don't carry the service's label,
   so the Service never sends them traffic. An entry taken out of the spec loses its CronJob on the
   next `apply`, and `destroy` removes them all.
 - `logs` runs `kubectl logs` over every pod of the spec, prefixed with the pod's name, and follows

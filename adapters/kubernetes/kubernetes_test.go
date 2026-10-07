@@ -868,7 +868,7 @@ func TestPlanCron(t *testing.T) {
 	for _, want := range []string{
 		`"kind": "CronJob"`, `"name": "shop-web-cron-0"`, `"name": "shop-web-cron-1"`, `"name": "shop-web-cron-2"`,
 		`"schedule": "*/5 * * * *"`, `"timeZone": "Etc/UTC"`, `"concurrencyPolicy": "Forbid"`, `"restartPolicy": "Never"`, `"backoffLimit": 2`,
-		`"image": "curlimages/curl:8.14.1"`, `"curl"`, `"-X",`, `"POST",`, `"http://shop-web.apps.svc:8000/internal/tick"`,
+		`"image": "curlimages/curl:8.14.1"`, `"curl"`, `"--connect-timeout",`, `"10",`, `"--max-time",`, `"1800",`, `"-X",`, `"POST",`, `"http://shop-web.apps.svc:8000/internal/tick"`,
 		`"GET",`, `"http://shop-web.apps.svc:8000/hourly"`,
 		`"python",`, `"jobs.py",`, `"nightly"`, `"anyship-cron": "web"`,
 	} {

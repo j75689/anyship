@@ -86,6 +86,15 @@ type Options struct {
 // doesn't change under a moving tag.
 const defaultCronImage = "curlimages/curl:8.14.1"
 
+// A cron call gives up connecting after cronConnectTimeout seconds and waits
+// for the response cronMaxTime seconds at most, so that a pod gone mid-call
+// (a rollout, a node) fails the run, which the Job retries, instead of
+// hanging it for good and, with runs that don't overlap, every run after it.
+const (
+	cronConnectTimeout = 10
+	cronMaxTime        = 30 * 60
+)
+
 func (o Options) cronImage() string {
 	if o.CronImage != "" {
 		return o.CronImage
@@ -795,7 +804,7 @@ func (d *planData) cronJob(sv service, job cronJob, img string) object {
 	if job.path != "" {
 		c.Image = d.opts.cronImage()
 		c.Command = []string{"curl"}
-		c.Args = []string{"-fsS", "-X", job.method, d.serviceURL(sv.name) + job.path}
+		c.Args = []string{"-fsS", "--connect-timeout", strconv.Itoa(cronConnectTimeout), "--max-time", strconv.Itoa(cronMaxTime), "-X", job.method, d.serviceURL(sv.name) + job.path}
 	} else {
 		c.Image = img
 		if sv.moving {
