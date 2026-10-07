@@ -2,7 +2,7 @@
 # End-to-end test of the kubernetes target against a real cluster: the
 # current kubectl context (or $ANYSHIP_K8S_CONTEXT), with a registry the
 # nodes can pull from at $ANYSHIP_K8S_REPOSITORY. CI runs it on a kind
-# cluster with a registry on localhost:5001; on a laptop with OrbStack or
+# cluster with a registry at kind-registry:5001; on a laptop with OrbStack or
 # Docker Desktop, a `registry:2` container published on localhost:5000 does.
 #
 #   ANYSHIP=./anyship ANYSHIP_K8S_REPOSITORY=localhost:5000/anyship-e2e scripts/e2e-kubernetes.sh
