@@ -19,6 +19,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fails. `status`, `logs -f` and `destroy` work. An Ingress for public ports and `domains`, cron,
   volumes, static sites and workers are refused for now, each with a pointer to its issue. CI runs
   the target end to end on a kind cluster.
+- The spec refuses an env value that reads as a reference to a service's URL but isn't written as
+  `${services.<name>.url}` (`${service.api.url}`, `services.api.url`, `${services.api.port}`, …),
+  since the container would get that text as it is (#104).
 
 ## [0.4.1] - 2026-10-07
 
