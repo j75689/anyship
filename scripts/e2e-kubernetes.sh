@@ -60,7 +60,8 @@ echo "service URL inside the cluster: $url"
 # finish before `kubectl run -i` attaches and its output is lost then.
 k run curl --image=curlimages/curl:8.14.1 --restart=Never -q -- curl -fsS --retry 10 --retry-all-errors --retry-delay 2 "$url/"
 k wait --for=jsonpath='{.status.phase}'=Succeeded pod/curl --timeout=120s || { k logs curl; fail "the curl pod didn't succeed"; }
-answer=$(k logs curl)
+# The log carries the errors of the attempts that were retried; the answer is the last line.
+answer=$(k logs curl | tail -n 1)
 k delete pod curl --wait=false >/dev/null
 [ "$answer" = ok ] || fail "the app should answer ok at $url, got: $answer"
 
