@@ -24,6 +24,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   checks the class exists and lists the cluster's when it doesn't. A public TCP or UDP port makes
   the service's Service a LoadBalancer, whose address `apply` and `status` show once assigned.
   Without `ingressClass` a public port stays reachable inside the cluster only, as before (#99).
+- `kubernetes`: `cron` entries become CronJobs, read in UTC: a `path` is called inside the cluster
+  by curl (`targets.kubernetes.cronImage` names another image), a `command` runs in the service's
+  image with its env and secrets. Runs don't overlap, an entry taken out of the spec loses its
+  CronJob on the next `apply` (#100).
 - The spec refuses an env value that reads as a reference to a service's URL but isn't written as
   `${services.<name>.url}` (`${service.api.url}`, `services.api.url`, `${services.api.port}`, …),
   since the container would get that text as it is (#104).

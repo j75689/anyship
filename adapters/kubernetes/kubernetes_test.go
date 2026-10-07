@@ -48,17 +48,17 @@ type fakeCluster struct {
 func newFakeCluster() *fakeCluster {
 	return &fakeCluster{
 		out: map[string]string{
-			"kubectl version":                            "Client Version: v1.33.0",
-			"kubectl config current-context":             "kind-anyship",
-			"kubectl config get-contexts":                "orbstack",
-			"kubectl get namespace":                      "namespace/apps",
-			"kubectl auth can-i":                         "yes",
-			"kubectl get nodes":                          "amd64",
-			"kubectl get deployments,services,ingresses": "",
-			"kubectl get deployments":                    `{"items": []}`,
-			"kubectl get services":                       `{"items": []}`,
-			"kubectl get pods":                           `{"items": []}`,
-			"kubectl get secret":                         "4711",
+			"kubectl version":                                     "Client Version: v1.33.0",
+			"kubectl config current-context":                      "kind-anyship",
+			"kubectl config get-contexts":                         "orbstack",
+			"kubectl get namespace":                               "namespace/apps",
+			"kubectl auth can-i":                                  "yes",
+			"kubectl get nodes":                                   "amd64",
+			"kubectl get deployments,services,ingresses,cronjobs": "",
+			"kubectl get deployments":                             `{"items": []}`,
+			"kubectl get services":                                `{"items": []}`,
+			"kubectl get pods":                                    `{"items": []}`,
+			"kubectl get secret":                                  "4711",
 		},
 		fail:   map[string]string{"kubectl get secret shop-api-key -o name": `Error from server (NotFound): secrets "shop-api-key" not found`},
 		digest: "sha256:" + strings.Repeat("a", 64),
@@ -311,16 +311,18 @@ func TestPlanHealthCheck(t *testing.T) {
 
 func TestPlanRefusesUnsupported(t *testing.T) {
 	for src, want := range map[string]string{
-		`"web": {"kind": "static", "path": "site"}`:                                                                                                "K8S_STATIC",
-		`"web": {"kind": "worker", "image": "busybox:1"}`:                                                                                          "K8S_WORKER",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "volumes": [{"name": "d", "mountPath": "/d", "size": "1GB"}]}`:                         "K8S_VOLUMES",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "cron": [{"schedule": "* * * * *", "path": "/tick"}]}`:                                 "K8S_CRON",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}], "domains": ["shop.example.com"]}`:                             "K8S_DOMAINS_NEED_INGRESS",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 5432, "protocol": "tcp"}], "env": {"SELF": "${services.web.url}"}}`: "K8S_SERVICE_URL",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}, {"port": 81}]}`:                                                "K8S_MULTIPLE_PORTS",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "uses": ["db"]}`:                                                                       "K8S_RESOURCE",
-		`"web": {"kind": "server", "start": "node server.js"}`:                                                                                     "K8S_NEEDS_IMAGE",
-		`"web": {"kind": "server", "image": "nginx:1.27.0", "start": "nginx 'unterminated"}`:                                                       "K8S_BAD_START",
+		`"web": {"kind": "static", "path": "site"}`:                                                                                                              "K8S_STATIC",
+		`"web": {"kind": "worker", "image": "busybox:1"}`:                                                                                                        "K8S_WORKER",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "volumes": [{"name": "d", "mountPath": "/d", "size": "1GB"}]}`:                                       "K8S_VOLUMES",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "cron": [{"schedule": "* * * * *"}]}`:                                                                "K8S_CRON",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 5432, "protocol": "tcp"}], "cron": [{"schedule": "* * * * *", "path": "/tick"}]}`: "K8S_CRON_PATH",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "cron": [{"schedule": "* * * * *", "command": "sh -c 'oops"}]}`:                                      "K8S_BAD_CRON",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}], "domains": ["shop.example.com"]}`:                                           "K8S_DOMAINS_NEED_INGRESS",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 5432, "protocol": "tcp"}], "env": {"SELF": "${services.web.url}"}}`:               "K8S_SERVICE_URL",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}, {"port": 81}]}`:                                                              "K8S_MULTIPLE_PORTS",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "uses": ["db"]}`:                                                                                     "K8S_RESOURCE",
+		`"web": {"kind": "server", "start": "node server.js"}`:                                                                                                   "K8S_NEEDS_IMAGE",
+		`"web": {"kind": "server", "image": "nginx:1.27.0", "start": "nginx 'unterminated"}`:                                                                     "K8S_BAD_START",
 	} {
 		s := parse(t, `{"name": "shop", "services": {`+src+`}, "resources": {"db": {"type": "postgres"}}, `+target+`}`)
 		env, _ := newEnv(t, t.TempDir(), nil)
@@ -692,7 +694,7 @@ func TestDestroy(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(summary, "\n")
-	for _, want := range []string{"Delete the Deployments, Services and Ingresses shop-web in namespace apps of orbstack.", "Keep the Secrets shop-api-key"} {
+	for _, want := range []string{"Delete the Deployments, Services, Ingresses and CronJobs of shop-web in namespace apps of orbstack.", "Keep the Secrets shop-api-key"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("summary lacks %q:\n%s", want, joined)
 		}
@@ -712,19 +714,19 @@ func TestDestroy(t *testing.T) {
 	}
 
 	env, fc = newEnv(t, t.TempDir(), nil)
-	fc.out["kubectl get deployments,services,ingresses"] = "deployment.apps/shop-web\nservice/shop-web"
+	fc.out["kubectl get deployments,services,ingresses,cronjobs"] = "deployment.apps/shop-web\nservice/shop-web"
 	r, err = a.Destroy(context.Background(), s, env, adapter.DestroyOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !r.OK || fc.find("kubectl delete deployments,services,ingresses -l anyship-project=shop --ignore-not-found") == nil {
+	if !r.OK || fc.find("kubectl delete deployments,services,ingresses,cronjobs -l anyship-project=shop --ignore-not-found") == nil {
 		t.Errorf("destroy: %+v", r)
 	}
 	env, fc = newEnv(t, t.TempDir(), nil)
 	if _, err := a.Destroy(context.Background(), s, env, adapter.DestroyOptions{Volumes: true}); err != nil {
 		t.Fatal(err)
 	}
-	if fc.find("kubectl delete deployments,services,ingresses,secrets -l anyship-project=shop") == nil {
+	if fc.find("kubectl delete deployments,services,ingresses,cronjobs,secrets -l anyship-project=shop") == nil {
 		t.Error("destroy --volumes should delete the secrets too")
 	}
 }
@@ -843,5 +845,74 @@ func TestPlanLoadBalancer(t *testing.T) {
 		if !slices.Contains(r.Messages, want) {
 			t.Errorf("messages %v lack %q", r.Messages, want)
 		}
+	}
+}
+
+// A cron entry with a path becomes a CronJob that curls the service inside
+// the cluster; one with a command runs it in the service's image, with its
+// env and secrets. Their pods don't carry the service label.
+func TestPlanCron(t *testing.T) {
+	s := parse(t, `{"name": "shop", "services": {
+		"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 8000}], "env": {"MODE": "prod"}, "secrets": ["API_KEY"],
+			"cron": [{"schedule": "*/5 * * * *", "path": "/internal/tick"}, {"schedule": "0 3 * * *", "command": "python jobs.py nightly"}, {"schedule": "0 * * * *", "path": "/hourly", "method": "GET"}]}},
+		"secrets": {"API_KEY": {}}, `+target+`}`)
+	env, _ := newEnv(t, t.TempDir(), nil)
+	p := plan(t, s, env)
+	if errs := codes(p, adapter.Error); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if !slices.Contains(codes(p, adapter.Info), "K8S_CRON") {
+		t.Errorf("infos = %v, want K8S_CRON", codes(p, adapter.Info))
+	}
+	m := manifestsOf(t, p)
+	for _, want := range []string{
+		`"kind": "CronJob"`, `"name": "shop-web-cron-0"`, `"name": "shop-web-cron-1"`, `"name": "shop-web-cron-2"`,
+		`"schedule": "*/5 * * * *"`, `"timeZone": "Etc/UTC"`, `"concurrencyPolicy": "Forbid"`, `"restartPolicy": "Never"`, `"backoffLimit": 2`,
+		`"image": "curlimages/curl:8.14.1"`, `"curl"`, `"-X",`, `"POST",`, `"http://shop-web.apps.svc:8000/internal/tick"`,
+		`"GET",`, `"http://shop-web.apps.svc:8000/hourly"`,
+		`"python",`, `"jobs.py",`, `"nightly"`, `"anyship-cron": "web"`,
+	} {
+		if !strings.Contains(m, want) {
+			t.Errorf("manifests lack %s", want)
+		}
+	}
+	if n := strings.Count(m, `"kind": "CronJob"`); n != 3 {
+		t.Errorf("%d CronJobs, want 3", n)
+	}
+	// The command job gets the service's env and secrets, the curl jobs don't.
+	jobs := strings.SplitN(m, `"name": "shop-web-cron-1"`, 2)[1]
+	command := strings.SplitN(jobs, `"name": "shop-web-cron-2"`, 2)[0]
+	for _, want := range []string{`"name": "MODE"`, `"mountPath": "/run/secrets/API_KEY"`, `"image": "nginx:1.27.0"`} {
+		if !strings.Contains(command, want) {
+			t.Errorf("the command CronJob lacks %s", want)
+		}
+	}
+	if strings.Contains(command, `"name": "PORT"`) || strings.Contains(command, "anyship-service") {
+		t.Error("a CronJob's pod shouldn't get $PORT or the service label")
+	}
+	curl := strings.SplitN(jobs, `"name": "shop-web-cron-2"`, 2)[1]
+	if strings.Contains(curl, "MODE") || strings.Contains(curl, "/run/secrets") {
+		t.Error("the curl CronJob shouldn't get the service's env or secrets")
+	}
+	var names []string
+	for _, a := range p.Actions {
+		names = append(names, a.Kind+" "+a.Name+": "+a.Detail)
+	}
+	for _, want := range []string{`CronJob shop-web-cron-0: "*/5 * * * *" calls POST /internal/tick on shop-web`, `CronJob shop-web-cron-1: "0 3 * * *" runs python jobs.py nightly in the service's image`} {
+		if !slices.Contains(names, want) {
+			t.Errorf("actions %v lack %q", names, want)
+		}
+	}
+	s = parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27.0", "cron": [{"schedule": "* * * * *", "path": "/t"}]}}, "targets": {"kubernetes": {"namespace": "apps", "cronImage": "registry.example.com/tools/curl:8"}}}`)
+	if m := manifestsOf(t, plan(t, s, env)); !strings.Contains(m, `"image": "registry.example.com/tools/curl:8"`) {
+		t.Error("cronImage should replace the curl image")
+	}
+	fc := newFakeCluster()
+	env.Exec = fc.exec
+	if r := apply(t, s, env); !r.OK {
+		t.Fatalf("apply failed: %v", r.Messages)
+	}
+	if a := fc.find("kubectl apply -f - --prune"); !strings.Contains(a.line(), "--prune-allowlist batch/v1/CronJob") {
+		t.Errorf("apply args should prune CronJobs: %s", a.line())
 	}
 }

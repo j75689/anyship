@@ -198,12 +198,13 @@ func reachableAt(ctx context.Context, k kubectl, d *planData, sv service) []stri
 }
 
 // applyArgs applies the manifests from stdin and removes the Deployments,
-// Services and Ingresses of the spec that aren't in them any more: those are
-// the kinds anyship makes from a service, and a Secret keeps its value until
-// destroy --volumes.
+// Services, Ingresses and CronJobs of the spec that aren't in them any more:
+// those are the kinds anyship makes from a service, and a Secret keeps its
+// value until destroy --volumes.
 func applyArgs(project string) []string {
 	return []string{"apply", "-f", "-", "--prune", "-l", projectLabel + "=" + project,
-		"--prune-allowlist", "apps/v1/Deployment", "--prune-allowlist", "core/v1/Service", "--prune-allowlist", "networking.k8s.io/v1/Ingress"}
+		"--prune-allowlist", "apps/v1/Deployment", "--prune-allowlist", "core/v1/Service", "--prune-allowlist", "networking.k8s.io/v1/Ingress",
+		"--prune-allowlist", "batch/v1/CronJob"}
 }
 
 // rolloutFailure explains a rollout that didn't finish: the service's pods

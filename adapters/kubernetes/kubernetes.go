@@ -36,7 +36,11 @@ const Name = "kubernetes"
 const (
 	projectLabel = "anyship-project"
 	serviceLabel = "anyship-service"
-	defaultPort  = 8080
+	// cronLabel marks the pods of a service's cron jobs instead of
+	// serviceLabel, so the Service doesn't send them traffic and status
+	// doesn't count them as the service.
+	cronLabel   = "anyship-cron"
+	defaultPort = 8080
 	// secretsDir is where a service's secrets are mounted, one file each.
 	secretsDir = "/run/secrets"
 	// manifestsFile is the generated file with every object apply sends.
@@ -72,6 +76,21 @@ type Options struct {
 	// Ingress is made with for every public HTTP port; without it no
 	// Ingress is made and a public port is reachable inside the cluster only.
 	IngressClass string `json:"ingressClass,omitempty"`
+	// CronImage is the image a cron entry with a path runs curl from;
+	// curlimages/curl when empty. Name another one on a cluster that can
+	// only pull from its own registry.
+	CronImage string `json:"cronImage,omitempty"`
+}
+
+// defaultCronImage calls the path of a cron entry; pinned, so a deploy
+// doesn't change under a moving tag.
+const defaultCronImage = "curlimages/curl:8.14.1"
+
+func (o Options) cronImage() string {
+	if o.CronImage != "" {
+		return o.CronImage
+	}
+	return defaultCronImage
 }
 
 // The probes made from healthCheck: the startup probe asks every probePeriod
@@ -127,12 +146,28 @@ type service struct {
 	ingress bool
 	lb      bool
 	argv    []string
+	// jobs are the service's cron entries, as CronJobs.
+	jobs []cronJob
 	// image is the image to deploy; for builds it is filled in by Apply.
 	image string
 	// moving is whether the image's tag can move, in which case every
 	// apply rolls the pods so the tag is pulled again.
 	moving bool
 	build  *build
+}
+
+// cronJob is one cron entry of a service: a path to call, or a command to
+// run in the service's image.
+type cronJob struct {
+	id       string // CronJob name
+	schedule string
+	method   string
+	path     string
+	argv     []string
+}
+
+func jobName(project, service string, n int) string {
+	return fmt.Sprintf("%s-%s-cron-%d", project, service, n)
 }
 
 type build struct {
@@ -259,6 +294,13 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 		}
 		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpDeploy, Kind: kind, Name: sv.object,
 			Detail: fmt.Sprintf("in namespace %s, %d replica(s), %s", opts.Namespace, replicas(sv.svc), sv.imageOrPlaceholder(*opts))})
+		for _, job := range sv.jobs {
+			detail := fmt.Sprintf("%q runs %s in the service's image", job.schedule, strings.Join(job.argv, " "))
+			if job.path != "" {
+				detail = fmt.Sprintf("%q calls %s %s on %s", job.schedule, job.method, job.path, sv.object)
+			}
+			plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpDeploy, Kind: "CronJob", Name: job.id, Detail: detail})
+		}
 	}
 	contents, err := manifests(data)
 	if err != nil {
@@ -301,9 +343,6 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	}
 	if len(svc.Volumes) > 0 {
 		add(adapter.Error, "K8S_VOLUMES", "Volumes aren't supported on the kubernetes target yet.", "Store data in an external database, or use the vps target for now.")
-	}
-	if len(svc.Cron) > 0 {
-		add(adapter.Error, "K8S_CRON", "cron isn't supported on the kubernetes target yet.", "Run the schedule on the gcp or cloudflare target for now, or drop the entry.")
 	}
 	var http []spec.Port
 	for _, p := range svc.Ports {
@@ -356,6 +395,33 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 		add(adapter.Info, "K8S_LOAD_BALANCER",
 			fmt.Sprintf("Port %s is public, so %s is a Service of type LoadBalancer: the cluster's load balancer gives it an address, which `anyship status` shows once assigned.", strings.Join(public, ", "), sv.object),
 			"A cluster without a load balancer implementation (a bare kind or minikube) leaves the address pending for good.")
+	}
+	for i, c := range svc.Cron {
+		job := cronJob{id: jobName(s.Name, name, i), schedule: c.Schedule, method: c.Method, path: c.Path}
+		switch {
+		case !dnsLabelRe.MatchString(job.id):
+			add(adapter.Error, "K8S_NAME", fmt.Sprintf("The CronJob name %q is invalid or longer than 63 characters.", job.id), "Shorten the spec or service name.")
+			continue
+		case c.Path != "" && !sv.http:
+			add(adapter.Error, "K8S_CRON_PATH", fmt.Sprintf("cron %q calls %s, but the service has no HTTP port to call it on.", c.Schedule, c.Path), "Give the service an HTTP port, or run a command instead.")
+			continue
+		case c.Path != "":
+		case c.Command != "":
+			argv, err := shellwords.Split(c.Command)
+			if err != nil {
+				add(adapter.Error, "K8S_BAD_CRON", fmt.Sprintf("cron %q command %s.", c.Schedule, err), "")
+				continue
+			}
+			job.argv = argv
+		default:
+			add(adapter.Error, "K8S_CRON", fmt.Sprintf("cron %q has neither a command nor a path.", c.Schedule), "Give the entry a command to run in the service's image, or a path of the service to call.")
+			continue
+		}
+		sv.jobs = append(sv.jobs, job)
+	}
+	if len(sv.jobs) > 0 {
+		add(adapter.Info, "K8S_CRON",
+			fmt.Sprintf("cron entries become CronJobs named %s-cron-<n>, read in UTC. A path is called inside the cluster at http://%s.%s.svc:%d<path> by %s; a command runs in the service's image with its env and secrets. Jobs don't overlap: a run still going when the next is due skips it.", sv.object, sv.object, opts.Namespace, sv.port, opts.cronImage()), "")
 	}
 	for _, ref := range svc.RefersTo() {
 		if other, ok := s.Services[ref]; ok {
@@ -474,14 +540,34 @@ type podTemplate struct {
 }
 
 type podSpec struct {
-	Containers []container `json:"containers"`
-	Volumes    []volume    `json:"volumes,omitempty"`
+	Containers    []container `json:"containers"`
+	Volumes       []volume    `json:"volumes,omitempty"`
+	RestartPolicy string      `json:"restartPolicy,omitempty"`
+}
+
+type cronJobSpec struct {
+	Schedule                   string      `json:"schedule"`
+	TimeZone                   string      `json:"timeZone"`
+	ConcurrencyPolicy          string      `json:"concurrencyPolicy"`
+	SuccessfulJobsHistoryLimit int         `json:"successfulJobsHistoryLimit"`
+	FailedJobsHistoryLimit     int         `json:"failedJobsHistoryLimit"`
+	JobTemplate                jobTemplate `json:"jobTemplate"`
+}
+
+type jobTemplate struct {
+	Spec jobSpec `json:"spec"`
+}
+
+type jobSpec struct {
+	BackoffLimit int         `json:"backoffLimit"`
+	Template     podTemplate `json:"template"`
 }
 
 type container struct {
 	Name            string          `json:"name"`
 	Image           string          `json:"image"`
 	ImagePullPolicy string          `json:"imagePullPolicy"`
+	Command         []string        `json:"command,omitempty"`
 	Args            []string        `json:"args,omitempty"`
 	Ports           []containerPort `json:"ports"`
 	Env             []envVar        `json:"env,omitempty"`
@@ -625,16 +711,7 @@ func (d *planData) deployment(sv service, img string) object {
 	if sv.moving {
 		c.ImagePullPolicy = "Always"
 	}
-	env := map[string]string{}
-	if sv.http {
-		env["PORT"] = strconv.Itoa(sv.port)
-	}
-	for k, v := range sv.svc.Env {
-		env[k] = spec.ExpandServiceURLs(v, d.serviceURL)
-	}
-	for _, k := range sortedKeys(env) {
-		c.Env = append(c.Env, envVar{Name: k, Value: env[k]})
-	}
+	c.Env = d.env(sv, sv.http)
 	if sv.svc.CPU != 0 || sv.svc.MemoryMB() != 0 {
 		size := map[string]string{}
 		if sv.svc.CPU != 0 {
@@ -662,10 +739,8 @@ func (d *planData) deployment(sv service, img string) object {
 	// place in most images.
 	pod := podSpec{}
 	annotations := map[string]string{}
-	for _, name := range sv.svc.Secrets {
-		object := secretName(d.project, name)
-		pod.Volumes = append(pod.Volumes, volume{Name: object, Secret: &secretVolume{SecretName: object}})
-		c.VolumeMounts = append(c.VolumeMounts, volumeMount{Name: object, MountPath: secretsDir + "/" + name, SubPath: name, ReadOnly: true})
+	pod.Volumes, c.VolumeMounts = d.secretMounts(sv)
+	if len(sv.svc.Secrets) > 0 {
 		annotations[secretsAnnotation] = d.versions
 	}
 	pod.Containers = []container{c}
@@ -678,6 +753,63 @@ func (d *planData) deployment(sv service, img string) object {
 	}
 	return object{APIVersion: "apps/v1", Kind: "Deployment", Metadata: d.meta(sv.object, d.labels(sv)),
 		Spec: deploymentSpec{Replicas: replicas(sv.svc), Selector: selector{MatchLabels: d.labels(sv)}, Template: template}}
+}
+
+// env is the service's environment, with $PORT when asked and references
+// to other services resolved to their addresses in the cluster.
+func (d *planData) env(sv service, withPort bool) []envVar {
+	env := map[string]string{}
+	if withPort {
+		env["PORT"] = strconv.Itoa(sv.port)
+	}
+	for k, v := range sv.svc.Env {
+		env[k] = spec.ExpandServiceURLs(v, d.serviceURL)
+	}
+	var vars []envVar
+	for _, k := range sortedKeys(env) {
+		vars = append(vars, envVar{Name: k, Value: env[k]})
+	}
+	return vars
+}
+
+// secretMounts puts each of the service's secrets at /run/secrets/<NAME>.
+func (d *planData) secretMounts(sv service) ([]volume, []volumeMount) {
+	var volumes []volume
+	var mounts []volumeMount
+	for _, name := range sv.svc.Secrets {
+		object := secretName(d.project, name)
+		volumes = append(volumes, volume{Name: object, Secret: &secretVolume{SecretName: object}})
+		mounts = append(mounts, volumeMount{Name: object, MountPath: secretsDir + "/" + name, SubPath: name, ReadOnly: true})
+	}
+	return volumes, mounts
+}
+
+// cronJob is the CronJob for one cron entry: a curl container calling the
+// service's path, or the service's own image running the command. Its pods
+// carry cronLabel rather than serviceLabel, so the Service never sends them
+// traffic. Runs don't overlap, and a run that fails is retried twice.
+func (d *planData) cronJob(sv service, job cronJob, img string) object {
+	labels := map[string]string{projectLabel: d.project, cronLabel: sv.name}
+	c := container{Name: sv.name, ImagePullPolicy: "IfNotPresent"}
+	pod := podSpec{RestartPolicy: "Never"}
+	if job.path != "" {
+		c.Image = d.opts.cronImage()
+		c.Command = []string{"curl"}
+		c.Args = []string{"-fsS", "-X", job.method, d.serviceURL(sv.name) + job.path}
+	} else {
+		c.Image = img
+		if sv.moving {
+			c.ImagePullPolicy = "Always"
+		}
+		c.Args = job.argv
+		c.Env = d.env(sv, false)
+		pod.Volumes, c.VolumeMounts = d.secretMounts(sv)
+	}
+	pod.Containers = []container{c}
+	return object{APIVersion: "batch/v1", Kind: "CronJob", Metadata: d.meta(job.id, labels),
+		Spec: cronJobSpec{Schedule: job.schedule, TimeZone: "Etc/UTC", ConcurrencyPolicy: "Forbid",
+			SuccessfulJobsHistoryLimit: 3, FailedJobsHistoryLimit: 3,
+			JobTemplate: jobTemplate{Spec: jobSpec{BackoffLimit: 2, Template: podTemplate{Metadata: metadata{Labels: labels}, Spec: pod}}}}}
 }
 
 func (d *planData) service(sv service) object {
@@ -722,6 +854,9 @@ func manifests(d *planData) ([]byte, error) {
 		l.Items = append(l.Items, d.deployment(sv, sv.imageOrPlaceholder(d.opts)), d.service(sv))
 		if sv.ingress {
 			l.Items = append(l.Items, d.ingress(sv))
+		}
+		for _, job := range sv.jobs {
+			l.Items = append(l.Items, d.cronJob(sv, job, sv.imageOrPlaceholder(d.opts)))
 		}
 	}
 	return render(l, "# Generated by anyship from anyship.yaml. Edit anyship.yaml instead; this file is overwritten.\n")
@@ -768,6 +903,8 @@ func decodeOptions(raw json.RawMessage) (*Options, error) {
 		return nil, fmt.Errorf("platform %q is not a platform such as linux/amd64 or linux/arm64", opts.Platform)
 	case opts.IngressClass != "" && !dnsSubdomainRe.MatchString(opts.IngressClass):
 		return nil, fmt.Errorf("ingressClass %q is not an IngressClass name", opts.IngressClass)
+	case opts.CronImage != "" && (strings.ContainsAny(opts.CronImage, " \t\n") || strings.HasPrefix(opts.CronImage, "-")):
+		return nil, fmt.Errorf("cronImage %q is not an image reference", opts.CronImage)
 	}
 	return opts, nil
 }

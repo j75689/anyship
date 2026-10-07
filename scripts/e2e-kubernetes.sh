@@ -134,6 +134,31 @@ PY
   if k get ingress app-web -o name 2>/dev/null; then fail "the Ingress should be gone"; fi
 fi
 
+step "cron entries become CronJobs that call the app and run commands in its image"
+python3 - <<'PY'
+import pathlib
+p = pathlib.Path("anyship.yaml"); s = p.read_text()
+s = s.replace("      ports:\n        - port: 8000\n", "      ports:\n        - port: 8000\n      cron:\n        - schedule: '*/5 * * * *'\n          path: /\n          method: GET\n        - schedule: '0 3 * * *'\n          command: python -c print(42)\n", 1)
+p.write_text(s)
+PY
+"$ANYSHIP" apply -t kubernetes --yes | tee cron.out
+grep -q 'CronJob app-web-cron-0' cron.out || fail "plan should list the CronJob"
+k get cronjob app-web-cron-0 app-web-cron-1 -o name || fail "both CronJobs should exist"
+[ "$(k get cronjob app-web-cron-0 -o jsonpath='{.spec.timeZone}')" = Etc/UTC ] || fail "CronJobs should run in UTC"
+# Run each once now rather than waiting for its schedule.
+k create job --from=cronjob/app-web-cron-0 cron-path-run >/dev/null
+k create job --from=cronjob/app-web-cron-1 cron-command-run >/dev/null
+k wait --for=condition=complete job/cron-path-run --timeout=120s || { k logs job/cron-path-run; fail "the path job didn't complete"; }
+k wait --for=condition=complete job/cron-command-run --timeout=120s || { k logs job/cron-command-run; fail "the command job didn't complete"; }
+[ "$(k logs job/cron-path-run | tail -n 1)" = ok ] || fail "the path job should have got ok from the app"
+[ "$(k logs job/cron-command-run | tail -n 1)" = 42 ] || fail "the command job should have printed 42"
+"$ANYSHIP" logs -t kubernetes -n 50 | tee cron-logs.out
+grep -q "cron-command-run" cron-logs.out || fail "anyship logs should include the jobs' pods"
+cp one-service.yaml anyship.yaml
+"$ANYSHIP" apply -t kubernetes --yes | tee cron-prune.out
+grep -q "app-web-cron-0 pruned" cron-prune.out || fail "expected the CronJobs to be pruned"
+if k get cronjob app-web-cron-0 -o name 2>/dev/null; then fail "the CronJob should be gone"; fi
+
 step "destroy removes the Deployments and Services"
 "$ANYSHIP" destroy -t kubernetes --yes
 if "$ANYSHIP" status -t kubernetes; then fail "status should fail once destroyed"; fi
