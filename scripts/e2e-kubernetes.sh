@@ -138,7 +138,7 @@ step "cron entries become CronJobs that call the app and run commands in its ima
 python3 - <<'PY'
 import pathlib
 p = pathlib.Path("anyship.yaml"); s = p.read_text()
-s = s.replace("      ports:\n        - port: 8000\n", "      ports:\n        - port: 8000\n      cron:\n        - schedule: '*/5 * * * *'\n          path: /\n          method: GET\n        - schedule: '0 3 * * *'\n          command: python -c print(42)\n", 1)
+s = s.replace("      ports:\n        - port: 8000\n", "      ports:\n        - port: 8000\n      cron:\n        - schedule: '*/5 * * * *'\n          path: /\n          method: GET\n        - schedule: '0 3 * * *'\n          command: echo 42\n", 1)
 p.write_text(s)
 PY
 "$ANYSHIP" apply -t kubernetes --yes | tee cron.out
