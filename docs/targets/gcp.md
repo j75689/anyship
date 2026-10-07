@@ -105,10 +105,11 @@ spec:
   with less than one `cpu` needs `concurrency: 1` and runs in the first generation environment,
   and `gen2` needs at least 512MB.
 - A `cron` entry with a `path` becomes a Cloud Scheduler job that calls that path on the service
-  (`method`, `POST` by default) when the schedule fires, in UTC. The call carries an identity token
-  for the account the service runs as, made out to the service's URL; a service that requires
-  authentication lets that account in (`roles/run.invoker`), and a public one has to check the
-  token itself. The call waits as long as the service's `timeout`, 30 minutes at most. Jobs are
+  (`method`, `POST` by default) when the schedule fires, in UTC. The call goes to
+  `${services.<name>.url}` and carries an identity token for the account the service runs as, made
+  out to that same URL, so an app that checks the token's audience can be given it through `env`
+  (`PUBLIC_URL: ${services.web.url}`). A service that requires authentication lets that account in
+  (`roles/run.invoker`), and a public one has to check the token itself. The call waits as long as the service's `timeout`, 30 minutes at most. Jobs are
   named `anyship_<spec name>_<service>_<n>` and found by that name: an entry taken out of the spec
   loses its job on the next `apply`, and `destroy` removes them all. Needs the `cloudscheduler` API.
   An entry with a `command`, or with neither, is refused (`GCP_CRON`): nothing on this target runs

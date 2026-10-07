@@ -421,9 +421,9 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 	}
 
 	if len(sv.jobs) > 0 {
-		message := "Cloud Scheduler calls the cron paths with an identity token for the account the service runs as; schedules are read in UTC."
+		message := fmt.Sprintf("Cloud Scheduler calls the cron paths at %s with an identity token for the account the service runs as, made out to that same URL; schedules are read in UTC.", "${services."+name+".url}")
 		if !sv.internal && !opts.Private {
-			message += " The service is public, so the app has to check that token itself."
+			message += " The service is public, so the app has to check that token itself: pass it the URL through env to compare the audience against."
 		}
 		add(adapter.Info, "GCP_CRON_HTTP", message, "")
 	}

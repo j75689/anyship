@@ -308,7 +308,9 @@ func TestApplyCreatesAndUpdatesCronJobs(t *testing.T) {
 	if err != nil || !res.OK {
 		t.Fatalf("apply: %v %+v", err, res)
 	}
-	const url = "https://shop-web-abc.a.run.app"
+	// The URL ${services.web.url} expands to, not status.url: an app told
+	// the URL through env can check the token's audience against it (#91).
+	const url = "https://shop-web-123456789.us-central1.run.app"
 	update := fc.find("gcloud scheduler jobs update http anyship_shop_web_0")
 	if update == nil {
 		t.Fatalf("the existing job was not updated: %v", fc.calls)

@@ -202,10 +202,10 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 			}
 		}
 		if len(sv.jobs) > 0 {
-			if url == "" {
-				return result(false, fmt.Sprintf("%s is deployed, but its URL couldn't be read to schedule its cron entries (%v).", sv.cloudRun, err)), nil
-			}
-			if err := applyJobs(ctx, g, data, sv, url); err != nil {
+			// The jobs call the service at the URL the spec can name,
+			// ${services.<name>.url}, and make the token out to it, so an
+			// app that checks the audience can be told it through env.
+			if err := applyJobs(ctx, g, data, sv, data.serviceURL(sv.name)); err != nil {
 				return result(false, err.Error()), nil
 			}
 			messages = append(messages, fmt.Sprintf("%s: %d cron schedule(s) on Cloud Scheduler", sv.name, len(sv.jobs)))
