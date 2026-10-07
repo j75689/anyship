@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `gcp`: a cron job called the service at its `status.url` and made the identity token out to
+  that, while `${services.<name>.url}` expands to the service's other URL, so an app that checks
+  the token's audience against the URL from its env rejected every tick (#91). The job now uses
+  `${services.<name>.url}` for both.
+
 ## [0.4.0] - 2026-10-07
 
 ### ⚠ BREAKING CHANGES
@@ -198,6 +207,7 @@ The first tagged release. It covers everything built up to that point.
   deploy it.
 - Release binaries built with GoReleaser, and `install.sh`, which verifies checksums.
 
+[Unreleased]: https://github.com/j75689/anyship/compare/v0.4.0...HEAD
 [0.4.0]: https://github.com/j75689/anyship/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/j75689/anyship/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/j75689/anyship/compare/v0.2.0...v0.3.0

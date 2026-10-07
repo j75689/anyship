@@ -34,9 +34,12 @@ const (
 )
 
 // jobArgs is the gcloud command that creates or updates a job, by verb. The
-// call carries an identity token for the account the service runs as, made
-// out to the service's URL, and waits as long as the service's own timeout
-// allows a request to take.
+// call goes to url, the form ${services.<name>.url} expands to, and carries
+// an identity token for the account the service runs as with that same url
+// as audience: Cloud Run takes either of a service's URLs as audience, but
+// an app compares the audience literally, so it has to be the one the spec
+// can tell it. The call waits as long as the service's own timeout allows a
+// request to take.
 func jobArgs(verb string, d *planData, sv service, job cronJob, url string) []string {
 	deadline := min(max(sv.timeout, minAttemptDeadline), maxAttemptDeadline)
 	args := []string{"scheduler", "jobs", verb, "http", job.id, "--location", d.opts.Region,
