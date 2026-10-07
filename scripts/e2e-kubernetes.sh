@@ -56,7 +56,12 @@ step "apply deploys it"
 "$ANYSHIP" apply -t kubernetes --yes
 url=$("$ANYSHIP" plan -t kubernetes --json | jq -r '.findings[] | select(.code == "K8S_PUBLIC_PORT") | .message' | grep -o 'http://[^ ]*svc:[0-9]*')
 echo "service URL inside the cluster: $url"
-answer=$(k run curl --image=curlimages/curl:8.14.1 --rm -i --restart=Never -q -- curl -fsS --retry 10 --retry-all-errors --retry-delay 2 "$url/")
+# A pod that runs curl once; not attached, since a container this short can
+# finish before `kubectl run -i` attaches and its output is lost then.
+k run curl --image=curlimages/curl:8.14.1 --restart=Never -q -- curl -fsS --retry 10 --retry-all-errors --retry-delay 2 "$url/"
+k wait --for=jsonpath='{.status.phase}'=Succeeded pod/curl --timeout=120s || { k logs curl; fail "the curl pod didn't succeed"; }
+answer=$(k logs curl)
+k delete pod curl --wait=false >/dev/null
 [ "$answer" = ok ] || fail "the app should answer ok at $url, got: $answer"
 
 step "status reports it running"
