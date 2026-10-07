@@ -197,13 +197,20 @@ func TestMCPReadOnlyTools(t *testing.T) {
 	if msg := h.call(t, "detect", map[string]any{"dir": filepath.Join("..", "..", "dockerfile", "testdata", "apps", "go")}, &detected); msg != "" {
 		t.Fatal(msg)
 	}
-	if !detected.Valid || !strings.Contains(detected.Spec, "name: goapp") {
+	if !detected.Valid || !strings.Contains(detected.Spec, "name: goapp") || detected.Existing != nil {
 		t.Errorf("detect = %+v", detected)
+	}
+	// A directory with a spec: detect says so, with what it configures.
+	if msg := h.call(t, "detect", map[string]any{"dir": filepath.Join("..", "..", "examples", "ethereum-node")}, &detected); msg != "" {
+		t.Fatal(msg)
+	}
+	if ex := detected.Existing; ex == nil || !ex.Valid || ex.Name != "eth-mainnet" || !slices.Equal(ex.Services, []string{"lighthouse", "reth"}) || !slices.Equal(ex.Targets, []string{"vps"}) {
+		t.Errorf("detect in a directory with a spec = %+v", detected.Existing)
 	}
 
 	var valid validateOutput
 	h.call(t, "validate", map[string]any{"config": example("ethereum-node")}, &valid)
-	if !valid.Valid || !slices.Equal(valid.Services, []string{"lighthouse", "reth"}) {
+	if !valid.Valid || !slices.Equal(valid.Services, []string{"lighthouse", "reth"}) || !slices.Equal(valid.Targets, []string{"vps"}) {
 		t.Errorf("validate = %+v", valid)
 	}
 	var missing validateOutput

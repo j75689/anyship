@@ -47,6 +47,12 @@ const (
 	manifestsFile = "manifests.yaml"
 )
 
+// minReadySeconds is how long a new pod has to stay ready before the
+// rollout counts it. Without a readiness probe a container is ready the
+// instant it runs, and a process that dies at startup would otherwise pass
+// as deployed; these seconds make such a crash fail the apply instead.
+const minReadySeconds = 5
+
 // rolloutAnnotation is set on the pod template of a service whose image tag
 // can move, with the time of the apply, so that every apply rolls the pods
 // and pulls the tag again.
@@ -739,10 +745,11 @@ type list struct {
 }
 
 type deploymentSpec struct {
-	Replicas int         `json:"replicas,omitempty"`
-	Selector selector    `json:"selector"`
-	Strategy *strategy   `json:"strategy,omitempty"`
-	Template podTemplate `json:"template"`
+	Replicas        int         `json:"replicas,omitempty"`
+	MinReadySeconds int         `json:"minReadySeconds"`
+	Selector        selector    `json:"selector"`
+	Strategy        *strategy   `json:"strategy,omitempty"`
+	Template        podTemplate `json:"template"`
 }
 
 type strategy struct {
@@ -1011,7 +1018,7 @@ func (d *planData) deployment(sv service, img string) object {
 	if len(annotations) > 0 {
 		template.Metadata.Annotations = annotations
 	}
-	spec := deploymentSpec{Replicas: replicas(sv.svc), Selector: selector{MatchLabels: d.labels(sv)}, Template: template}
+	spec := deploymentSpec{Replicas: replicas(sv.svc), MinReadySeconds: minReadySeconds, Selector: selector{MatchLabels: d.labels(sv)}, Template: template}
 	// With an autoscaler the replica count is its to set: a count in the
 	// manifest would put the pods back to the minimum on every apply.
 	if sv.set.MaxReplicas > 0 {

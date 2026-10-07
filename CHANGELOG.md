@@ -41,6 +41,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   target's options instead of being pointed at a URL; the `targets` tool names each page (#111).
 - `anyship mcp`: `status` returns `healthy`, the verdict the CLI's exit code gives; `logs` takes
   `timestamps`; `apply` names the files it wrote under `.anyship/<target>/` (#111).
+- `anyship mcp`: `detect` reports an `anyship.yaml` already in the directory (`existing`, with its
+  validation, services and targets) and the instructions say to validate and plan that one;
+  `validate` lists the spec's targets (#115).
+- `kubernetes`: a new pod has to stay ready for 5 seconds before the rollout counts it, so a
+  process that dies at startup fails the apply instead of passing as deployed (#115).
 - The spec refuses an env value that reads as a reference to a service's URL but isn't written as
   `${services.<name>.url}` (`${service.api.url}`, `services.api.url`, `${services.api.port}`, …),
   since the container would get that text as it is (#104).
