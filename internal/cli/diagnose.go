@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -38,32 +39,19 @@ anywhere you would not paste a secret.`,
 			if err != nil {
 				return err
 			}
-			raw, err := os.ReadFile(config)
-			if err != nil {
-				return err
-			}
 			progress := func(step string) {
 				if !asJSON {
 					a.logToStderr("%s...", step)
 				}
 			}
-			collected := diagnose.Collect(cmd.Context(), diagnose.Inputs{
-				Spec:     d.spec,
-				SpecPath: config,
-				SpecRaw:  raw,
-				Adapter:  d.adapter,
-				NewEnv:   capturingEnv(d.env),
-				Note:     note,
-				Checks:   !noChecks,
-				Progress: progress,
-				Redactor: diagnose.NewRedactor(d.spec, os.LookupEnv),
-			})
-			if asJSON {
-				return printJSON(a.out, struct {
-					Context string `json:"context"`
-				}{collected.Render()})
+			text, err := diagnoseContext(cmd.Context(), d, config, note, !noChecks, progress)
+			if err != nil {
+				return err
 			}
-			_, err = io.WriteString(a.out, collected.Render())
+			if asJSON {
+				return printJSON(a.out, diagnoseContextOutput{Context: text})
+			}
+			_, err = io.WriteString(a.out, text)
 			return err
 		},
 	}
@@ -73,6 +61,37 @@ anywhere you would not paste a secret.`,
 	cmd.Flags().StringVar(&note, "note", "", "what went wrong, in your words (an error message, a symptom)")
 	cmd.Flags().BoolVar(&noChecks, "no-checks", false, "skip the target's dry-run checks")
 	return cmd
+}
+
+// diagnoseContext collects the redacted context for d's spec on its target,
+// as Markdown. The target's checks are a dry run of apply, which writes the
+// files it would deploy, and some targets need them on disk. diagnose only
+// reads, so they go to a temporary directory that is removed before this
+// returns, and the lines that name it are dropped: the context holds the
+// files' contents already.
+func diagnoseContext(ctx context.Context, d *deployment, config, note string, checks bool, progress func(string)) (string, error) {
+	raw, err := os.ReadFile(config)
+	if err != nil {
+		return "", err
+	}
+	outDir, err := os.MkdirTemp("", "anyship-diagnose-")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.RemoveAll(outDir) }()
+	d.env.OutDir = outDir
+	collected := diagnose.Collect(ctx, diagnose.Inputs{
+		Spec:     d.spec,
+		SpecPath: config,
+		SpecRaw:  raw,
+		Adapter:  d.adapter,
+		NewEnv:   capturingEnv(d.env),
+		Note:     note,
+		Checks:   checks,
+		Progress: progress,
+		Redactor: diagnose.NewRedactor(d.spec, os.LookupEnv),
+	})
+	return withoutLinesAbout(collected.Render(), filepath.Base(outDir)), nil
 }
 
 // capturingEnv derives Envs whose progress and command output go to out and

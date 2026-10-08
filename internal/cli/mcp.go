@@ -18,7 +18,6 @@ import (
 
 	"github.com/j75689/anyship"
 	"github.com/j75689/anyship/adapter"
-	"github.com/j75689/anyship/diagnose"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -327,28 +326,8 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		if err != nil {
 			return nil, diagnoseContextOutput{}, err
 		}
-		raw, err := os.ReadFile(config)
-		if err != nil {
-			return nil, diagnoseContextOutput{}, err
-		}
-		// The target's checks are a dry run of apply, which writes the files it
-		// would deploy, and some targets need them on disk. This tool is
-		// read-only, so they go to a temporary directory the call then removes
-		// instead of into the user's .anyship/.
-		outDir, err := os.MkdirTemp("", "anyship-diagnose-")
-		if err != nil {
-			return nil, diagnoseContextOutput{}, err
-		}
-		defer func() { _ = os.RemoveAll(outDir) }()
-		d.env.OutDir = outDir
-		collected := diagnose.Collect(ctx, diagnose.Inputs{
-			Spec: d.spec, SpecPath: config, SpecRaw: raw, Adapter: d.adapter,
-			NewEnv: capturingEnv(d.env), Note: in.Note, Checks: true,
-			Redactor: diagnose.NewRedactor(d.spec, os.LookupEnv),
-		})
-		// The checks log where they wrote each file. Those paths are gone when
-		// this call returns, and the context holds the contents already.
-		return nil, diagnoseContextOutput{Context: withoutLinesAbout(collected.Render(), filepath.Base(outDir))}, nil
+		text, err := diagnoseContext(ctx, d, config, in.Note, true, nil)
+		return nil, diagnoseContextOutput{Context: text}, err
 	})
 
 	addTool(server, &mcp.Tool{

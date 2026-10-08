@@ -289,8 +289,9 @@ question, or skip the paste: with the [MCP server](#use-it-from-ai-agents-mcp) t
 `diagnose_context` and gets the same text itself. The agent then proposes a change to `anyship.yaml`,
 and `anyship plan` tells you whether it holds up, the same as any edit you make by hand.
 
-- **Nothing is written.** `diagnose` reads and prints; the fix is an edit to `anyship.yaml` that you
-  review. `--no-checks` skips the dry run when the target's checks are slow or you only want the logs.
+- **Nothing is written.** `diagnose` reads and prints; the target's checks run in a temporary
+  directory, so not even `.anyship/` changes. The fix is an edit to `anyship.yaml` that you review.
+  `--no-checks` skips the dry run when the target's checks are slow or you only want the logs.
 - **Secrets are redacted before anything is printed:** values of the spec's secrets found in your
   environment, credential-like keys (`*_KEY`, `*_TOKEN`, `*PASSWORD*`, ...), `Authorization` headers,
   API tokens, passwords in URLs and private keys. Redaction works by pattern, so it can miss a secret
