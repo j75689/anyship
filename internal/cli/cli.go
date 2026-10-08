@@ -23,7 +23,6 @@ import (
 	"github.com/j75689/anyship/adapters/gcp"
 	"github.com/j75689/anyship/adapters/kubernetes"
 	"github.com/j75689/anyship/adapters/vps"
-	"github.com/j75689/anyship/detect"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -136,52 +135,54 @@ func validSince(s string) bool {
 }
 
 func (a *app) initCommand() *cobra.Command {
-	var force bool
+	var force, toStdout, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "init [dir]",
 		Short: "Detect the project and draft " + spec.Filename,
-		Args:  cobra.MaximumNArgs(1),
+		Long: "Detect the project and draft " + spec.Filename + ".\n\n" +
+			"--stdout prints the draft instead of writing it, and --json prints it with the\n" +
+			"evidence, findings and whether the directory already has a spec; neither writes.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := "."
 			if len(args) == 1 {
 				dir = args[0]
 			}
-			root, err := filepath.Abs(dir)
+			out, err := newDetectOutput(dir, shell)
 			if err != nil {
 				return err
 			}
-			file := filepath.Join(root, spec.Filename)
-			if _, err := os.Stat(file); err == nil && !force {
-				return fmt.Errorf("%s already exists; pass --force to overwrite it", spec.Filename)
+			if asJSON {
+				if err := printJSON(a.out, out); err != nil {
+					return err
+				}
+				if !out.Valid {
+					return errReported
+				}
+				return nil
+			}
+			if toStdout {
+				// The draft alone on stdout, so it can be piped; the rest on stderr.
+				a.printDetection(os.Stderr, newStyler(os.Stderr), out)
+				if _, err := io.WriteString(a.out, out.Spec); err != nil {
+					return err
+				}
+				if !out.Valid {
+					return errReported
+				}
+				return nil
 			}
 
-			d, err := detect.Project(root)
-			if err != nil {
-				return err
+			file := filepath.Join(out.Dir, spec.Filename)
+			if out.Existing != nil && !force {
+				return fmt.Errorf("%s already exists; pass --force to overwrite it, or --stdout to print the draft instead", spec.Filename)
 			}
-			fmt.Fprintln(a.out, a.style.bold("Detected:"))
-			for _, line := range d.Evidence {
-				fmt.Fprintf(a.out, "  %s %s\n", a.style.dim("•"), line)
-			}
-			if len(d.Findings) > 0 {
-				fmt.Fprintln(a.out, a.style.bold("\nFindings:"))
-				printFindings(a.out, a.style, d.Findings)
-			}
-
-			data, err := spec.Marshal(d.Spec)
-			if err != nil {
-				return err
-			}
-			if err := os.WriteFile(file, data, 0o644); err != nil {
+			a.printDetection(a.out, a.style, out)
+			if err := os.WriteFile(file, []byte(out.Spec), 0o644); err != nil {
 				return err
 			}
 			fmt.Fprintf(a.out, "\n%s wrote %s\n", a.style.green("✔"), displayPath(file))
-
-			if _, err := spec.Parse(data); err != nil {
-				fmt.Fprintln(a.out, a.style.yellow("\nThe draft needs edits before it can be deployed:"))
-				for _, problem := range problemsOf(err) {
-					fmt.Fprintf(a.out, "  %s %s\n", a.style.red("✖"), problem)
-				}
+			if !out.Valid {
 				return errReported
 			}
 			fmt.Fprintln(a.out, a.style.dim("Review it, commit it, then run `anyship plan --target <target>`."))
@@ -189,16 +190,47 @@ func (a *app) initCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "overwrite an existing "+spec.Filename)
+	cmd.Flags().BoolVar(&toStdout, "stdout", false, "print the draft instead of writing "+spec.Filename)
+	addJSONFlag(cmd, &asJSON)
 	return cmd
+}
+
+// printDetection shows what init found, and what the draft still needs.
+func (a *app) printDetection(w io.Writer, s styler, out detectOutput) {
+	fmt.Fprintln(w, s.bold("Detected:"))
+	for _, line := range out.Evidence {
+		fmt.Fprintf(w, "  %s %s\n", s.dim("•"), line)
+	}
+	if len(out.Findings) > 0 {
+		fmt.Fprintln(w, s.bold("\nFindings:"))
+		printFindings(w, s, out.Findings)
+	}
+	if !out.Valid {
+		fmt.Fprintln(w, s.yellow("\nThe draft needs edits before it can be deployed:"))
+		for _, problem := range out.Problems {
+			fmt.Fprintf(w, "  %s %s\n", s.red("✖"), problem)
+		}
+	}
 }
 
 func (a *app) validateCommand() *cobra.Command {
 	var config string
+	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "validate",
 		Short: "Check " + spec.Filename + " against the schema",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if asJSON {
+				out := newValidateOutput(config, shell)
+				if err := printJSON(a.out, out); err != nil {
+					return err
+				}
+				if !out.Valid {
+					return errReported
+				}
+				return nil
+			}
 			s, err := load(config)
 			if err != nil {
 				return err
@@ -210,6 +242,7 @@ func (a *app) validateCommand() *cobra.Command {
 		},
 	}
 	addConfigFlag(cmd, &config)
+	addJSONFlag(cmd, &asJSON)
 	return cmd
 }
 
@@ -234,7 +267,7 @@ func (a *app) planCommand() *cobra.Command {
 				return err
 			}
 			if asJSON {
-				err = printJSON(a.out, planJSON(p))
+				err = printJSON(a.out, newPlanOutput(p, shell))
 			} else {
 				printPlan(a.out, a.style, p, d.env.Dir)
 			}
@@ -254,11 +287,14 @@ func (a *app) planCommand() *cobra.Command {
 func (a *app) applyCommand() *cobra.Command {
 	var config, target string
 	var images []string
-	var yes, dryRun bool
+	var yes, dryRun, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Deploy to a target",
-		Args:  cobra.NoArgs,
+		Long: "Deploy to a target.\n\n" +
+			"With --json the outcome is printed as JSON, with the tail of what the platform's\n" +
+			"tools printed; progress and that output go to stderr as they happen.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d, err := a.prepare(config, target, dryRun)
 			if err != nil {
@@ -267,21 +303,34 @@ func (a *app) applyCommand() *cobra.Command {
 			if err := useImages(d.spec, images); err != nil {
 				return err
 			}
+			var output *tailBuffer
+			if asJSON {
+				output = a.keepStdoutForJSON(d)
+			}
 			p, err := d.adapter.Plan(cmd.Context(), d.spec, d.env)
 			if err != nil {
 				return err
 			}
-			printPlan(a.out, a.style, p, d.env.Dir)
-			if adapter.HasErrors(p.Findings) {
-				return errReported
+			if asJSON {
+				if adapter.HasErrors(p.Findings) {
+					if err := printJSON(a.out, planErrorsOutput(p, shell)); err != nil {
+						return err
+					}
+					return errReported
+				}
+			} else {
+				printPlan(a.out, a.style, p, d.env.Dir)
+				if adapter.HasErrors(p.Findings) {
+					return errReported
+				}
 			}
 			if !yes && !dryRun {
-				ok, err := confirm(a.out, fmt.Sprintf("\nDeploy %s to %s?", d.spec.Name, d.adapter.Name()))
+				ok, err := confirm(a.promptWriter(asJSON), fmt.Sprintf("\nDeploy %s to %s?", d.spec.Name, d.adapter.Name()))
 				if err != nil {
 					return err
 				}
 				if !ok {
-					fmt.Fprintln(a.out, "Aborted.")
+					fmt.Fprintln(a.promptWriter(asJSON), "Aborted.")
 					return nil
 				}
 			}
@@ -290,7 +339,17 @@ func (a *app) applyCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printResult(a.out, a.style, result)
+			if asJSON {
+				out := newResultOutput(result, nil, output, shell)
+				for _, f := range p.Files {
+					out.Files = append(out.Files, f.Path)
+				}
+				if err := printJSON(a.out, out); err != nil {
+					return err
+				}
+			} else {
+				printResult(a.out, a.style, result)
+			}
 			if !result.OK {
 				return errReported
 			}
@@ -302,31 +361,56 @@ func (a *app) applyCommand() *cobra.Command {
 	addImageFlag(cmd, &images)
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation prompt")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "generate config and run the platform's dry run without deploying")
+	addJSONFlag(cmd, &asJSON)
 	return cmd
+}
+
+// keepStdoutForJSON routes a deployment's progress and the output of the
+// platform's tools to stderr, and keeps their tail for the JSON result, so
+// stdout carries the JSON alone.
+func (a *app) keepStdoutForJSON(d *deployment) *tailBuffer {
+	output := &tailBuffer{max: maxToolOutput}
+	d.env.Logf = func(format string, args ...any) {
+		a.logToStderr(format, args...)
+		fmt.Fprintf(output, format+"\n", args...)
+	}
+	d.env.Exec = func(ctx context.Context, opts adapter.ExecOptions, name string, args ...string) error {
+		both := io.MultiWriter(os.Stderr, output)
+		return runWith(ctx, opts, stdio{in: os.Stdin, out: both, err: both}, name, args...)
+	}
+	return output
+}
+
+// promptWriter is where a question to the user goes: stdout, unless stdout
+// is reserved for JSON.
+func (a *app) promptWriter(asJSON bool) io.Writer {
+	if asJSON {
+		return os.Stderr
+	}
+	return a.out
 }
 
 func (a *app) targetsCommand() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "targets",
-		Short: "List available deploy targets",
-		Args:  cobra.NoArgs,
+		Use:   "targets [name]",
+		Short: "List available deploy targets, or print one target's page",
+		Long: "List available deploy targets.\n\n" +
+			"With a name, print that target's page: its options under spec.targets.<name>,\n" +
+			"how it deploys a spec, what it refuses and why.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			type targetJSON struct {
-				Name         string   `json:"name"`
-				Description  string   `json:"description"`
-				Capabilities []string `json:"capabilities"`
+			if len(args) == 1 {
+				return a.printTargetPage(args[0], asJSON)
 			}
-			var targets []targetJSON
-			for _, ad := range a.registry.List() {
-				targets = append(targets, targetJSON{ad.Name(), ad.Description(), capabilities(ad)})
-			}
+			out := newTargetsOutput(a.registry, targetsCommandFor)
 			if asJSON {
-				return printJSON(a.out, targets)
+				return printJSON(a.out, out.Targets)
 			}
-			for _, t := range targets {
+			for _, t := range out.Targets {
 				fmt.Fprintf(a.out, "  %s %s %s\n", a.style.bold(fmt.Sprintf("%-12s", t.Name)), t.Description, a.style.dim("("+strings.Join(t.Capabilities, ", ")+")"))
 			}
+			fmt.Fprintln(a.out, a.style.dim("\n`anyship targets <name>` prints a target's page: its options, how it deploys, what it refuses."))
 			return nil
 		},
 	}
@@ -334,19 +418,23 @@ func (a *app) targetsCommand() *cobra.Command {
 	return cmd
 }
 
-// capabilities lists the commands a target supports.
-func capabilities(ad adapter.Adapter) []string {
-	caps := []string{"plan", "apply"}
-	if _, ok := ad.(adapter.LogReader); ok {
-		caps = append(caps, "logs")
+// targetsCommandFor is how a shell reads a target's page.
+func targetsCommandFor(name string) string { return "anyship targets " + name }
+
+func (a *app) printTargetPage(name string, asJSON bool) error {
+	ad, err := a.registry.Get(name)
+	if err != nil {
+		return err
 	}
-	if _, ok := ad.(adapter.StatusReader); ok {
-		caps = append(caps, "status")
+	page, err := targetDoc(name)
+	if err != nil {
+		return fmt.Errorf("the %s target has no page yet", name)
 	}
-	if _, ok := ad.(adapter.Destroyer); ok {
-		caps = append(caps, "destroy")
+	if asJSON {
+		return printJSON(a.out, targetPage{targetInfo: newTargetInfo(ad, targetsCommandFor), Page: string(page)})
 	}
-	return caps
+	_, err = a.out.Write(page)
+	return err
 }
 
 func addJSONFlag(cmd *cobra.Command, asJSON *bool) {
@@ -423,17 +511,9 @@ func load(config string) (*spec.Spec, error) {
 	}
 	var missing *spec.NotFoundError
 	if errors.As(err, &missing) {
-		return nil, fmt.Errorf("%w; run `anyship init` in the project to draft it", err)
+		return nil, hintForShell(err)
 	}
 	return nil, fmt.Errorf("%s: %w", config, err)
-}
-
-func problemsOf(err error) []string {
-	var verr *spec.ValidationError
-	if errors.As(err, &verr) {
-		return verr.Problems
-	}
-	return nil
 }
 
 // run executes a command with inherited stdio, or opts.Stdin/opts.Stdout when set.

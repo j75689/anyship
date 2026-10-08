@@ -7,7 +7,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Every command a script or an agent would ask a question of has a `--json` form that matches the
+  MCP tool's result, built from the same types: `init --json` (the draft, its evidence and findings,
+  and the `anyship.yaml` already there under `existing`; writes nothing), `validate --json`,
+  `apply --json` and `destroy --json` (the outcome with the tail of what the platform's tools
+  printed), and `status --json` gains `healthy`. `init --stdout` prints the draft alone.
+  `anyship targets <name>` prints a target's page from the binary, and `targets --json` says so
+  under `docs` (#122).
+
 ### Changed
+
+- Option hints end with `anyship targets <name>` instead of a GitHub URL; over MCP they still name
+  the `anyship://targets/<name>` resource (#122).
+- `validate` and `detect` over MCP returned `"targets": null` for a spec without a `targets` block;
+  it is `[]` now (#122).
 
 - **Breaking:** `anyship diagnose` no longer calls Claude. It prints the redacted deployment context
   (the spec, plan findings, the target's dry-run checks, status, recent logs and generated files) for

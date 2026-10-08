@@ -78,7 +78,7 @@ func TestRunWithPassesArgumentsThrough(t *testing.T) {
 
 func TestPlanJSONUsesEmptyLists(t *testing.T) {
 	var buf strings.Builder
-	if err := printJSON(&buf, planJSON(&adapter.Plan{Target: "vps"})); err != nil {
+	if err := printJSON(&buf, newPlanOutput(&adapter.Plan{Target: "vps"}, shell)); err != nil {
 		t.Fatal(err)
 	}
 	want := "{\n  \"target\": \"vps\",\n  \"ready\": true,\n  \"findings\": [],\n  \"actions\": [],\n  \"files\": []\n}\n"
@@ -92,7 +92,7 @@ func TestPlanJSONUsesEmptyLists(t *testing.T) {
 func TestPlanJSONCarriesGeneratedFileContents(t *testing.T) {
 	var buf strings.Builder
 	p := &adapter.Plan{Target: "vps", Files: []adapter.File{{Path: "/app/.anyship/vps/compose.yaml", Contents: []byte("services: {}\n")}}}
-	if err := printJSON(&buf, planJSON(p)); err != nil {
+	if err := printJSON(&buf, newPlanOutput(p, shell)); err != nil {
 		t.Fatal(err)
 	}
 	if want := "\"files\": [\n    {\n      \"path\": \"/app/.anyship/vps/compose.yaml\",\n      \"contents\": \"services: {}\\n\"\n    }\n  ]"; !strings.Contains(buf.String(), want) {

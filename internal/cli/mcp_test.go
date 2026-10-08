@@ -631,7 +631,7 @@ func TestMCPResources(t *testing.T) {
 		t.Error("a target without a page shouldn't have a resource")
 	}
 	hint := agentText(adapter.OptionsHint("vps", "`host: deploy@203.0.113.10`"))
-	if !strings.HasSuffix(hint, "Every option: the anyship://targets/vps resource") {
+	if !strings.HasSuffix(hint, "Every option: the anyship://targets/vps resource.") {
 		t.Errorf("hint for an agent = %q", hint)
 	}
 }

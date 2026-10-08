@@ -57,8 +57,7 @@ func DecodeOptions(raw json.RawMessage, into any) error {
 // appear in the file, and where the rest are documented. Adapters share it so
 // their hints read alike.
 func OptionsHint(target, needs string) string {
-	return fmt.Sprintf("Under spec.targets.%s in anyship.yaml, set %s. Every option: https://github.com/j75689/anyship/blob/main/docs/targets/%s.md",
-		target, needs, target)
+	return fmt.Sprintf("Under spec.targets.%s in anyship.yaml, set %s. Every option: `anyship targets %s`.", target, needs, target)
 }
 
 // HasErrors reports whether any finding blocks apply.

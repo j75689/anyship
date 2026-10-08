@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,7 +18,6 @@ import (
 
 	"github.com/j75689/anyship"
 	"github.com/j75689/anyship/adapter"
-	"github.com/j75689/anyship/detect"
 	"github.com/j75689/anyship/diagnose"
 	"github.com/j75689/anyship/spec"
 )
@@ -72,9 +70,9 @@ var (
 // toolFor names the tool behind a command, where the two differ.
 var toolFor = map[string]string{"init": "detect", "diagnose": "diagnose_context"}
 
-// docURL matches the link to a target's page that option hints end with; an
-// agent reads the page as a resource instead.
-var docURL = regexp.MustCompile(`https://github\.com/j75689/anyship/blob/main/docs/targets/([a-z]+)\.md`)
+// targetsPage matches the command that prints a target's page, which option
+// hints end with; an agent reads the page as a resource instead.
+var targetsPage = regexp.MustCompile("`anyship targets ([a-z]+)`")
 
 // Resource URIs. The schema is made by the binary, so it is always the
 // schema of the spec this version reads; the target pages travel with it.
@@ -107,27 +105,10 @@ func agentText(text string) string {
 	text = bareCommand.ReplaceAllStringFunc(text, func(match string) string {
 		return tool(bareCommand.FindStringSubmatch(match)[1])
 	})
-	text = docURL.ReplaceAllStringFunc(text, func(match string) string {
-		return "the " + targetURI(docURL.FindStringSubmatch(match)[1]) + " resource"
+	text = targetsPage.ReplaceAllStringFunc(text, func(match string) string {
+		return "the " + targetURI(targetsPage.FindStringSubmatch(match)[1]) + " resource"
 	})
 	return bareFlags.Replace(text)
-}
-
-func agentLines(lines []string) []string {
-	out := make([]string, len(lines))
-	for i, line := range lines {
-		out[i] = agentText(line)
-	}
-	return out
-}
-
-func agentFindings(findings []adapter.Finding) []adapter.Finding {
-	out := make([]adapter.Finding, len(findings))
-	for i, f := range findings {
-		f.Message, f.Hint = agentText(f.Message), agentText(f.Hint)
-		out[i] = f
-	}
-	return out
 }
 
 // addTool registers a tool whose errors are worded for an agent.
@@ -179,71 +160,8 @@ type planInput struct {
 	Images map[string]string `json:"images,omitempty" jsonschema:"image to deploy per service instead of the one in the spec, for this call only"`
 }
 
-type targetsOutput struct {
-	Targets []targetInfo `json:"targets"`
-}
-
-type targetInfo struct {
-	Name         string   `json:"name"`
-	Description  string   `json:"description"`
-	Capabilities []string `json:"capabilities"`
-	// Docs is the resource with the target's page, when it has one.
-	Docs string `json:"docs,omitempty"`
-}
-
 type detectInput struct {
 	Dir string `json:"dir,omitempty" jsonschema:"project directory; defaults to the server's working directory"`
-}
-
-type detectOutput struct {
-	// Dir is the directory that was inspected, as an absolute path: where
-	// the draft belongs.
-	Dir string `json:"dir"`
-	// Spec is the drafted anyship.yaml, to review and write to the project.
-	Spec     string            `json:"spec"`
-	Valid    bool              `json:"valid"`
-	Problems []string          `json:"problems"`
-	Findings []adapter.Finding `json:"findings"`
-	Evidence []string          `json:"evidence"`
-	// Existing describes the anyship.yaml the directory already has, if
-	// any: the one to validate and plan, rather than replace with the draft.
-	Existing *existingSpec `json:"existing,omitempty"`
-}
-
-// existingSpec is what detect says about an anyship.yaml already in place.
-type existingSpec struct {
-	Path     string   `json:"path"`
-	Valid    bool     `json:"valid"`
-	Problems []string `json:"problems"`
-	Name     string   `json:"name,omitempty"`
-	Services []string `json:"services"`
-	// Targets are the targets the spec configures under spec.targets.
-	Targets []string `json:"targets"`
-}
-
-type validateOutput struct {
-	Valid    bool     `json:"valid"`
-	Problems []string `json:"problems"`
-	Name     string   `json:"name,omitempty"`
-	Services []string `json:"services"`
-	// Targets are the targets the spec configures under spec.targets, the
-	// ones to plan for.
-	Targets []string `json:"targets"`
-}
-
-type planOutput struct {
-	Target   string            `json:"target"`
-	Ready    bool              `json:"ready"`
-	Findings []adapter.Finding `json:"findings"`
-	Actions  []adapter.Action  `json:"actions"`
-	Files    []planFile        `json:"files"`
-}
-
-// planFile is a file the target would generate. plan writes nothing, so the
-// contents come with it: Path holds nothing on disk until a deploy writes it.
-type planFile struct {
-	Path     string `json:"path"`
-	Contents string `json:"contents"`
 }
 
 type logsInput struct {
@@ -253,13 +171,6 @@ type logsInput struct {
 	Tail       int    `json:"tail,omitempty" jsonschema:"recent lines per service; the target's default when 0"`
 	Since      string `json:"since,omitempty" jsonschema:"only logs newer than a duration such as 10m or an RFC 3339 timestamp"`
 	Timestamps bool   `json:"timestamps,omitempty" jsonschema:"prefix each line with its time"`
-}
-
-// statusOutput is the target's status with the verdict the CLI's exit code
-// gives: deployed, every service running as desired and none unhealthy.
-type statusOutput struct {
-	adapter.Status
-	Healthy bool `json:"healthy"`
 }
 
 type logsOutput struct {
@@ -296,18 +207,6 @@ type destroyInput struct {
 	ConfirmProject string `json:"confirm_project,omitempty" jsonschema:"required with volumes: the spec's name, as the user confirmed it"`
 }
 
-type resultOutput struct {
-	OK       bool              `json:"ok"`
-	Summary  []string          `json:"summary,omitempty"`
-	Findings []adapter.Finding `json:"findings"`
-	Messages []string          `json:"messages"`
-	// Output is what the target's tools (ssh, wrangler, ...) printed.
-	Output    string `json:"output"`
-	Truncated bool   `json:"truncated"`
-	// Files are the generated files apply wrote under .anyship/<target>/.
-	Files []string `json:"files,omitempty"`
-}
-
 func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 	instructions := mcpInstructions
 	if dir, err := os.Getwd(); err == nil {
@@ -323,15 +222,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 
 	addTool(server, &mcp.Tool{Name: "targets", Description: "List deploy targets, what each supports, and the resource with each one's page (its options, how it deploys, what it refuses).", Annotations: readOnly},
 		func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, targetsOutput, error) {
-			out := targetsOutput{Targets: []targetInfo{}}
-			for _, ad := range a.registry.List() {
-				info := targetInfo{Name: ad.Name(), Description: ad.Description(), Capabilities: capabilities(ad)}
-				if _, err := targetDoc(ad.Name()); err == nil {
-					info.Docs = targetURI(ad.Name())
-				}
-				out.Targets = append(out.Targets, info)
-			}
-			return nil, out, nil
+			return nil, newTargetsOutput(a.registry, targetURI), nil
 		})
 
 	addTool(server, &mcp.Tool{
@@ -340,41 +231,13 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			"If the directory already has an anyship.yaml, existing says so with its validation and targets: validate and plan that one instead of replacing it.",
 		Annotations: readOnly,
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in detectInput) (*mcp.CallToolResult, detectOutput, error) {
-		dir, err := filepath.Abs(orDefault(in.Dir, "."))
-		if err != nil {
-			return nil, detectOutput{}, err
-		}
-		d, err := detect.Project(dir)
-		if err != nil {
-			return nil, detectOutput{}, err
-		}
-		data, err := spec.Marshal(d.Spec)
-		if err != nil {
-			return nil, detectOutput{}, err
-		}
-		out := detectOutput{Dir: dir, Spec: string(data), Valid: true, Problems: []string{}, Findings: agentFindings(d.Findings), Evidence: agentLines(d.Evidence)}
-		if _, err := spec.Parse(data); err != nil {
-			out.Valid, out.Problems = false, problemsOrError(err)
-		}
-		if raw, err := os.ReadFile(filepath.Join(dir, spec.Filename)); err == nil {
-			ex := &existingSpec{Path: filepath.Join(dir, spec.Filename), Problems: []string{}, Services: []string{}, Targets: []string{}}
-			if s, err := spec.Parse(raw); err != nil {
-				ex.Problems = problemsOrError(forAgent(err))
-			} else {
-				ex.Valid, ex.Name, ex.Services, ex.Targets = true, s.Name, s.ServiceNames(), slices.Sorted(maps.Keys(s.Targets))
-			}
-			out.Existing = ex
-		}
-		return nil, out, nil
+		out, err := newDetectOutput(orDefault(in.Dir, "."), agent)
+		return nil, out, err
 	})
 
 	addTool(server, &mcp.Tool{Name: "validate", Description: "Check anyship.yaml against the schema and cross-references.", Annotations: readOnly},
 		func(_ context.Context, _ *mcp.CallToolRequest, in configInput) (*mcp.CallToolResult, validateOutput, error) {
-			s, err := spec.Load(orDefault(in.Config, spec.Filename))
-			if err != nil {
-				return nil, validateOutput{Problems: problemsOrError(forAgent(err)), Services: []string{}, Targets: []string{}}, nil
-			}
-			return nil, validateOutput{Valid: true, Problems: []string{}, Name: s.Name, Services: s.ServiceNames(), Targets: slices.Sorted(maps.Keys(s.Targets))}, nil
+			return nil, newValidateOutput(orDefault(in.Config, spec.Filename), agent), nil
 		})
 
 	addTool(server, &mcp.Tool{
@@ -394,11 +257,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		if err != nil {
 			return nil, planOutput{}, err
 		}
-		out := planOutput{Target: p.Target, Ready: !adapter.HasErrors(p.Findings), Findings: agentFindings(p.Findings), Actions: nonNil(p.Actions), Files: []planFile{}}
-		for _, f := range p.Files {
-			out.Files = append(out.Files, planFile{Path: f.Path, Contents: string(f.Contents)})
-		}
-		return nil, out, nil
+		return nil, newPlanOutput(p, agent), nil
 	})
 
 	addTool(server, &mcp.Tool{Name: "status", Description: "Show what is running for the spec on a target; healthy says whether everything runs as the spec asks.", Annotations: readsTarget},
@@ -415,10 +274,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			if err != nil {
 				return nil, statusOutput{}, err
 			}
-			if st.Services == nil {
-				st.Services = []adapter.ServiceStatus{}
-			}
-			return nil, statusOutput{Status: *st, Healthy: st.Healthy()}, nil
+			return nil, newStatusOutput(st), nil
 		})
 
 	addTool(server, &mcp.Tool{
@@ -510,13 +366,13 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			return nil, resultOutput{}, err
 		}
 		if adapter.HasErrors(p.Findings) {
-			return nil, resultOutput{Findings: agentFindings(p.Findings), Messages: []string{"The plan has errors; nothing was done. Fix anyship.yaml and plan again."}}, nil
+			return nil, planErrorsOutput(p, agent), nil
 		}
 		result, err := d.adapter.Apply(ctx, p, d.spec, d.env)
 		if err != nil {
 			return nil, resultOutput{}, err
 		}
-		out := toResultOutput(result, nil, output)
+		out := newResultOutput(result, nil, output, agent)
 		for _, f := range p.Files {
 			out.Files = append(out.Files, f.Path)
 		}
@@ -546,7 +402,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			return nil, resultOutput{}, err
 		}
 		if in.DryRun {
-			return nil, resultOutput{OK: true, Summary: agentLines(summary), Findings: []adapter.Finding{}, Messages: []string{"Dry run: nothing was removed."}}, nil
+			return nil, dryRunDestroyOutput(summary, agent), nil
 		}
 		if in.Volumes && in.ConfirmProject != d.spec.Name {
 			return nil, resultOutput{}, fmt.Errorf("deleting data needs confirm_project set to %q, confirmed with the user", d.spec.Name)
@@ -555,7 +411,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		if err != nil {
 			return nil, resultOutput{}, err
 		}
-		return nil, toResultOutput(result, summary, output), nil
+		return nil, newResultOutput(result, summary, output, agent), nil
 	})
 
 	return server
@@ -614,12 +470,6 @@ func (a *app) prepareForMCP(config, target string, dryRun bool) (*deployment, *t
 	return d, output, nil
 }
 
-func toResultOutput(r *adapter.Result, summary []string, output *tailBuffer) resultOutput {
-	out := resultOutput{OK: r.OK, Summary: agentLines(summary), Findings: agentFindings(r.Findings), Messages: agentLines(r.Messages)}
-	out.Output, out.Truncated = output.String()
-	return out
-}
-
 // tailBuffer keeps the last max bytes written to it. It is safe for the
 // concurrent writes of a command's stdout and stderr.
 type tailBuffer struct {
@@ -647,13 +497,6 @@ func (b *tailBuffer) String() (string, bool) {
 	return string(b.buf), b.truncated
 }
 
-func problemsOrError(err error) []string {
-	if problems := problemsOf(err); len(problems) > 0 {
-		return problems
-	}
-	return []string{err.Error()}
-}
-
 func orDefault(value, fallback string) string {
 	if value == "" {
 		return fallback
@@ -662,14 +505,6 @@ func orDefault(value, fallback string) string {
 		return filepath.Clean(value)
 	}
 	return value
-}
-
-// nonNil keeps empty lists as [] in JSON output.
-func nonNil[T any](s []T) []T {
-	if s == nil {
-		return []T{}
-	}
-	return s
 }
 
 func ptr[T any](v T) *T { return &v }
