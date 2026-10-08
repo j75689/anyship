@@ -19,7 +19,7 @@ anyship is a single Go binary. It drives the tools you already use (`wrangler`, 
 [![License](https://img.shields.io/github/license/j75689/anyship)](LICENSE)
 [![M8ven Score](https://m8ven.ai/badge/mcp/j75689/anyship)](https://m8ven.ai/mcp/j75689/anyship?s=readme)
 
-> **Status: early (v0.5).** The spec, rule-based detection, the CLI, the MCP server and five targets
+> **Status: early (v0.6).** The spec, rule-based detection, the CLI, the MCP server and five targets
 > are implemented: Cloudflare Workers, VPS (Docker over SSH), Google Cloud Run, Amazon ECS Express
 > Mode and Kubernetes. The [Targets](#targets) table says which of them have been run against the
 > real platform. What comes next is on the [roadmap](#roadmap).
@@ -102,7 +102,7 @@ curl -fsSL https://raw.githubusercontent.com/j75689/anyship/main/install.sh | sh
 
 The script picks the archive for your OS and CPU from the
 [latest release](https://github.com/j75689/anyship/releases/latest), checks it against the release's
-`checksums.txt`, and installs to `/usr/local/bin` (or `~/.local/bin`). Set `ANYSHIP_VERSION=v0.5.0` to
+`checksums.txt`, and installs to `/usr/local/bin` (or `~/.local/bin`). Set `ANYSHIP_VERSION=v0.6.0` to
 pin a version or `ANYSHIP_INSTALL_DIR` to choose the directory. You can also download an archive from
 the releases page, or build from source with Go 1.27+:
 `go install github.com/j75689/anyship/cmd/anyship@latest`.

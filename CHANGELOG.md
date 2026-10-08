@@ -5,7 +5,18 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-10-08
+
+### Changed
+
+- **Breaking:** `anyship diagnose` no longer calls Claude. It prints the redacted deployment context
+  (the spec, plan findings, the target's dry-run checks, status, recent logs and generated files) for
+  the agent of your choice to diagnose, the same text the MCP tool `diagnose_context` returns, and
+  `--json` wraps it as `{"context": ...}`. The `--show-context`, `--yes`, `--model` and `--effort`
+  flags, the proposed-change flow and the need for `ANTHROPIC_API_KEY` are gone, and anyship no
+  longer depends on the Anthropic SDK (#119, #120).
+- Option hints end with `anyship targets <name>` instead of a GitHub URL; over MCP they still name
+  the `anyship://targets/<name>` resource (#122).
 
 ### Added
 
@@ -19,29 +30,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Every MCP tool now states all four behaviour hints (`readOnlyHint`, `destructiveHint`,
+- `anyship diagnose` ran the target's checks in the project, so a run left the generated files
+  under `.anyship/<target>/`. The checks now run in a temporary directory that is removed
+  afterwards, as the MCP tool `diagnose_context` already did, and the two share the code (#125).
+- Every MCP tool states all four behaviour hints (`readOnlyHint`, `destructiveHint`,
   `idempotentHint`, `openWorldHint`). The read-only tools left `destructiveHint` unset, which a host
-  reads as the protocol's default, destructive; the tools that ask the platform (`status`, `logs`,
-  `diagnose_context`) and the deploying ones left `openWorldHint` unset; and tool directories reject
-  a tool with a hint missing.
-- `anyship diagnose` ran the target's checks in the project, so a dry run left the generated files
-  under `.anyship/<target>/` although the README says it writes nothing. The checks now run in a
-  temporary directory that is removed afterwards, as the MCP tool `diagnose_context` already did, and
-  the two share the code.
-
-### Changed
-
-- Option hints end with `anyship targets <name>` instead of a GitHub URL; over MCP they still name
-  the `anyship://targets/<name>` resource (#122).
+  reads as the protocol's default, destructive; the tools that ask the platform and the deploying
+  ones left `openWorldHint` unset; and tool directories reject a tool with a hint missing (#124).
 - `validate` and `detect` over MCP returned `"targets": null` for a spec without a `targets` block;
   it is `[]` now (#122).
-
-- **Breaking:** `anyship diagnose` no longer calls Claude. It prints the redacted deployment context
-  (the spec, plan findings, the target's dry-run checks, status, recent logs and generated files) for
-  the agent of your choice to diagnose, the same text the MCP tool `diagnose_context` returns, and
-  `--json` wraps it as `{"context": ...}`. The `--show-context`, `--yes`, `--model` and `--effort`
-  flags, the proposed-change flow and the need for `ANTHROPIC_API_KEY` are gone, and anyship no
-  longer depends on the Anthropic SDK (#119).
 
 ## [0.5.0] - 2026-10-08
 
@@ -289,7 +286,7 @@ The first tagged release. It covers everything built up to that point.
   deploy it.
 - Release binaries built with GoReleaser, and `install.sh`, which verifies checksums.
 
-[Unreleased]: https://github.com/j75689/anyship/compare/v0.5.0...HEAD
+[0.6.0]: https://github.com/j75689/anyship/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/j75689/anyship/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/j75689/anyship/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/j75689/anyship/compare/v0.3.1...v0.4.0
