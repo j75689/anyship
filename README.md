@@ -24,6 +24,8 @@ anyship is a single Go binary. It drives the tools you already use (`wrangler`, 
 > Mode and Kubernetes. The [Targets](#targets) table says which of them have been run against the
 > real platform. What comes next is on the [roadmap](#roadmap).
 
+![anyship init drafts the spec, plan shows what a deploy needs, apply builds and rolls out to a kubernetes cluster, status reports it, destroy removes it](docs/assets/demo.gif)
+
 ```console
 $ anyship init
 Detected:
