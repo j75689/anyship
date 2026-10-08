@@ -38,7 +38,7 @@ func (a *app) statusCommand() *cobra.Command {
 				return err
 			}
 			if asJSON {
-				if err := printJSON(a.out, st); err != nil {
+				if err := printJSON(a.out, newStatusOutput(st)); err != nil {
 					return err
 				}
 			} else {
@@ -58,12 +58,14 @@ func (a *app) statusCommand() *cobra.Command {
 
 func (a *app) destroyCommand() *cobra.Command {
 	var config, target string
-	var volumes, yes, dryRun bool
+	var volumes, yes, dryRun, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "destroy",
 		Short: "Remove this spec's deployment from a target",
-		Long:  "Remove this spec's deployment from a target.\n\nPersistent data (volumes, secrets, bound databases) is kept unless --volumes is given.",
-		Args:  cobra.NoArgs,
+		Long: "Remove this spec's deployment from a target.\n\n" +
+			"Persistent data (volumes, secrets, bound databases) is kept unless --volumes is given.\n" +
+			"With --json the outcome is printed as JSON; progress and the platform's tools' output go to stderr.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d, err := a.prepare(config, target, false)
 			if err != nil {
@@ -73,18 +75,27 @@ func (a *app) destroyCommand() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("the %s target can't destroy deployments yet", d.adapter.Name())
 			}
+			var output *tailBuffer
+			if asJSON {
+				output = a.keepStdoutForJSON(d)
+			}
 			opts := adapter.DestroyOptions{Volumes: volumes}
 			summary, err := destroyer.DestroySummary(d.spec, opts)
 			if err != nil {
 				return err
 			}
 
-			fmt.Fprintln(a.out, a.style.bold(fmt.Sprintf("Destroy %s on %s:", d.spec.Name, d.adapter.Name())))
-			for _, line := range summary {
-				if strings.HasPrefix(line, "DELETE") {
-					line = a.style.red(line)
+			if asJSON && dryRun {
+				return printJSON(a.out, dryRunDestroyOutput(summary, shell))
+			}
+			if !asJSON {
+				fmt.Fprintln(a.out, a.style.bold(fmt.Sprintf("Destroy %s on %s:", d.spec.Name, d.adapter.Name())))
+				for _, line := range summary {
+					if strings.HasPrefix(line, "DELETE") {
+						line = a.style.red(line)
+					}
+					fmt.Fprintf(a.out, "  • %s\n", line)
 				}
-				fmt.Fprintf(a.out, "  • %s\n", line)
 			}
 			if dryRun {
 				// Show what actually exists, when the target can say.
@@ -101,16 +112,17 @@ func (a *app) destroyCommand() *cobra.Command {
 			}
 			if !yes {
 				var confirmed bool
+				w := a.promptWriter(asJSON)
 				if volumes {
-					confirmed, err = confirmTyped(a.out, fmt.Sprintf("\nThis deletes data that can't be recovered. Type %q to confirm:", d.spec.Name), d.spec.Name)
+					confirmed, err = confirmTyped(w, fmt.Sprintf("\nThis deletes data that can't be recovered. Type %q to confirm:", d.spec.Name), d.spec.Name)
 				} else {
-					confirmed, err = confirm(a.out, "\nDestroy?")
+					confirmed, err = confirm(w, "\nDestroy?")
 				}
 				if err != nil {
 					return err
 				}
 				if !confirmed {
-					fmt.Fprintln(a.out, "Aborted.")
+					fmt.Fprintln(w, "Aborted.")
 					return nil
 				}
 			}
@@ -119,7 +131,13 @@ func (a *app) destroyCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printResult(a.out, a.style, result)
+			if asJSON {
+				if err := printJSON(a.out, newResultOutput(result, summary, output, shell)); err != nil {
+					return err
+				}
+			} else {
+				printResult(a.out, a.style, result)
+			}
 			if !result.OK {
 				return errReported
 			}
@@ -131,6 +149,7 @@ func (a *app) destroyCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&volumes, "volumes", false, "also delete volumes, secrets and deployment files")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation prompt")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be removed and what is running now, without removing anything")
+	addJSONFlag(cmd, &asJSON)
 	return cmd
 }
 

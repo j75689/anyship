@@ -35,7 +35,7 @@ helps you operate it.
 | `adapters/vps` | compose rendering, preflight, upload, status, logs, destroy | `ssh` to a Linux host |
 | `adapters/gcp` | Cloud Run services, Secret Manager, Artifact Registry | `gcloud`, `docker` |
 | `adapters/aws` | ECS Express Mode services, Secrets Manager, ECR | `aws`, `docker` |
-| `internal/cli` | the commands and the MCP server | everything above |
+| `internal/cli` | the commands and the MCP server; both build the same JSON outputs (`outputs.go`) | everything above |
 
 ## Targets
 

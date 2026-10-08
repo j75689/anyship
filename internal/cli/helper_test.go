@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/j75689/anyship/adapter"
+	"github.com/j75689/anyship/adapters/cloudflare"
+	"github.com/j75689/anyship/adapters/vps"
 )
 
 // The tests need a few tiny programs to run as real child processes: one that
@@ -50,4 +54,22 @@ func helperMain(program string, args []string) int {
 // named helper program.
 func helper(program string, args ...string) (adapter.ExecOptions, string, []string) {
 	return adapter.ExecOptions{Env: []string{helperEnv + "=" + program}}, os.Args[0], args
+}
+
+// runCLI runs the command line against the cloudflare and vps targets and a
+// fake one, and returns what it printed to stdout.
+func runCLI(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	registry, err := adapter.NewRegistry(cloudflare.New(), vps.New(), &fakeAdapter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	a := &app{registry: registry, out: &out, style: styler{}}
+	root := a.rootCommand("test")
+	root.SetArgs(args)
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	err = root.ExecuteContext(context.Background())
+	return out.String(), err
 }

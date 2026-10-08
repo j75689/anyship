@@ -245,8 +245,15 @@ $ anyship destroy -t vps --dry-run   # show what would go and what runs now; rem
 health check in scripts. It isn't available on `cloudflare` yet. `destroy` on `cloudflare` deletes the
 Worker with `wrangler delete` and never touches bound D1, KV, R2 or Hyperdrive resources.
 
-`plan`, `status` and `targets` take `--json` for scripts and agents; progress messages go to stderr.
-`plan --json` includes the contents of the files a deploy would generate, since `plan` writes none.
+`init`, `validate`, `plan`, `apply`, `status`, `destroy`, `diagnose` and `targets` take `--json` for
+scripts and agents, and stdout then carries the JSON alone: progress, prompts and the output of the
+platform's tools go to stderr. `init --json` returns the draft with its evidence and findings, and says
+under `existing` when the directory already has an `anyship.yaml`; it writes nothing, and `init
+--stdout` prints the draft alone. `validate --json` lists the problems. `plan --json` includes the
+contents of the files a deploy would generate, since `plan` writes none. `status --json` adds `healthy`,
+the verdict the exit code gives. `apply --json` and `destroy --json` return the outcome with the tail
+of what the tools printed. `targets --json` says how to read each target's page, and
+`anyship targets <name>` prints it.
 
 `plan` and `apply` take `--image <service>=<image>` to deploy a different image than the spec names,
 for that run only. A pipeline passes the digest it just built, and `anyship.yaml` stays as it is:
@@ -333,6 +340,13 @@ Safety is built into the server, not left to the agent: without `--allow-deploy`
 possible, and deleting data needs `confirm_project` set to the spec's name. Tools carry read-only and
 destructive hints so hosts can ask you before risky calls. Output from ssh, wrangler and builds is
 returned in the tool result; nothing else touches the protocol's stdin and stdout.
+
+An agent with a shell needs none of this. The same commands take `--json` (see
+[Status and destroy](#status-and-destroy)), `anyship targets <name>` prints a target's page and
+`anyship schema` the spec's schema. The commands and the tools build the same output types, so the JSON
+is the same whichever way the agent reaches anyship; only the hints differ, naming commands for a shell
+and tools for MCP. The guard is then the host's own permission prompt for `apply --yes` and
+`destroy --yes`.
 
 ## Examples
 

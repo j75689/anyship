@@ -102,28 +102,6 @@ func printJSON(w io.Writer, v any) error {
 	return enc.Encode(v)
 }
 
-// planJSON is the --json form of a plan: empty lists stay lists, and
-// generated files come with their contents, since plan writes none of them.
-func planJSON(p *adapter.Plan) any {
-	out := struct {
-		Target   string            `json:"target"`
-		Ready    bool              `json:"ready"`
-		Findings []adapter.Finding `json:"findings"`
-		Actions  []adapter.Action  `json:"actions"`
-		Files    []planFile        `json:"files"`
-	}{
-		Target:   p.Target,
-		Ready:    !adapter.HasErrors(p.Findings),
-		Findings: append([]adapter.Finding{}, p.Findings...),
-		Actions:  append([]adapter.Action{}, p.Actions...),
-		Files:    []planFile{},
-	}
-	for _, f := range p.Files {
-		out.Files = append(out.Files, planFile{Path: f.Path, Contents: string(f.Contents)})
-	}
-	return out
-}
-
 func printStatus(w io.Writer, s styler, project string, st *adapter.Status) {
 	fmt.Fprintln(w, s.bold(fmt.Sprintf("%s on %s (%s)", project, st.Target, st.Location)))
 	if !st.Deployed {

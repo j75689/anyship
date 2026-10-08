@@ -1,33 +1,10 @@
 package cli
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
-	"io"
 	"strings"
 	"testing"
-
-	"github.com/j75689/anyship/adapter"
-	"github.com/j75689/anyship/adapters/cloudflare"
-	"github.com/j75689/anyship/adapters/vps"
 )
-
-func runCLI(t *testing.T, args ...string) (string, error) {
-	t.Helper()
-	registry, err := adapter.NewRegistry(cloudflare.New(), vps.New(), &fakeAdapter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out bytes.Buffer
-	a := &app{registry: registry, out: &out, style: styler{}}
-	root := a.rootCommand("test")
-	root.SetArgs(args)
-	root.SetOut(io.Discard)
-	root.SetErr(io.Discard)
-	err = root.ExecuteContext(context.Background())
-	return out.String(), err
-}
 
 func TestDiagnosePrintsTheRedactedContext(t *testing.T) {
 	out, err := runCLI(t, "diagnose", "-t", "fake", "-c", fakeSpec(t), "--note", "502 from the proxy")
