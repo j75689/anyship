@@ -160,23 +160,38 @@ func TestMCPListsToolsWithSafetyHints(t *testing.T) {
 	for _, tool := range res.Tools {
 		tools[tool.Name] = tool
 	}
-	for _, name := range []string{"targets", "detect", "validate", "plan", "status", "logs", "diagnose_context"} {
-		if tools[name] == nil || tools[name].Annotations == nil || !tools[name].Annotations.ReadOnlyHint {
-			t.Errorf("%s should be listed as read-only", name)
+	// Every tool states all four hints: a host reads an absent one as the
+	// protocol's default (destructive, open world), and tool directories
+	// reject a tool with a hint missing.
+	type hints struct{ readOnly, destructive, idempotent, openWorld bool }
+	want := map[string]hints{
+		"targets":          {readOnly: true, idempotent: true},
+		"detect":           {readOnly: true, idempotent: true},
+		"validate":         {readOnly: true, idempotent: true},
+		"plan":             {readOnly: true, idempotent: true},
+		"status":           {readOnly: true, idempotent: true, openWorld: true},
+		"logs":             {readOnly: true, idempotent: true, openWorld: true},
+		"diagnose_context": {readOnly: true, idempotent: true, openWorld: true},
+		"apply":            {destructive: true, openWorld: true},
+		"destroy":          {destructive: true, idempotent: true, openWorld: true},
+	}
+	if len(tools) != len(want) {
+		t.Errorf("%d tools listed, %d expected", len(tools), len(want))
+	}
+	for name, w := range want {
+		tool := tools[name]
+		if tool == nil || tool.Annotations == nil {
+			t.Errorf("%s has no annotations", name)
 			continue
 		}
-		// Reading twice is the same as reading once, and the hint is sent
-		// either way: unset, it tells the host the opposite.
-		if !tools[name].Annotations.IdempotentHint {
-			t.Errorf("%s is read-only, so it should be listed as idempotent", name)
+		a := tool.Annotations
+		if a.DestructiveHint == nil || a.OpenWorldHint == nil {
+			t.Errorf("%s leaves a hint unset: destructive=%v openWorld=%v", name, a.DestructiveHint, a.OpenWorldHint)
+			continue
 		}
-	}
-	if tools["apply"].Annotations.IdempotentHint {
-		t.Error("apply deploys again each time; it is not idempotent")
-	}
-	for _, name := range []string{"apply", "destroy"} {
-		if tools[name] == nil || tools[name].Annotations.ReadOnlyHint || tools[name].Annotations.DestructiveHint == nil || !*tools[name].Annotations.DestructiveHint {
-			t.Errorf("%s should be listed as destructive", name)
+		got := hints{readOnly: a.ReadOnlyHint, destructive: *a.DestructiveHint, idempotent: a.IdempotentHint, openWorld: *a.OpenWorldHint}
+		if got != w {
+			t.Errorf("%s hints = %+v, want %+v", name, got, w)
 		}
 	}
 }

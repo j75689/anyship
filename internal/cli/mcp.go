@@ -215,8 +215,14 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "anyship", Version: version}, &mcp.ServerOptions{Instructions: instructions})
 	// Reading twice changes nothing more than reading once. The SDK sends
 	// idempotentHint either way, so leaving it unset would claim the opposite.
-	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: ptr(false)}
-	readsTarget := &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}
+	// Every tool states all four hints. A host reads an absent hint as the
+	// protocol's default, which is the wrong one here (destructive, open
+	// world), and some tool directories reject a tool with a hint missing.
+	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: ptr(false), IdempotentHint: true, OpenWorldHint: ptr(false)}
+	// readsTarget tools ask the platform, so they reach outside the host.
+	readsTarget := &mcp.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: ptr(false), IdempotentHint: true, OpenWorldHint: ptr(true)}
+	deploys := &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: ptr(true), IdempotentHint: false, OpenWorldHint: ptr(true)}
+	removes := &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: ptr(true), IdempotentHint: true, OpenWorldHint: ptr(true)}
 
 	addResources(server, a.registry)
 
@@ -349,7 +355,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		Name: "apply",
 		Description: "Deploy the spec to a target. With dry_run, only run the target's checks and write the generated files under .anyship/. " +
 			"Real deploys need the server to run with --allow-deploy; ask the user before deploying.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(true)},
+		Annotations: deploys,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in applyInput) (*mcp.CallToolResult, resultOutput, error) {
 		if !in.DryRun && !allowDeploy {
 			return nil, resultOutput{}, errors.New("this anyship MCP server only allows dry runs; restart it with `anyship mcp --allow-deploy` to deploy")
@@ -383,7 +389,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		Name: "destroy",
 		Description: "Remove the spec's deployment from a target, keeping persistent data unless volumes is set. " +
 			"Real removals need the server to run with --allow-deploy; always ask the user first.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: ptr(true), IdempotentHint: true},
+		Annotations: removes,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in destroyInput) (*mcp.CallToolResult, resultOutput, error) {
 		if !in.DryRun && !allowDeploy {
 			return nil, resultOutput{}, errors.New("this anyship MCP server only allows dry runs; restart it with `anyship mcp --allow-deploy` to destroy")

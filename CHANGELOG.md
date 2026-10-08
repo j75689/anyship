@@ -17,6 +17,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `anyship targets <name>` prints a target's page from the binary, and `targets --json` says so
   under `docs` (#122).
 
+### Fixed
+
+- Every MCP tool now states all four behaviour hints (`readOnlyHint`, `destructiveHint`,
+  `idempotentHint`, `openWorldHint`). The read-only tools left `destructiveHint` unset, which a host
+  reads as the protocol's default, destructive; the tools that ask the platform (`status`, `logs`,
+  `diagnose_context`) and the deploying ones left `openWorldHint` unset; and tool directories reject
+  a tool with a hint missing.
+
 ### Changed
 
 - Option hints end with `anyship targets <name>` instead of a GitHub URL; over MCP they still name
