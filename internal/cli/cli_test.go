@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/j75689/anyship/adapter"
 )
@@ -28,18 +29,20 @@ func TestValidSince(t *testing.T) {
 }
 
 func TestPrintStatus(t *testing.T) {
+	two := 2
 	st := &adapter.Status{Target: "vps", Location: "h:anyship/app", Deployed: true, Services: []adapter.ServiceStatus{
-		{Name: "api", State: "running", Health: "healthy", Running: 2, Desired: 2, Ports: []string{"8080/tcp"}, Detail: "Up 1 hour"},
-		{Name: "worker", State: "exited", Running: 0, Desired: 1},
+		{Name: "api", State: "running", Health: "healthy", Running: 2, Desired: 2, Ports: []string{"8080/tcp"}, Detail: "Up 1 hour", URL: "h:8080", Since: time.Now().Add(-90 * time.Minute).UTC().Format(time.RFC3339), Restarts: &two},
+		{Name: "worker", State: "exited", Running: 0, Desired: 1, Events: []string{"BackOff: Back-off restarting failed container (x3)"}},
 	}}
 	var buf strings.Builder
 	printStatus(&buf, styler{}, "app", st)
 	got := buf.String()
 	for _, want := range []string{
 		"app on vps (h:anyship/app)\n",
-		"  SERVICE  STATE    HEALTH   RUNNING  PORTS     DETAIL\n",
-		"  api      running  healthy  2/2      8080/tcp  Up 1 hour\n",
-		"  worker   exited   -        0/1      -         -\n",
+		"  SERVICE  STATE    HEALTH   RUNNING  RESTARTS  SINCE   PORTS     URL     DETAIL\n",
+		"  api      running  healthy  2/2      2         1h ago  8080/tcp  h:8080  Up 1 hour\n",
+		"  worker   exited   -        0/1      -         -       -         -       -\n",
+		"  ! worker: BackOff: Back-off restarting failed container (x3)\n",
 		"Some services aren't running",
 	} {
 		if !strings.Contains(got, want) {
@@ -97,5 +100,22 @@ func TestPlanJSONCarriesGeneratedFileContents(t *testing.T) {
 	}
 	if want := "\"files\": [\n    {\n      \"path\": \"/app/.anyship/vps/compose.yaml\",\n      \"contents\": \"services: {}\\n\"\n    }\n  ]"; !strings.Contains(buf.String(), want) {
 		t.Errorf("got:\n%s\nwant it to contain:\n%s", buf.String(), want)
+	}
+}
+
+func TestAgo(t *testing.T) {
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	for stamp, want := range map[string]string{
+		"":                       "",
+		"2026-10-08T11:59:30Z":   "just now",
+		"2026-10-08T11:15:00Z":   "45m ago",
+		"2026-10-08T03:00:00Z":   "9h ago",
+		"2026-10-01T12:00:00Z":   "7d ago",
+		"2026-10-08T11:00:00.5Z": "59m ago",
+		"not a time":             "not a time",
+	} {
+		if got := ago(stamp, now); got != want {
+			t.Errorf("ago(%q) = %q, want %q", stamp, got, want)
+		}
 	}
 }

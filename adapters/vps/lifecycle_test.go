@@ -43,8 +43,11 @@ func scriptedEnv(t *testing.T, sc *scripted) *adapter.Env {
 	return env
 }
 
-const psOutput = `{"Name":"eth-mainnet-reth-1","Service":"reth","State":"running","Health":"healthy","Status":"Up 2 hours (healthy)","Publishers":[{"URL":"0.0.0.0","TargetPort":30303,"PublishedPort":30303,"Protocol":"tcp"},{"URL":"::","TargetPort":30303,"PublishedPort":30303,"Protocol":"tcp"},{"URL":"0.0.0.0","TargetPort":30303,"PublishedPort":30303,"Protocol":"udp"},{"URL":"","TargetPort":8545,"PublishedPort":0,"Protocol":"tcp"}]}
-{"Name":"eth-mainnet-lighthouse-1","Service":"lighthouse","State":"exited","Health":"","Status":"Exited (1) 3 minutes ago","Publishers":[]}
+const psOutput = `{"Name":"eth-mainnet-reth-1","Service":"reth","State":"running","Health":"healthy","Status":"Up 2 hours (healthy)","Image":"ghcr.io/paradigmxyz/reth:v1.0.0","Created":1791417600,"Publishers":[{"URL":"0.0.0.0","TargetPort":30303,"PublishedPort":30303,"Protocol":"tcp"},{"URL":"::","TargetPort":30303,"PublishedPort":30303,"Protocol":"tcp"},{"URL":"0.0.0.0","TargetPort":30303,"PublishedPort":30303,"Protocol":"udp"},{"URL":"","TargetPort":8545,"PublishedPort":0,"Protocol":"tcp"}]}
+{"Name":"eth-mainnet-lighthouse-1","Service":"lighthouse","State":"exited","Health":"","Status":"Exited (1) 3 minutes ago","Image":"sigp/lighthouse:v5","Created":1791421200,"Publishers":[]}
+---anyship-inspect---
+reth 0
+lighthouse 4
 `
 
 func TestStatusMergesContainersPerService(t *testing.T) {
@@ -56,19 +59,28 @@ func TestStatusMergesContainersPerService(t *testing.T) {
 	if !st.Deployed || st.Location != "deploy@203.0.113.10:anyship/eth-mainnet" {
 		t.Errorf("status = %+v", st)
 	}
+	none, four := 0, 4
 	want := []adapter.ServiceStatus{
-		{Name: "lighthouse", State: "exited", Running: 0, Desired: 1, Detail: "Exited (1) 3 minutes ago"},
-		{Name: "reth", State: "running", Health: "healthy", Running: 1, Desired: 1, Ports: []string{"30303/tcp", "30303/udp"}, Detail: "Up 2 hours (healthy)"},
+		{Name: "lighthouse", State: "exited", Running: 0, Desired: 1, Detail: "Exited (1) 3 minutes ago", Since: "2026-10-08T01:00:00Z", Restarts: &four, Image: "sigp/lighthouse:v5"},
+		{Name: "reth", State: "running", Health: "healthy", Running: 1, Desired: 1, Ports: []string{"30303/tcp", "30303/udp"}, Detail: "Up 2 hours (healthy)", URL: "203.0.113.10:30303", Since: "2026-10-08T00:00:00Z", Restarts: &none, Image: "ghcr.io/paradigmxyz/reth:v1.0.0"},
 	}
-	if fmt.Sprint(st.Services) != fmt.Sprint(want) {
-		t.Errorf("services =\n %+v\nwant\n %+v", st.Services, want)
+	for i := range want {
+		got := st.Services[i]
+		if got.Restarts == nil || want[i].Restarts == nil || *got.Restarts != *want[i].Restarts {
+			t.Errorf("%s restarts = %v, want %v", got.Name, got.Restarts, want[i].Restarts)
+		}
+		got.Restarts, want[i].Restarts = nil, nil
+		if fmt.Sprint(got) != fmt.Sprint(want[i]) {
+			t.Errorf("%s =\n %+v\nwant\n %+v", got.Name, got, want[i])
+		}
 	}
 	if st.Healthy() {
 		t.Error("a deployment with an exited service is not healthy")
 	}
 	remote := sc.calls[0].remote()
 	if !strings.HasPrefix(remote, "cd anyship/eth-mainnet 2>/dev/null && [ -f compose.yaml ] || exit 3; ") ||
-		!strings.HasSuffix(remote, "docker compose -p eth-mainnet -f compose.yaml ps --all --format json") {
+		!strings.Contains(remote, "docker compose -p eth-mainnet -f compose.yaml ps --all --format json; echo ---anyship-inspect---;") ||
+		!strings.Contains(remote, `docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}} {{.RestartCount}}' $ids`) {
 		t.Errorf("remote = %q", remote)
 	}
 }

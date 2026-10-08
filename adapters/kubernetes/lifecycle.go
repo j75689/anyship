@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,17 +22,37 @@ type deployment struct {
 	} `json:"metadata"`
 	Spec struct {
 		Replicas int `json:"replicas"`
+		Template struct {
+			Metadata struct {
+				Annotations map[string]string `json:"annotations"`
+			} `json:"metadata"`
+		} `json:"template"`
 	} `json:"spec"`
 	Status struct {
 		Available  int `json:"availableReplicas"`
 		Updated    int `json:"updatedReplicas"`
 		Conditions []struct {
-			Type    string `json:"type"`
-			Status  string `json:"status"`
-			Reason  string `json:"reason"`
-			Message string `json:"message"`
+			Type           string `json:"type"`
+			Status         string `json:"status"`
+			Reason         string `json:"reason"`
+			Message        string `json:"message"`
+			LastUpdateTime string `json:"lastUpdateTime"`
 		} `json:"conditions"`
 	} `json:"status"`
+}
+
+// since is when the Deployment's pods last changed: the time apply stamped
+// on the pod template, or else when the rollout last progressed.
+func (d deployment) since() string {
+	if t := d.Spec.Template.Metadata.Annotations[rolloutAnnotation]; t != "" {
+		return t
+	}
+	for _, c := range d.Status.Conditions {
+		if c.Type == "Progressing" && c.LastUpdateTime != "" {
+			return c.LastUpdateTime
+		}
+	}
+	return ""
 }
 
 // pod is what status reads from `kubectl get pods -o json`: the state of a
@@ -39,12 +60,16 @@ type deployment struct {
 // CrashLoopBackOff) long before the Deployment gives up.
 type pod struct {
 	Metadata struct {
+		Name   string            `json:"name"`
 		Labels map[string]string `json:"labels"`
 	} `json:"metadata"`
 	Status struct {
 		Containers []struct {
-			Ready bool `json:"ready"`
-			State struct {
+			Ready        bool   `json:"ready"`
+			RestartCount int    `json:"restartCount"`
+			Image        string `json:"image"`
+			ImageID      string `json:"imageID"`
+			State        struct {
 				Waiting *struct {
 					Reason  string `json:"reason"`
 					Message string `json:"message"`
@@ -88,6 +113,121 @@ func (so serviceObject) address() string {
 	return ""
 }
 
+// ingressObject is what status reads from `kubectl get ingresses -o json`:
+// the address the ingress controller gave an Ingress, and its hosts.
+type ingressObject struct {
+	Metadata struct {
+		Name string `json:"name"`
+	} `json:"metadata"`
+	Spec struct {
+		Rules []struct {
+			Host string `json:"host"`
+		} `json:"rules"`
+	} `json:"spec"`
+	Status struct {
+		LoadBalancer struct {
+			Ingress []struct {
+				IP       string `json:"ip"`
+				Hostname string `json:"hostname"`
+			} `json:"ingress"`
+		} `json:"loadBalancer"`
+	} `json:"status"`
+}
+
+// url is where the Ingress answers: its first host, or else its address;
+// "pending" until the controller assigns one.
+func (in ingressObject) url() string {
+	addr := ""
+	for _, lb := range in.Status.LoadBalancer.Ingress {
+		if lb.IP != "" {
+			addr = lb.IP
+		} else if lb.Hostname != "" {
+			addr = lb.Hostname
+		}
+		if addr != "" {
+			break
+		}
+	}
+	for _, r := range in.Spec.Rules {
+		if r.Host != "" {
+			if addr == "" {
+				return "pending"
+			}
+			return "http://" + r.Host
+		}
+	}
+	if addr == "" {
+		return "pending"
+	}
+	return "http://" + addr
+}
+
+// event is what status reads from `kubectl get events -o json`: a warning
+// about one object.
+type event struct {
+	InvolvedObject struct {
+		Kind string `json:"kind"`
+		Name string `json:"name"`
+	} `json:"involvedObject"`
+	Reason        string `json:"reason"`
+	Message       string `json:"message"`
+	LastTimestamp string `json:"lastTimestamp"`
+	Count         int    `json:"count"`
+}
+
+// maxEvents bounds the warnings status reports per service.
+const maxEvents = 5
+
+// warningEvents lists the namespace's warning events; none when the cluster
+// refuses or the output is not what kubectl prints.
+func warningEvents(ctx context.Context, k kubectl) []event {
+	out, err := k.probe(ctx, "get", "events", "--field-selector", "type=Warning", "-o", "json")
+	if err != nil {
+		return nil
+	}
+	var l struct {
+		Items []event `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out), &l); err != nil {
+		return nil
+	}
+	return l.Items
+}
+
+// warningsAbout picks the latest warnings about a service's objects: its
+// pods, and the Deployment itself.
+func warningsAbout(events []event, pods map[string]bool, object string) []string {
+	var about []event
+	for _, e := range events {
+		if pods[e.InvolvedObject.Name] || e.InvolvedObject.Name == object {
+			about = append(about, e)
+		}
+	}
+	slices.SortStableFunc(about, func(a, b event) int { return strings.Compare(b.LastTimestamp, a.LastTimestamp) })
+	var out []string
+	for _, e := range about[:min(len(about), maxEvents)] {
+		line := e.Reason + ": " + strings.TrimSpace(e.Message)
+		if e.Count > 1 {
+			line += fmt.Sprintf(" (x%d)", e.Count)
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// imageOf is the image a pod runs, by digest when the kubelet reports one.
+func imageOf(p pod) string {
+	for _, c := range p.Status.Containers {
+		if id := strings.TrimPrefix(c.ImageID, "docker-pullable://"); id != "" {
+			return id
+		}
+		if c.Image != "" {
+			return c.Image
+		}
+	}
+	return ""
+}
+
 func getJSON[T any](ctx context.Context, k kubectl, kind, selector string) ([]T, error) {
 	args := []string{"get", kind, "-o", "json"}
 	if selector != "" {
@@ -125,6 +265,13 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 	if err != nil {
 		return nil, err
 	}
+	ingresses, err := getJSON[ingressObject](ctx, k, "ingresses", selector)
+	if err != nil {
+		return nil, err
+	}
+	// Events carry no labels; they are matched to the pods below. A cluster
+	// that refuses to list them costs the warnings, not the status.
+	events := warningEvents(ctx, k)
 	found := map[string]deployment{}
 	for _, d := range deployments {
 		found[d.Metadata.Name] = d
@@ -134,6 +281,10 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 		if so.Spec.Type == "LoadBalancer" {
 			balancers[so.Metadata.Name] = so
 		}
+	}
+	ingressed := map[string]ingressObject{}
+	for _, in := range ingresses {
+		ingressed[in.Metadata.Name] = in
 	}
 
 	cluster := o.Context
@@ -151,12 +302,18 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 		}
 		ss.Desired, ss.Running = d.Spec.Replicas, d.Status.Available
 		ss.Detail = fmt.Sprintf("%d/%d available", d.Status.Available, d.Spec.Replicas)
+		ss.Since = d.since()
 		if so, ok := balancers[objectName(s.Name, name)]; ok {
+			ss.URL = "pending"
 			if addr := so.address(); addr != "" {
-				ss.Detail += ", load balancer " + addr
-			} else {
-				ss.Detail += ", load balancer address pending"
+				ss.URL = addr
+				if len(svc.Ports) > 0 {
+					ss.URL += ":" + strconv.Itoa(svc.Ports[0].Port)
+				}
 			}
+		}
+		if in, ok := ingressed[objectName(s.Name, name)]; ok {
+			ss.URL = in.url()
 		}
 		for _, p := range svc.Ports {
 			ss.Ports = append(ss.Ports, strconv.Itoa(p.Port)+"/"+string(p.Protocol))
@@ -172,11 +329,17 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 		}
 		// A pod that can't start says why; the Deployment only says it
 		// is still progressing.
+		restarts, mine := 0, map[string]bool{}
 		for _, p := range pods {
 			if p.Metadata.Labels[serviceLabel] != name {
 				continue
 			}
+			mine[p.Metadata.Name] = true
+			if ss.Image == "" {
+				ss.Image = imageOf(p)
+			}
 			for _, c := range p.Status.Containers {
+				restarts += c.RestartCount
 				switch {
 				case c.State.Waiting != nil && c.State.Waiting.Reason != "" && c.State.Waiting.Reason != "ContainerCreating":
 					ss.State, ss.Health, ss.Detail = c.State.Waiting.Reason, "unhealthy", strings.TrimSpace(c.State.Waiting.Message)
@@ -185,6 +348,8 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 				}
 			}
 		}
+		ss.Restarts = &restarts
+		ss.Events = warningsAbout(events, mine, objectName(s.Name, name))
 		if ss.Health == "" && svc.HealthCheck != nil && (svc.HealthCheck.Path != "" || svc.HealthCheck.Command != "") {
 			ss.Health = "starting"
 			if ss.State == "running" {

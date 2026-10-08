@@ -57,6 +57,8 @@ func newFakeCluster() *fakeCluster {
 			"kubectl get deployments,services,ingresses,cronjobs,horizontalpodautoscalers": "",
 			"kubectl get deployments":    `{"items": []}`,
 			"kubectl get services":       `{"items": []}`,
+			"kubectl get ingresses":      `{"items": []}`,
+			"kubectl get events":         `{"items": []}`,
 			"kubectl get pods":           `{"items": []}`,
 			"kubectl get secret":         "4711",
 			"kubectl get serviceaccount": "serviceaccount/shop-web",
@@ -649,13 +651,19 @@ func TestStatus(t *testing.T) {
 		"old": {"kind": "server", "image": "nginx:1.27.0"}}, `+target+`}`)
 	env, fc := newEnv(t, t.TempDir(), nil)
 	fc.out["kubectl get deployments"] = `{"items": [
-		{"metadata": {"name": "shop-web"}, "spec": {"replicas": 2}, "status": {"availableReplicas": 2, "updatedReplicas": 2, "conditions": [{"type": "Available", "status": "True"}]}},
-		{"metadata": {"name": "shop-api"}, "spec": {"replicas": 1}, "status": {"availableReplicas": 0, "updatedReplicas": 1, "conditions": [{"type": "Progressing", "status": "True"}]}}]}`
+		{"metadata": {"name": "shop-web"}, "spec": {"replicas": 2, "template": {"metadata": {"annotations": {"anyship.dev/rollout": "2026-10-08T01:00:00Z"}}}}, "status": {"availableReplicas": 2, "updatedReplicas": 2, "conditions": [{"type": "Available", "status": "True"}]}},
+		{"metadata": {"name": "shop-api"}, "spec": {"replicas": 1}, "status": {"availableReplicas": 0, "updatedReplicas": 1, "conditions": [{"type": "Progressing", "status": "True", "lastUpdateTime": "2026-10-08T02:00:00Z"}]}}]}`
 	fc.out["kubectl get pods"] = `{"items": [
-		{"metadata": {"labels": {"anyship-service": "api"}}, "status": {"containerStatuses": [{"ready": false, "state": {"waiting": {"reason": "CrashLoopBackOff", "message": "back-off 5m restarting failed container"}}}]}}]}`
+		{"metadata": {"name": "shop-web-1", "labels": {"anyship-service": "web"}}, "status": {"containerStatuses": [{"ready": true, "restartCount": 1, "image": "nginx:1.27.0", "imageID": "docker-pullable://nginx@sha256:aaaa", "state": {"running": {}}}]}},
+		{"metadata": {"name": "shop-web-2", "labels": {"anyship-service": "web"}}, "status": {"containerStatuses": [{"ready": true, "restartCount": 2, "image": "nginx:1.27.0", "imageID": "docker-pullable://nginx@sha256:aaaa", "state": {"running": {}}}]}},
+		{"metadata": {"name": "shop-api-1", "labels": {"anyship-service": "api"}}, "status": {"containerStatuses": [{"ready": false, "restartCount": 7, "image": "nginx:1.27.0", "state": {"waiting": {"reason": "CrashLoopBackOff", "message": "back-off 5m restarting failed container"}}}]}}]}`
 	fc.out["kubectl get services"] = `{"items": [
 		{"metadata": {"name": "shop-web"}, "spec": {"type": "LoadBalancer"}, "status": {"loadBalancer": {"ingress": [{"ip": "203.0.113.5"}]}}},
 		{"metadata": {"name": "shop-api"}, "spec": {"type": "ClusterIP"}, "status": {}}]}`
+	fc.out["kubectl get events"] = `{"items": [
+		{"involvedObject": {"kind": "Pod", "name": "shop-api-1"}, "reason": "BackOff", "message": "Back-off restarting failed container", "lastTimestamp": "2026-10-08T02:05:00Z", "count": 7},
+		{"involvedObject": {"kind": "Pod", "name": "shop-api-1"}, "reason": "Unhealthy", "message": "Liveness probe failed", "lastTimestamp": "2026-10-08T02:06:00Z", "count": 1},
+		{"involvedObject": {"kind": "Pod", "name": "other-1"}, "reason": "BackOff", "message": "not ours", "lastTimestamp": "2026-10-08T02:07:00Z", "count": 1}]}`
 	st, err := New().Status(context.Background(), s, env)
 	if err != nil {
 		t.Fatal(err)
@@ -663,15 +671,48 @@ func TestStatus(t *testing.T) {
 	if !st.Deployed || st.Location != "orbstack/apps" || st.Healthy() {
 		t.Errorf("status = %+v", st)
 	}
+	if !slices.ContainsFunc(fc.calls, func(c call) bool {
+		return strings.Contains(c.line(), "get events --field-selector type=Warning -o json")
+	}) {
+		t.Error("status should ask for warning events only")
+	}
 	byName := map[string]adapter.ServiceStatus{}
 	for _, ss := range st.Services {
 		byName[ss.Name] = ss
 	}
-	if web := byName["web"]; web.State != "running" || web.Running != 2 || web.Desired != 2 || web.Health != "healthy" || !slices.Equal(web.Ports, []string{"80/http"}) || web.Detail != "2/2 available, load balancer 203.0.113.5" {
+	web := byName["web"]
+	if web.State != "running" || web.Running != 2 || web.Desired != 2 || web.Health != "healthy" || !slices.Equal(web.Ports, []string{"80/http"}) || web.Detail != "2/2 available" {
 		t.Errorf("web = %+v", web)
 	}
-	if api := byName["api"]; api.State != "CrashLoopBackOff" || api.Health != "unhealthy" || !strings.Contains(api.Detail, "back-off") {
+	if web.URL != "203.0.113.5:80" || web.Since != "2026-10-08T01:00:00Z" || web.Restarts == nil || *web.Restarts != 3 || web.Image != "nginx@sha256:aaaa" || len(web.Events) != 0 {
+		t.Errorf("web details = url %q since %q restarts %v image %q events %v", web.URL, web.Since, web.Restarts, web.Image, web.Events)
+	}
+	api := byName["api"]
+	if api.State != "CrashLoopBackOff" || api.Health != "unhealthy" || !strings.Contains(api.Detail, "back-off") {
 		t.Errorf("api = %+v", api)
+	}
+	if api.URL != "" || api.Since != "2026-10-08T02:00:00Z" || api.Restarts == nil || *api.Restarts != 7 || api.Image != "nginx:1.27.0" ||
+		!slices.Equal(api.Events, []string{"Unhealthy: Liveness probe failed", "BackOff: Back-off restarting failed container (x7)"}) {
+		t.Errorf("api details = url %q since %q restarts %v image %q events %v", api.URL, api.Since, api.Restarts, api.Image, api.Events)
+	}
+	if old := byName["old"]; old.Restarts != nil || old.Events != nil {
+		t.Errorf("a missing service reports no restarts or events: %+v", old)
+	}
+
+	// An Ingress gives the service its public address: its host when it
+	// has one, "pending" until the controller assigns an address.
+	fc.out["kubectl get ingresses"] = `{"items": [
+		{"metadata": {"name": "shop-web"}, "spec": {"rules": [{"host": "shop.example.com"}]}, "status": {"loadBalancer": {"ingress": [{"ip": "203.0.113.9"}]}}},
+		{"metadata": {"name": "shop-api"}, "spec": {"rules": [{}]}, "status": {}}]}`
+	st, err = New().Status(context.Background(), s, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ss := range st.Services {
+		byName[ss.Name] = ss
+	}
+	if byName["web"].URL != "http://shop.example.com" || byName["api"].URL != "pending" {
+		t.Errorf("ingress urls: web %q api %q", byName["web"].URL, byName["api"].URL)
 	}
 	if old := byName["old"]; old.State != "missing" || old.Desired != 1 {
 		t.Errorf("old = %+v", old)

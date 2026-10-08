@@ -1097,21 +1097,27 @@ func TestStatus(t *testing.T) {
 		"web": {"kind": "server", "image": "nginx"}, "api": {"kind": "server", "image": "api"}, "admin": {"kind": "server", "image": "admin"}}, `+target+`}`)
 	env, fc := newEnv(t, t.TempDir(), nil)
 	fc.out["gcloud run services list"] = `[
-		{"metadata": {"name": "shop-web"}, "status": {"url": "https://web", "conditions": [{"type": "Ready", "status": "True"}]}},
-		{"metadata": {"name": "shop-api"}, "status": {"conditions": [{"type": "Ready", "status": "False", "message": "container failed to start"}]}}]`
+		{"metadata": {"name": "shop-web"}, "spec": {"template": {"spec": {"containers": [{"image": "us-docker.pkg.dev/p/apps/shop-web@sha256:bbbb"}]}}}, "status": {"url": "https://web", "latestReadyRevisionName": "shop-web-00003-abc", "conditions": [{"type": "Ready", "status": "True", "lastTransitionTime": "2026-10-08T01:00:00Z"}]}},
+		{"metadata": {"name": "shop-api"}, "status": {"conditions": [{"type": "Ready", "status": "False", "message": "container failed to start", "lastTransitionTime": "2026-10-08T02:00:00Z"}]}}]`
 	st, err := New().Status(context.Background(), s, env)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := map[string]string{}
+	got := map[string]adapter.ServiceStatus{}
 	for _, ss := range st.Services {
-		got[ss.Name] = ss.State
+		got[ss.Name] = ss
 	}
 	want := map[string]string{"web": "running", "api": "failing", "admin": "missing"}
 	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("%s = %q, want %q", k, got[k], v)
+		if got[k].State != v {
+			t.Errorf("%s = %q, want %q", k, got[k].State, v)
 		}
+	}
+	if web := got["web"]; web.URL != "https://web" || web.Since != "2026-10-08T01:00:00Z" || web.Image != "us-docker.pkg.dev/p/apps/shop-web@sha256:bbbb" || web.Detail != "revision shop-web-00003-abc" || web.Restarts != nil {
+		t.Errorf("web = %+v", web)
+	}
+	if api := got["api"]; api.Detail != "container failed to start" || !slices.Equal(api.Events, []string{"container failed to start"}) || api.Since != "2026-10-08T02:00:00Z" {
+		t.Errorf("api = %+v", api)
 	}
 	if list := fc.find("gcloud run services list"); !slices.Contains(list.args, "metadata.labels.anyship-project=shop") {
 		t.Errorf("list = %v", list.args)
