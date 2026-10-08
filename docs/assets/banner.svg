@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" role="img" aria-label="anyship. Describe your app once, deploy it anywhere. One anyship.yaml file is deployed to Cloudflare, a VPS, Google Cloud or AWS, with more platforms to come.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" role="img" aria-label="anyship. Describe your app once, deploy it anywhere. One anyship.yaml file is deployed to Cloudflare, a VPS, Google Cloud, AWS or Kubernetes, with more platforms to come.">
   <style>
     svg { --bg:#f4f6f8; --panel:#ffffff; --fg:#15202b; --muted:#556270; --line:#c3ccd5; --accent:#b8430f; --accent-soft:#fbe7dc; }
     @media (prefers-color-scheme: dark) { svg { --bg:#0f151b; --panel:#161e27; --fg:#e2e8ee; --muted:#94a2b0; --line:#344250; --accent:#f08a4b; --accent-soft:#3a2418; } }
@@ -54,31 +54,35 @@
   <text class="yaml" x="644" y="274" xml:space="preserve">      ports:</text>
   <text class="yaml" x="644" y="300" xml:space="preserve">        - port: <tspan class="v">3000</tspan></text>
 
-  <!-- One spec, every target: four today, more behind them -->
-  <path class="wire" d="M898 200C946 200 946 84 990 84"/>
-  <path class="wire" d="M898 200C946 200 946 142 990 142"/>
-  <path class="wire" d="M898 200H990"/>
-  <path class="wire" d="M898 200C946 200 946 258 990 258"/>
-  <path class="wire soon" d="M898 200C946 200 946 316 990 316"/>
-  <path class="tip" d="M1000 84l-11-6v12zM1000 142l-11-6v12zM1000 200l-11-6v12zM1000 258l-11-6v12z"/>
-  <path class="tip soon" d="M1000 316l-11-6v12z"/>
+  <!-- One spec, every target: five today, more behind them -->
+  <path class="wire" d="M898 200C946 200 946 80 990 80"/>
+  <path class="wire" d="M898 200C946 200 946 128 990 128"/>
+  <path class="wire" d="M898 200C946 200 946 176 990 176"/>
+  <path class="wire" d="M898 200C946 200 946 224 990 224"/>
+  <path class="wire" d="M898 200C946 200 946 272 990 272"/>
+  <path class="wire soon" d="M898 200C946 200 946 320 990 320"/>
+  <path class="tip" d="M1000 80l-11-6v12zM1000 128l-11-6v12zM1000 176l-11-6v12zM1000 224l-11-6v12zM1000 272l-11-6v12z"/>
+  <path class="tip soon" d="M1000 320l-11-6v12z"/>
 
-  <rect class="target" x="1002" y="62" width="200" height="44" rx="8"/>
-  <text class="name" x="1022" y="90">Cloudflare</text>
+  <rect class="target" x="1002" y="62" width="200" height="36" rx="8"/>
+  <text class="name" x="1022" y="87">Cloudflare</text>
 
-  <rect class="target" x="1002" y="120" width="200" height="44" rx="8"/>
-  <text class="name" x="1022" y="148">VPS</text>
+  <rect class="target" x="1002" y="110" width="200" height="36" rx="8"/>
+  <text class="name" x="1022" y="135">VPS</text>
 
-  <rect class="target" x="1002" y="178" width="200" height="44" rx="8"/>
-  <text class="name" x="1022" y="206">Google Cloud</text>
+  <rect class="target" x="1002" y="158" width="200" height="36" rx="8"/>
+  <text class="name" x="1022" y="183">Google Cloud</text>
 
-  <rect class="target" x="1002" y="236" width="200" height="44" rx="8"/>
-  <text class="name" x="1022" y="264">AWS</text>
+  <rect class="target" x="1002" y="206" width="200" height="36" rx="8"/>
+  <text class="name" x="1022" y="231">AWS</text>
+
+  <rect class="target" x="1002" y="254" width="200" height="36" rx="8"/>
+  <text class="name" x="1022" y="279">Kubernetes</text>
 
   <!-- A stack of cards still to be dealt -->
-  <rect class="later l3" x="1026" y="318" width="200" height="44" rx="8"/>
-  <rect class="later l2" x="1018" y="310" width="200" height="44" rx="8"/>
-  <rect class="later l1" x="1010" y="302" width="200" height="44" rx="8"/>
-  <rect class="later" x="1002" y="294" width="200" height="44" rx="8"/>
-  <text class="more" x="1022" y="322">more platforms</text>
+  <rect class="later l3" x="1026" y="326" width="200" height="36" rx="8"/>
+  <rect class="later l2" x="1018" y="318" width="200" height="36" rx="8"/>
+  <rect class="later l1" x="1010" y="310" width="200" height="36" rx="8"/>
+  <rect class="later" x="1002" y="302" width="200" height="36" rx="8"/>
+  <text class="more" x="1022" y="327">more platforms</text>
 </svg>
