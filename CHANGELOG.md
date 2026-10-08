@@ -24,6 +24,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reads as the protocol's default, destructive; the tools that ask the platform (`status`, `logs`,
   `diagnose_context`) and the deploying ones left `openWorldHint` unset; and tool directories reject
   a tool with a hint missing.
+- `anyship diagnose` ran the target's checks in the project, so a dry run left the generated files
+  under `.anyship/<target>/` although the README says it writes nothing. The checks now run in a
+  temporary directory that is removed afterwards, as the MCP tool `diagnose_context` already did, and
+  the two share the code.
 
 ### Changed
 
