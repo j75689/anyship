@@ -16,9 +16,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   probes, `memory` and `cpu` resource requests and limits, `replicas` the replica count. Every
   object goes in one `kubectl apply --prune`, so a service taken out of the spec is removed on the
   next `apply`, and `apply` waits for each rollout and reports the pods and warnings of one that
-  fails. `status`, `logs -f` and `destroy` work. An Ingress for public ports and `domains`, cron,
-  volumes, static sites and workers are refused for now, each with a pointer to its issue. CI runs
-  the target end to end on a kind cluster.
+  fails. `status`, `logs -f` and `destroy` work. CI runs the target end to end on a kind cluster,
+  and the MCP server is driven through a deploy to it.
 - `kubernetes`: a public HTTP port gets an Ingress when `targets.kubernetes.ingressClass` names
   the cluster's IngressClass, with `domains` as its host rules (any host without them); preflight
   checks the class exists and lists the cluster's when it doesn't. A public TCP or UDP port makes
