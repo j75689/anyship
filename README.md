@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/banner.svg" width="100%" alt="anyship: describe your app once, deploy it anywhere. One anyship.yaml is deployed to Cloudflare, a VPS, Google Cloud or AWS, with more platforms to come.">
+  <img src="docs/assets/banner.svg" width="100%" alt="anyship: describe your app once, deploy it anywhere. One anyship.yaml is deployed to Cloudflare, a VPS, Google Cloud, AWS or Kubernetes, with more platforms to come.">
 </p>
 
 # anyship: describe your app once, deploy it anywhere
