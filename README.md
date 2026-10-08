@@ -231,9 +231,9 @@ refused there (turn on Workers Logs in the Cloudflare dashboard for history).
 ```console
 $ anyship status -t vps
 eth-mainnet on vps (deploy@203.0.113.10:anyship/eth-mainnet)
-  SERVICE     STATE    HEALTH   RUNNING  PORTS                 DETAIL
-  lighthouse  running  -        1/1      9000/tcp, 9000/udp    Up 2 hours
-  reth        running  healthy  1/1      30303/tcp, 30303/udp  Up 2 hours (healthy)
+  SERVICE     STATE    HEALTH   RUNNING  RESTARTS  SINCE   PORTS                 URL                 DETAIL
+  lighthouse  running  -        1/1      0         2h ago  9000/tcp, 9000/udp    203.0.113.10:9000   Up 2 hours
+  reth        running  healthy  1/1      0         2h ago  30303/tcp, 30303/udp  203.0.113.10:30303  Up 2 hours (healthy)
 All services are running.
 
 $ anyship destroy -t vps             # stop and remove containers; keep volumes and secrets
@@ -241,8 +241,12 @@ $ anyship destroy -t vps --volumes   # also delete data (asks you to type the pr
 $ anyship destroy -t vps --dry-run   # show what would go and what runs now; remove nothing
 ```
 
-`status` exits 1 when the spec isn't deployed or a service isn't fully running, so it works as a
-health check in scripts. It isn't available on `cloudflare` yet. `destroy` on `cloudflare` deletes the
+Per service, `status` shows where it answers from outside (`URL`: the published port, the Cloud Run
+or `on.aws` URL, a load balancer or Ingress address), when its instances last changed (`SINCE`), how
+often they restarted (`RESTARTS`, where the platform counts them), and under the table the platform's
+latest warnings about it, such as a crash loop or a failed probe. `--json` adds the image that runs,
+by digest when the platform reports it. `status` exits 1 when the spec isn't deployed or a service
+isn't fully running, so it works as a health check in scripts. It isn't available on `cloudflare` yet. `destroy` on `cloudflare` deletes the
 Worker with `wrangler delete` and never touches bound D1, KV, R2 or Hyperdrive resources.
 
 `init`, `validate`, `plan`, `apply`, `status`, `destroy`, `diagnose` and `targets` take `--json` for

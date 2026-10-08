@@ -103,7 +103,7 @@ if [ "${ANYSHIP_K8S_LB:-}" = 1 ]; then
   done
   [ -n "$addr" ] || fail "the cluster should give app-api a load balancer address"
   "$ANYSHIP" status -t kubernetes | tee lb-status.out
-  grep -q "load balancer $addr" lb-status.out || fail "status should show the load balancer address"
+  grep -q "$addr:5678" lb-status.out || fail "status should show the load balancer address"
 fi
 cp one-service.yaml anyship.yaml
 "$ANYSHIP" apply -t kubernetes --yes | tee prune.out

@@ -195,6 +195,19 @@ type ServiceStatus struct {
 	Ports   []string `json:"ports,omitempty"`
 	// Detail is the platform's own description, e.g. "Up 2 hours".
 	Detail string `json:"detail,omitempty"`
+	// URL is where the service answers from outside the platform, when it
+	// has such an address; "pending" while the platform is still assigning one.
+	URL string `json:"url,omitempty"`
+	// Since is when the running instances last changed, in RFC 3339.
+	Since string `json:"since,omitempty"`
+	// Restarts counts the restarts of the current instances; nil when the
+	// platform doesn't report it.
+	Restarts *int `json:"restarts,omitempty"`
+	// Image is what runs, by digest when the platform knows it.
+	Image string `json:"image,omitempty"`
+	// Events are the platform's latest warnings about the service, newest
+	// first, at most five.
+	Events []string `json:"events,omitempty"`
 }
 
 // Healthy reports whether every service runs as desired and none is unhealthy.

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/j75689/anyship/adapter"
 	"github.com/j75689/anyship/internal/shellwords"
@@ -82,10 +83,13 @@ func lastLine(output string) string {
 
 // psContainer is one entry of `docker compose ps --format json`.
 type psContainer struct {
-	Service    string
-	State      string
-	Health     string
-	Status     string
+	Service string
+	State   string
+	Health  string
+	Status  string
+	Image   string
+	// Created is when the container was created, as a Unix time.
+	Created    int64
 	Publishers []struct {
 		PublishedPort int
 		Protocol      string
@@ -101,25 +105,57 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 	dir := o.deployDir(s.Name)
 	st := &adapter.Status{Target: Name, Location: o.Host + ":" + dir}
 
-	remote := fmt.Sprintf("%s; %s compose -p %s -f compose.yaml ps --all --format json", enterDeployment(dir), o.docker(), s.Name)
+	// One ssh round trip reads the containers and, after a marker line,
+	// what `docker inspect` knows that `compose ps` doesn't: restart counts.
+	remote := fmt.Sprintf("%s; %s compose -p %s -f compose.yaml ps --all --format json; echo %s; ids=$(%s compose -p %s -f compose.yaml ps --all -q); [ -z \"$ids\" ] || %s inspect --format '{{index .Config.Labels \"com.docker.compose.service\"}} {{.RestartCount}}' $ids",
+		enterDeployment(dir), o.docker(), s.Name, inspectMarker, o.docker(), s.Name, o.docker())
 	// stderr is captured so a failure can say why: status is also read by
 	// scripts and agents, which see the error and not the terminal.
 	var out, stderr bytes.Buffer
 	err = env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir, Stdout: &out, Stderr: &stderr}, "ssh", append(sshArgs(*o), remote)...)
 	if notDeployed(err) {
-		st.Services = serviceStatuses(s, nil)
+		st.Services = serviceStatuses(s, nil, hostOf(o.Host), nil)
 		return st, nil
 	}
 	if err != nil {
 		return nil, sshFailure("reading status from", *o, err, stderr.String())
 	}
-	containers, err := parsePS(out.Bytes())
+	psOut, inspectOut, _ := bytes.Cut(out.Bytes(), []byte(inspectMarker+"\n"))
+	containers, err := parsePS(psOut)
 	if err != nil {
 		return nil, fmt.Errorf("unexpected `docker compose ps` output from %s: %w", o.Host, err)
 	}
 	st.Deployed = true
-	st.Services = serviceStatuses(s, containers)
+	st.Services = serviceStatuses(s, containers, hostOf(o.Host), parseRestarts(inspectOut))
 	return st, nil
+}
+
+// inspectMarker separates the two commands' output in the status read.
+const inspectMarker = "---anyship-inspect---"
+
+// hostOf is the host part of an ssh destination such as deploy@203.0.113.10.
+func hostOf(destination string) string {
+	if _, host, ok := strings.Cut(destination, "@"); ok {
+		return host
+	}
+	return destination
+}
+
+// parseRestarts reads "<service> <count>" lines into restarts per service.
+func parseRestarts(data []byte) map[string]int {
+	out := map[string]int{}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		service, count, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok {
+			continue
+		}
+		n, err := strconv.Atoi(count)
+		if err != nil {
+			continue
+		}
+		out[service] += n
+	}
+	return out
 }
 
 // parsePS reads `docker compose ps --format json`, which newer Compose
@@ -147,12 +183,15 @@ func parsePS(data []byte) ([]psContainer, error) {
 	return containers, nil
 }
 
-func serviceStatuses(s *spec.Spec, containers []psContainer) []adapter.ServiceStatus {
+// serviceStatuses folds the containers into one status per service. host is
+// where published ports answer; restarts, per service, may be nil when the
+// host didn't report them.
+func serviceStatuses(s *spec.Spec, containers []psContainer, host string, restarts map[string]int) []adapter.ServiceStatus {
 	var out []adapter.ServiceStatus
 	for _, name := range s.ServiceNames() {
 		ss := adapter.ServiceStatus{Name: name, Desired: s.Services[name].Replicas}
 		var ports []string
-		instances, notRunning := 0, ""
+		instances, notRunning, created := 0, "", int64(0)
 		for _, c := range containers {
 			if c.Service != name {
 				continue
@@ -167,11 +206,24 @@ func serviceStatuses(s *spec.Spec, containers []psContainer) []adapter.ServiceSt
 			if ss.Detail == "" {
 				ss.Detail = c.Status
 			}
+			if ss.Image == "" {
+				ss.Image = c.Image
+			}
+			created = max(created, c.Created)
 			for _, p := range c.Publishers {
 				if p.PublishedPort > 0 {
 					ports = append(ports, fmt.Sprintf("%d/%s", p.PublishedPort, p.Protocol))
+					if ss.URL == "" && host != "" {
+						ss.URL = fmt.Sprintf("%s:%d", host, p.PublishedPort)
+					}
 				}
 			}
+		}
+		if created > 0 {
+			ss.Since = time.Unix(created, 0).UTC().Format(time.RFC3339)
+		}
+		if n, ok := restarts[name]; ok && instances > 0 {
+			ss.Restarts = &n
 		}
 		switch {
 		case instances == 0:

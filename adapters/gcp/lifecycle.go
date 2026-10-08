@@ -21,14 +21,33 @@ type cloudRunService struct {
 	Metadata struct {
 		Name string `json:"name"`
 	} `json:"metadata"`
+	Spec struct {
+		Template struct {
+			Spec struct {
+				Containers []struct {
+					Image string `json:"image"`
+				} `json:"containers"`
+			} `json:"spec"`
+		} `json:"template"`
+	} `json:"spec"`
 	Status struct {
-		URL        string `json:"url"`
-		Conditions []struct {
-			Type    string `json:"type"`
-			Status  string `json:"status"`
-			Message string `json:"message"`
+		URL                     string `json:"url"`
+		LatestReadyRevisionName string `json:"latestReadyRevisionName"`
+		Conditions              []struct {
+			Type               string `json:"type"`
+			Status             string `json:"status"`
+			Message            string `json:"message"`
+			LastTransitionTime string `json:"lastTransitionTime"`
 		} `json:"conditions"`
 	} `json:"status"`
+}
+
+// image is what the service's latest revision runs.
+func (crs cloudRunService) image() string {
+	for _, c := range crs.Spec.Template.Spec.Containers {
+		return c.Image
+	}
+	return ""
 }
 
 // deployed lists the project's Cloud Run services, found by label.
@@ -65,11 +84,15 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 	for _, name := range s.ServiceNames() {
 		ss := adapter.ServiceStatus{Name: name, State: "missing", Desired: 1}
 		if crs, ok := found[cloudRunName(s.Name, name)]; ok {
-			ss.State, ss.Detail = "deploying", crs.Status.URL
+			ss.State, ss.URL, ss.Image = "deploying", crs.Status.URL, crs.image()
+			if rev := crs.Status.LatestReadyRevisionName; rev != "" {
+				ss.Detail = "revision " + rev
+			}
 			for _, c := range crs.Status.Conditions {
 				if c.Type != "Ready" {
 					continue
 				}
+				ss.Since = c.LastTransitionTime
 				switch c.Status {
 				case "True":
 					ss.State, ss.Running = "running", 1
@@ -77,6 +100,7 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 					ss.State, ss.Health = "failing", "unhealthy"
 					if c.Message != "" {
 						ss.Detail = c.Message
+						ss.Events = []string{c.Message}
 					}
 				}
 			}

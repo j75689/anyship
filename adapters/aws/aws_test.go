@@ -446,9 +446,10 @@ func TestStatus(t *testing.T) {
 		"admin": {"kind": "server", "image": "admin"}, "old": {"kind": "server", "image": "old"}}, `+target+`}`)
 	env, fa := newEnv(t, t.TempDir(), nil)
 	fa.out["aws ecs describe-services"] = `{"services": [
-		{"serviceName": "shop-web", "serviceArn": "arn:web", "status": "ACTIVE", "desiredCount": 2, "runningCount": 2, "deployments": [{"status": "PRIMARY", "rolloutState": "COMPLETED"}]},
-		{"serviceName": "shop-api", "serviceArn": "arn:api", "status": "ACTIVE", "desiredCount": 1, "runningCount": 0, "deployments": [{"status": "PRIMARY", "rolloutState": "FAILED", "rolloutStateReason": "tasks failed to start"}]},
+		{"serviceName": "shop-web", "serviceArn": "arn:web", "status": "ACTIVE", "desiredCount": 2, "runningCount": 2, "deployments": [{"status": "PRIMARY", "rolloutState": "COMPLETED", "createdAt": "2026-10-08T01:00:00.123000+00:00", "taskDefinition": "arn:task:web:3"}]},
+		{"serviceName": "shop-api", "serviceArn": "arn:api", "status": "ACTIVE", "desiredCount": 1, "runningCount": 0, "deployments": [{"status": "PRIMARY", "rolloutState": "FAILED", "rolloutStateReason": "tasks failed to start", "createdAt": "2026-10-08T02:00:00+00:00"}]},
 		{"serviceName": "shop-old", "status": "INACTIVE"}]}`
+	fa.out["aws ecs describe-task-definition --task-definition arn:task:web:3"] = `{"taskDefinition": {"containerDefinitions": [{"image": "123.dkr.ecr.us-east-1.amazonaws.com/apps/shop-web@sha256:cccc"}]}}`
 	st, err := New().Status(context.Background(), s, env)
 	if err != nil {
 		t.Fatal(err)
@@ -457,11 +458,12 @@ func TestStatus(t *testing.T) {
 	for _, ss := range st.Services {
 		got[ss.Name] = ss
 	}
-	if got["web"].State != "running" || got["web"].Running != 2 || got["web"].Detail != "https://shop-web.ecs.us-east-1.on.aws" {
-		t.Errorf("web = %+v", got["web"])
+	if web := got["web"]; web.State != "running" || web.Running != 2 || web.URL != "https://shop-web.ecs.us-east-1.on.aws" || web.Detail != "" ||
+		web.Since != "2026-10-08T01:00:00Z" || web.Image != "123.dkr.ecr.us-east-1.amazonaws.com/apps/shop-web@sha256:cccc" || web.Restarts != nil || len(web.Events) != 0 {
+		t.Errorf("web = %+v", web)
 	}
-	if got["api"].State != "failing" || got["api"].Detail != "tasks failed to start" {
-		t.Errorf("api = %+v", got["api"])
+	if api := got["api"]; api.State != "failing" || api.Detail != "tasks failed to start" || api.Since != "2026-10-08T02:00:00Z" || api.Image != "" || !slices.Equal(api.Events, []string{"tasks failed to start"}) {
+		t.Errorf("api = %+v", api)
 	}
 	if got["admin"].State != "missing" || got["old"].State != "missing" {
 		t.Errorf("admin = %+v, old = %+v", got["admin"], got["old"])

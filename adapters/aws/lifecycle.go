@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/j75689/anyship/adapter"
 	"github.com/j75689/anyship/spec"
@@ -22,7 +23,38 @@ type ecsService struct {
 		Status             string `json:"status"`
 		RolloutState       string `json:"rolloutState"`
 		RolloutStateReason string `json:"rolloutStateReason"`
+		CreatedAt          string `json:"createdAt"`
+		TaskDefinition     string `json:"taskDefinition"`
 	} `json:"deployments"`
+}
+
+// taskImage is the image the task definition runs.
+func taskImage(ctx context.Context, c cli, taskDefinition string) string {
+	var out struct {
+		TaskDefinition struct {
+			ContainerDefinitions []struct {
+				Image string `json:"image"`
+			} `json:"containerDefinitions"`
+		} `json:"taskDefinition"`
+	}
+	if taskDefinition == "" || c.json(ctx, &out, "ecs", "describe-task-definition", "--task-definition", taskDefinition) != nil {
+		return ""
+	}
+	for _, cd := range out.TaskDefinition.ContainerDefinitions {
+		return cd.Image
+	}
+	return ""
+}
+
+// rfc3339 normalises the timestamps the aws CLI prints, which carry
+// fractions and a numeric zone, to RFC 3339 in UTC; anything else is kept.
+func rfc3339(s string) string {
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.000000-07:00", "2006-01-02T15:04:05-07:00"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UTC().Format(time.RFC3339)
+		}
+	}
+	return s
 }
 
 // describeServices looks up services by name. Services that don't exist, or
@@ -115,14 +147,19 @@ func (a *Adapter) Status(ctx context.Context, s *spec.Spec, env *adapter.Env) (*
 			ss.Running, ss.Desired = svc.RunningCount, svc.DesiredCount
 			ss.State = serviceState(svc)
 			for _, dep := range svc.Deployments {
-				if dep.Status == "PRIMARY" && dep.RolloutState == "FAILED" {
+				if dep.Status != "PRIMARY" {
+					continue
+				}
+				ss.Since, ss.Image = rfc3339(dep.CreatedAt), taskImage(ctx, c, dep.TaskDefinition)
+				if dep.RolloutState == "FAILED" {
 					ss.Detail = dep.RolloutStateReason
 				}
-			}
-			if ss.Detail == "" {
-				if ex, err := describeExpress(ctx, c, svc.ServiceArn); err == nil {
-					ss.Detail = ex.url()
+				if dep.RolloutStateReason != "" && dep.RolloutState != "COMPLETED" {
+					ss.Events = []string{dep.RolloutStateReason}
 				}
+			}
+			if ex, err := describeExpress(ctx, c, svc.ServiceArn); err == nil {
+				ss.URL = ex.url()
 			}
 		}
 		st.Services = append(st.Services, ss)

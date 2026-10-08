@@ -6,8 +6,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"golang.org/x/term"
 
@@ -110,16 +112,51 @@ func printStatus(w io.Writer, s styler, project string, st *adapter.Status) {
 	}
 	// No colors inside the table: escape codes would throw off the alignment.
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "  SERVICE\tSTATE\tHEALTH\tRUNNING\tPORTS\tDETAIL")
+	fmt.Fprintln(tw, "  SERVICE\tSTATE\tHEALTH\tRUNNING\tRESTARTS\tSINCE\tPORTS\tURL\tDETAIL")
 	for _, svc := range st.Services {
-		fmt.Fprintf(tw, "  %s\t%s\t%s\t%d/%d\t%s\t%s\n",
-			svc.Name, svc.State, orDash(svc.Health), svc.Running, svc.Desired, orDash(strings.Join(svc.Ports, ", ")), orDash(svc.Detail))
+		restarts := "-"
+		if svc.Restarts != nil {
+			restarts = strconv.Itoa(*svc.Restarts)
+		}
+		fmt.Fprintf(tw, "  %s\t%s\t%s\t%d/%d\t%s\t%s\t%s\t%s\t%s\n",
+			svc.Name, svc.State, orDash(svc.Health), svc.Running, svc.Desired, restarts, orDash(ago(svc.Since, time.Now())),
+			orDash(strings.Join(svc.Ports, ", ")), orDash(svc.URL), orDash(svc.Detail))
 	}
 	_ = tw.Flush()
+	for _, svc := range st.Services {
+		for _, e := range svc.Events {
+			fmt.Fprintf(w, "  %s %s\n", s.yellow("!"), s.dim(svc.Name+": ")+e)
+		}
+	}
 	if st.Healthy() {
 		fmt.Fprintln(w, s.green("All services are running."))
 	} else {
 		fmt.Fprintln(w, s.yellow("Some services aren't running as desired; `anyship logs` may say why."))
+	}
+}
+
+// ago says how long before now an RFC 3339 time was, in the largest unit
+// that reads well; anything that isn't a time is shown as it is.
+func ago(stamp string, now time.Time) string {
+	if stamp == "" {
+		return ""
+	}
+	t, err := time.Parse(time.RFC3339, stamp)
+	if err != nil {
+		if t, err = time.Parse(time.RFC3339Nano, stamp); err != nil {
+			return stamp
+		}
+	}
+	d := now.Sub(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
 }
 
