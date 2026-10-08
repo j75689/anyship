@@ -237,7 +237,7 @@ func TestPlanImageService(t *testing.T) {
 	m := manifestsOf(t, p)
 	for _, want := range []string{
 		`"name": "shop-web"`, `"namespace": "apps"`, `"anyship-project": "shop"`, `"anyship-service": "web"`,
-		`"replicas": 2`, `"image": "nginx:1.27.0"`, `"imagePullPolicy": "IfNotPresent"`,
+		`"replicas": 2`, `"minReadySeconds": 5`, `"image": "nginx:1.27.0"`, `"imagePullPolicy": "IfNotPresent"`,
 		`"args": [`, `"nginx",`, `"-g",`, `"daemon off;"`,
 		`"containerPort": 80`, `"name": "API",`, `"value": "http://shop-api.apps.svc:9000/v1"`, `"name": "PORT",`, `"value": "80"`,
 		`"cpu": "0.5"`, `"memory": "512Mi"`, `"limits"`, `"requests"`,

@@ -30,8 +30,10 @@ spec:
   the label. anyship keeps no state and creates no namespace: preflight checks that the context and
   the namespace exist and that your login may create Deployments there, and names the command that
   creates a missing namespace.
-- `apply` waits for each Deployment to roll out, 5 minutes at most. A revision whose pods don't
-  become ready fails the apply and leaves the previous pods serving; the result names the pods and
+- `apply` waits for each Deployment to roll out, 5 minutes at most. A new pod has to stay ready
+  for 5 seconds before it counts (`minReadySeconds`), so a process that dies at startup fails the
+  rollout even without a `healthCheck`. A revision whose pods don't become ready fails the apply
+  and leaves the previous pods serving; the result names the pods and
   the cluster's warnings about them (an image that can't be pulled, a container that keeps
   crashing), and `status` shows the pod's state (`ImagePullBackOff`, `CrashLoopBackOff`) with its
   message.

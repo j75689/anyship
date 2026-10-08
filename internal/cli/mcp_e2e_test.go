@@ -138,8 +138,12 @@ func TestMCPEndToEnd(t *testing.T) {
 	}
 	var valid validateOutput
 	mustCall(deployer, "validate", nil, &valid)
-	if !valid.Valid || !slices.Equal(valid.Services, []string{"web"}) {
+	if !valid.Valid || !slices.Equal(valid.Services, []string{"web"}) || !slices.Equal(valid.Targets, []string{"kubernetes"}) {
 		t.Fatalf("validate = %+v", valid)
+	}
+	mustCall(deployer, "detect", nil, &detected)
+	if ex := detected.Existing; ex == nil || !ex.Valid || !slices.Equal(ex.Targets, []string{"kubernetes"}) {
+		t.Errorf("detect should now report the spec in place: %+v", detected.Existing)
 	}
 
 	t.Log("== plan brings the generated files with their contents and writes nothing")

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -25,7 +26,8 @@ import (
 
 const mcpInstructions = `anyship deploys an app described by anyship.yaml to a target platform.
 
-Typical flow: detect (draft a spec for a directory) → write anyship.yaml → validate → plan → apply with dry_run → apply.
+Typical flow for a directory without anyship.yaml: detect (draft a spec) → write anyship.yaml → validate → plan → apply with dry_run → apply.
+If anyship.yaml already exists, start from it: validate → plan → apply; detect then says so (existing) and its draft is only for comparison, not a replacement.
 Read-only tools never change anything. Deploying and destroying are only possible when the server was started with --allow-deploy.
 Never pass volumes=true to destroy unless the user explicitly asked to delete data; it deletes volumes and secrets for good.
 Resources: anyship://schema is the JSON schema of anyship.yaml, and anyship://targets/<name> is each target's page with its options under spec.targets.<name>, how it deploys and what it refuses. Read a target's page before writing its options.`
@@ -203,6 +205,20 @@ type detectOutput struct {
 	Problems []string          `json:"problems"`
 	Findings []adapter.Finding `json:"findings"`
 	Evidence []string          `json:"evidence"`
+	// Existing describes the anyship.yaml the directory already has, if
+	// any: the one to validate and plan, rather than replace with the draft.
+	Existing *existingSpec `json:"existing,omitempty"`
+}
+
+// existingSpec is what detect says about an anyship.yaml already in place.
+type existingSpec struct {
+	Path     string   `json:"path"`
+	Valid    bool     `json:"valid"`
+	Problems []string `json:"problems"`
+	Name     string   `json:"name,omitempty"`
+	Services []string `json:"services"`
+	// Targets are the targets the spec configures under spec.targets.
+	Targets []string `json:"targets"`
 }
 
 type validateOutput struct {
@@ -210,6 +226,9 @@ type validateOutput struct {
 	Problems []string `json:"problems"`
 	Name     string   `json:"name,omitempty"`
 	Services []string `json:"services"`
+	// Targets are the targets the spec configures under spec.targets, the
+	// ones to plan for.
+	Targets []string `json:"targets"`
 }
 
 type planOutput struct {
@@ -316,8 +335,9 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		})
 
 	addTool(server, &mcp.Tool{
-		Name:        "detect",
-		Description: "Detect a project's stack and draft an anyship.yaml for it. Nothing is written; review the draft, then save it as anyship.yaml.",
+		Name: "detect",
+		Description: "Detect a project's stack and draft an anyship.yaml for it. Nothing is written; review the draft, then save it as anyship.yaml. " +
+			"If the directory already has an anyship.yaml, existing says so with its validation and targets: validate and plan that one instead of replacing it.",
 		Annotations: readOnly,
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in detectInput) (*mcp.CallToolResult, detectOutput, error) {
 		dir, err := filepath.Abs(orDefault(in.Dir, "."))
@@ -336,6 +356,15 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		if _, err := spec.Parse(data); err != nil {
 			out.Valid, out.Problems = false, problemsOrError(err)
 		}
+		if raw, err := os.ReadFile(filepath.Join(dir, spec.Filename)); err == nil {
+			ex := &existingSpec{Path: filepath.Join(dir, spec.Filename), Problems: []string{}, Services: []string{}, Targets: []string{}}
+			if s, err := spec.Parse(raw); err != nil {
+				ex.Problems = problemsOrError(forAgent(err))
+			} else {
+				ex.Valid, ex.Name, ex.Services, ex.Targets = true, s.Name, s.ServiceNames(), slices.Sorted(maps.Keys(s.Targets))
+			}
+			out.Existing = ex
+		}
 		return nil, out, nil
 	})
 
@@ -343,9 +372,9 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		func(_ context.Context, _ *mcp.CallToolRequest, in configInput) (*mcp.CallToolResult, validateOutput, error) {
 			s, err := spec.Load(orDefault(in.Config, spec.Filename))
 			if err != nil {
-				return nil, validateOutput{Problems: problemsOrError(forAgent(err)), Services: []string{}}, nil
+				return nil, validateOutput{Problems: problemsOrError(forAgent(err)), Services: []string{}, Targets: []string{}}, nil
 			}
-			return nil, validateOutput{Valid: true, Problems: []string{}, Name: s.Name, Services: s.ServiceNames()}, nil
+			return nil, validateOutput{Valid: true, Problems: []string{}, Name: s.Name, Services: s.ServiceNames(), Targets: slices.Sorted(maps.Keys(s.Targets))}, nil
 		})
 
 	addTool(server, &mcp.Tool{
