@@ -17,8 +17,9 @@ helps you operate it.
   target's preflight checks before changing anything.
 - **Refuse, don't drop.** A target that can't provide something the spec asks for returns an error
   finding with a stable code and a hint, never a silent downgrade.
-- **AI off the deploy path.** The model only proposes spec changes; they are validated, shown, and
-  written only on confirmation.
+- **AI off the deploy path.** anyship calls no model. `diagnose` and the MCP tool `diagnose_context`
+  hand an agent a redacted picture of the deployment; what the agent proposes is an edit to
+  `anyship.yaml`, checked by `plan` like any other.
 
 ## Packages
 
@@ -28,7 +29,7 @@ helps you operate it.
 | `detect` | drafting a spec from JS, Go, Python, Rust, Dockerfile or static projects | project files |
 | `dockerfile` | Dockerfiles for services that have none | project files |
 | `image` | building an image with `docker buildx` and pushing it to a registry, by digest | Docker, the registry |
-| `diagnose` | context collection, redaction, JSON Patch, the retry loop | Claude API |
+| `diagnose` | collecting a deployment's context through the adapter contract, redaction | the target's adapter |
 | `adapter` | the contract (`Plan`, `Apply`, optional `Logs`, `Status`, `Destroy`) and registry | nothing |
 | `adapters/cloudflare` | `wrangler.jsonc`, Workers compatibility checks | `npx wrangler` |
 | `adapters/vps` | compose rendering, preflight, upload, status, logs, destroy | `ssh` to a Linux host |
@@ -82,7 +83,14 @@ pull request (`vps-e2e`).
 
 ### `diagnose`
 
-![diagnose: collect, redact, ask Claude, validate the patch, confirm, write](architecture/diagnose.svg)
+1. **collect**: the spec, `Plan` findings and generated files, the target's dry-run checks (`Apply`
+   with `DryRun`), `Status` and the last lines of `Logs`, each through the adapter contract, so every
+   target is covered without code of its own.
+2. **redact**: the values of the spec's secrets found in the environment and anything shaped like a
+   credential, before any of it leaves the process.
+3. **hand over**: the CLI prints the result as Markdown and the MCP tool `diagnose_context` returns it
+   to the agent. Whatever the agent proposes is an edit to `anyship.yaml`, which `plan` checks like any
+   other.
 
 ## Checks and releases
 

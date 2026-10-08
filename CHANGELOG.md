@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking:** `anyship diagnose` no longer calls Claude. It prints the redacted deployment context
+  (the spec, plan findings, the target's dry-run checks, status, recent logs and generated files) for
+  the agent of your choice to diagnose, the same text the MCP tool `diagnose_context` returns, and
+  `--json` wraps it as `{"context": ...}`. The `--show-context`, `--yes`, `--model` and `--effort`
+  flags, the proposed-change flow and the need for `ANTHROPIC_API_KEY` are gone, and anyship no
+  longer depends on the Anthropic SDK (#119).
+
 ## [0.5.0] - 2026-10-08
 
 ### Added
@@ -251,6 +262,7 @@ The first tagged release. It covers everything built up to that point.
   deploy it.
 - Release binaries built with GoReleaser, and `install.sh`, which verifies checksums.
 
+[Unreleased]: https://github.com/j75689/anyship/compare/v0.5.0...HEAD
 [0.5.0]: https://github.com/j75689/anyship/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/j75689/anyship/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/j75689/anyship/compare/v0.3.1...v0.4.0

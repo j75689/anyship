@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 880" role="img" aria-label="anyship system map. Callers use the CLI or the MCP server. Core packages and an adapter contract drive four adapters: cloudflare, vps, gcp and aws. Each adapter talks to its provider directly below it, where all deployment state lives. The diagnose package calls the Claude API. Locally anyship reads anyship.yaml and only writes generated files to .anyship.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 880" role="img" aria-label="anyship system map. Callers use the CLI or the MCP server. Core packages and an adapter contract drive four adapters: cloudflare, vps, gcp and aws. Each adapter talks to its provider directly below it, where all deployment state lives. Locally anyship reads anyship.yaml and only writes generated files to .anyship.">
   <style>
     svg { --bg:#f4f6f8; --panel:#ffffff; --fg:#15202b; --muted:#556270; --line:#c3ccd5; --accent:#b8430f; --accent-soft:#fbe7dc; color:var(--fg); }
     @media (prefers-color-scheme: dark) { svg { --bg:#0f151b; --panel:#161e27; --fg:#e2e8ee; --muted:#94a2b0; --line:#344250; --accent:#f08a4b; --accent-soft:#3a2418; } }
@@ -67,7 +67,7 @@
   <text class="s" x="650" y="295" text-anchor="middle">build + push</text>
   <rect class="n" x="710" y="258" width="100" height="48" rx="5"/>
   <text class="t" x="760" y="278" text-anchor="middle">diagnose</text>
-  <text class="s" x="760" y="295" text-anchor="middle">redact, ask</text>
+  <text class="s" x="760" y="295" text-anchor="middle">collect, redact</text>
   <line class="a" x1="540" y1="317" x2="540" y2="343" marker-end="url(#arr)"/>
 
   <rect class="n-strong" x="260" y="345" width="560" height="48" rx="6"/>
@@ -102,12 +102,6 @@
   <line class="a-accent" x1="756" y1="493" x2="756" y2="723" marker-end="url(#arr-accent)"/>
   <text class="lbl" x="748" y="632" text-anchor="end">aws CLI</text>
   <text class="lbl" x="748" y="647" text-anchor="end">docker push</text>
-
-  <line class="a" x1="810" y1="282" x2="868" y2="282" marker-end="url(#arr)"/>
-  <text class="lbl" x="854" y="274" text-anchor="end">HTTPS</text>
-  <rect class="n" x="870" y="254" width="190" height="56" rx="6"/>
-  <text class="t" x="965" y="277" text-anchor="middle">Claude API</text>
-  <text class="s" x="965" y="296" text-anchor="middle">diagnose only · your key</text>
 
   <!-- local files -->
   <rect class="n-strong" x="20" y="360" width="170" height="56" rx="6"/>

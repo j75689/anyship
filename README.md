@@ -19,10 +19,10 @@ anyship is a single Go binary. It drives the tools you already use (`wrangler`, 
 [![License](https://img.shields.io/github/license/j75689/anyship)](LICENSE)
 [![M8ven Score](https://m8ven.ai/badge/mcp/j75689/anyship)](https://m8ven.ai/mcp/j75689/anyship?s=readme)
 
-> **Status: early (v0.3).** The spec, rule-based detection, the CLI, the MCP server and four targets
-> are implemented: Cloudflare Workers, VPS (Docker over SSH), Google Cloud Run and Amazon ECS Express
-> Mode. The [Targets](#targets) table says which of them have been run against the real platform.
-> `diagnose` is experimental. What comes next is on the [roadmap](#roadmap).
+> **Status: early (v0.5).** The spec, rule-based detection, the CLI, the MCP server and five targets
+> are implemented: Cloudflare Workers, VPS (Docker over SSH), Google Cloud Run, Amazon ECS Express
+> Mode and Kubernetes. The [Targets](#targets) table says which of them have been run against the
+> real platform. What comes next is on the [roadmap](#roadmap).
 
 ```console
 $ anyship init
@@ -255,44 +255,41 @@ for that run only. A pipeline passes the digest it just built, and `anyship.yaml
 $ anyship apply -t gcp --image web=us-docker.pkg.dev/acme/apps/shop@sha256:9b2c…
 ```
 
-## Diagnose failures with Claude
+## Diagnose a failed deploy with your agent
+
+anyship calls no model. It hands your agent what it knows and lets the agent reason:
 
 ```console
 $ anyship diagnose -t vps --note "lighthouse keeps restarting"
-# Illustrative output:
-Diagnosis: lighthouse can't authenticate to reth's engine API.
-
-Root cause (high confidence)
+## anyship.yaml (anyship.yaml), deploying to the vps target
 ...
-Proposed change to anyship.yaml (applies cleanly and plans without errors)
-  add /services/lighthouse/secrets: ["JWT_SECRET"]
-
-Apply this change to anyship.yaml? [y/N]
+## What the user reports
+...
+## anyship plan: findings and actions
+...
+## Target checks (dry run)
+...
+## Status
+...
+## Recent logs (last 200 lines per service)
+...
 ```
 
-> **Experimental.** `diagnose` is tested against a stubbed API and has not been run against the live
-> Claude API yet ([#27](https://github.com/j75689/anyship/issues/27)). Redaction works by pattern, so
-> it can miss a secret in a shape it doesn't know: `--show-context` needs no key and prints exactly
-> what would be sent, and it is worth searching that for your own secrets before the first real call.
+`diagnose` collects what anyship already knows (the spec, plan findings, the target's dry-run checks,
+status, recent logs and the generated compose.yaml or Dockerfiles), redacts secrets, and prints it as
+Markdown (`--json` wraps it as `{"context": ...}`). Paste it into whatever assistant you use with your
+question, or skip the paste: with the [MCP server](#use-it-from-ai-agents-mcp) the agent calls
+`diagnose_context` and gets the same text itself. The agent then proposes a change to `anyship.yaml`,
+and `anyship plan` tells you whether it holds up, the same as any edit you make by hand.
 
-`diagnose` collects what anyship already knows (plan findings, the target's dry-run checks, status,
-recent logs and the generated compose.yaml or Dockerfiles) and asks Claude for the root cause, the
-evidence for it, next steps, and a fix. The rules:
-
-- **Nothing is written unless you confirm.** A proposed `anyship.yaml` change is shown only if it
-  applies and the patched spec plans cleanly; otherwise the rejection goes back to Claude, up to three
-  times. Fixes outside `anyship.yaml` (your code, a hand-written Dockerfile, the host) are described,
-  never applied.
-- **Secrets are redacted before anything is sent:** values of the spec's secrets found in your
+- **Nothing is written.** `diagnose` reads and prints; the fix is an edit to `anyship.yaml` that you
+  review. `--no-checks` skips the dry run when the target's checks are slow or you only want the logs.
+- **Secrets are redacted before anything is printed:** values of the spec's secrets found in your
   environment, credential-like keys (`*_KEY`, `*_TOKEN`, `*PASSWORD*`, ...), `Authorization` headers,
-  API tokens, passwords in URLs and private keys. `--show-context` prints exactly what would be sent,
-  without calling the API.
-- **Bring your own credentials:** `ANTHROPIC_API_KEY`, or `ant auth login`. It uses `claude-opus-5-5`
-  at high effort by default (`--model`, `--effort` to change). Everything else in anyship works without
-  a key.
-
-Using an agent instead? The MCP tool `diagnose_context` returns the same redacted context, so the agent
-can diagnose with its own model and no extra key.
+  API tokens, passwords in URLs and private keys. Redaction works by pattern, so it can miss a secret
+  in a shape it doesn't know: read the output before pasting it anywhere you wouldn't paste a secret.
+- **No key, no vendor.** Any model your agent runs on will do. anyship needs nothing beyond the
+  platform CLI it already uses.
 
 ## Use it from AI agents (MCP)
 
