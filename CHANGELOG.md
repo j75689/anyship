@@ -31,13 +31,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing, never downloads wrangler, and exits 1 when a check fails; the findings use the
   preflight codes. Adapters opt in with `adapter.Doctor`, and the MCP server has a `doctor` tool
   with the same output (#130).
-
 - Version floors where anyship depends on a feature: kubectl 1.26 (`apply --prune-allowlist`),
-  docker buildx 0.6.0 (`--metadata-file`), gcloud 515.0.0 (`run deploy --startup-probe`), aws CLI 2.32.2 (the ECS Express Mode commands) and
-  wrangler 3.91.0 (`wrangler.jsonc` without a flag). An older tool is a warning,
-  `<TARGET>_PREFLIGHT_VERSION` (`K8S_`, `AWS_`, `GCP_` for buildx, `CF_`), in `apply`'s checks and
-  in `doctor`, whose tools carry the floor as `min`; it never blocks a deploy. Node.js has no floor of its own: wrangler checks the Node.js it runs on
-  (#130).
+  docker buildx 0.6.0 (`--metadata-file`), gcloud 515.0.0 (`run deploy --startup-probe`), aws CLI
+  2.32.2 (the ECS Express Mode commands) and wrangler 3.91.0 (`wrangler.jsonc` without a flag). An
+  older tool is a warning, `<TARGET>_PREFLIGHT_VERSION` (`K8S_`, `AWS_`, `GCP_` for buildx, `CF_`),
+  in `apply`'s checks and in `doctor`, whose tools carry the floor as `min`; it never blocks a
+  deploy. Node.js has no floor of its own: wrangler checks the Node.js it runs on (#130).
 
 ### Fixed
 
@@ -47,6 +46,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `status`, `logs` and `destroy` (and any other command) say which tool isn't installed and point
   at `anyship doctor`, instead of exec's "executable file not found in $PATH" behind a guess such
   as "has it been deployed?"; over MCP the message names the `doctor` tool (#130).
+- The cloudflare checks read npm 9's `npm ERR!` lines as well as npm 10's `npm error`, so a
+  wrangler that isn't downloaded yet is skipped on Node.js 18's npm too, instead of blocking the
+  deploy as a wrangler that doesn't run; `doctor` runs the same checks as `apply`, so a wrangler that
+  is installed but broken is an error in both (#130).
+- `doctor` warns when it can't read whether the aws CLI has credentials, instead of passing a login
+  it didn't check, and runs `aws --version` and `gcloud --version` once each (#130).
+- A missing tool's error names the target: `anyship doctor -t <target>` (the doctor tool with
+  `target` over MCP), which checks that target whether or not `anyship.yaml` names it (#130).
 
 ## [0.6.0] - 2026-10-08
 

@@ -1214,3 +1214,19 @@ func TestPlanAutoscaler(t *testing.T) {
 		t.Error("without maxReplicas the Deployment carries its replica count and there is no autoscaler")
 	}
 }
+
+// An old buildx is a warning; the build and the deploy go ahead.
+func TestApplyWarnsAboutOldBuildx(t *testing.T) {
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "start": "node server.js", "ports": [{"port": 3000}]}}, `+target+`}`)
+	env, fc := newEnv(t, nodeApp(t), nil)
+	fc.out["docker buildx version"] = "github.com/docker/buildx v0.5.1 11057da\n"
+	r := apply(t, s, env)
+	if !r.OK || !slices.Contains(resultCodes(r), "K8S_PREFLIGHT_VERSION") || fc.find("docker buildx build") == nil || fc.find("kubectl apply") == nil {
+		t.Errorf("old buildx: ok=%v findings=%v", r.OK, resultCodes(r))
+	}
+	for _, f := range r.Findings {
+		if f.Code == "K8S_PREFLIGHT_VERSION" && !strings.Contains(f.Message, "docker buildx 0.6.0 or newer") {
+			t.Errorf("message = %q", f.Message)
+		}
+	}
+}

@@ -194,11 +194,15 @@ const (
 	infrastructurePolicy = "arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRoleforExpressGatewayServices"
 )
 
-// cliVersion reads the aws CLI's version; v1 printed it to stderr.
+// cliVersion reads the aws CLI's version.
 func cliVersion(ctx context.Context, env *adapter.Env) string {
 	out, errOut, _ := adapter.Probe(ctx, env, adapter.ExecOptions{}, "aws", "--version")
-	return adapter.VersionIn(out + " " + errOut)
+	return cliVersionIn(out, errOut)
 }
+
+// cliVersionIn picks the version out of what `aws --version` printed; v1
+// printed it to stderr.
+func cliVersionIn(out, errOut string) string { return adapter.VersionIn(out + " " + errOut) }
 
 var notInstalled = adapter.Finding{Level: adapter.Error, Code: "AWS_PREFLIGHT_CLI", Message: "The aws CLI isn't installed on this machine.",
 	Hint: "Install AWS CLI v2 (https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), then run `aws configure` or `aws sso login`."}
@@ -340,7 +344,7 @@ func withValueFile(value string, fn func(uri string) error) error {
 func dockerLogin(ctx context.Context, c cli, registry string) error {
 	var token bytes.Buffer
 	if err := c.run(ctx, nil, &token, "ecr", "get-login-password"); err != nil || token.Len() == 0 {
-		return fmt.Errorf("couldn't get an ECR login password from the aws CLI: %v", err)
+		return fmt.Errorf("couldn't get an ECR login password from the aws CLI: %w", err)
 	}
 	c.env.Logf("$ docker login %s", registry)
 	err := c.env.Exec(ctx, adapter.ExecOptions{Dir: c.env.Dir, Stdin: strings.NewReader(strings.TrimSpace(token.String())), Stdout: io.Discard},

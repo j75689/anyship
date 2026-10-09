@@ -25,10 +25,11 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 
 	var c adapter.Checkup
 	cli := adapter.Tool{Name: "aws", Need: "deploys to ECS Express Mode", Min: adapter.AWSFloor.Min}
-	if _, _, err := adapter.Probe(ctx, env, adapter.ExecOptions{}, "aws", "--version"); err != nil {
+	out, errOut, err := adapter.Probe(ctx, env, adapter.ExecOptions{}, "aws", "--version")
+	if err != nil {
 		c.Findings = append(c.Findings, adapter.Missing(notInstalled, "aws", err))
 	} else {
-		cli.Found, cli.Version = true, cliVersion(ctx, env)
+		cli.Found, cli.Version = true, cliVersionIn(out, errOut)
 		c.Findings = append(c.Findings, adapter.AWSFloor.Check(cli.Version, "AWS_PREFLIGHT_VERSION")...)
 		args := []string{"configure", "list"}
 		if o.Profile != "" {
@@ -40,6 +41,15 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 		case err != nil:
 			c.Findings = append(c.Findings, adapter.Finding{Level: adapter.Error, Code: "AWS_PREFLIGHT_AUTH",
 				Message: fmt.Sprintf("The aws CLI can't read its configuration: %s", lastLine(errOut, err)), Hint: loginHint})
+		case !found:
+			// The output has no access_key row anyship can read: say so rather
+			// than pass a login that wasn't checked.
+			check := "aws sts get-caller-identity"
+			if o.Profile != "" {
+				check += " --profile " + o.Profile
+			}
+			c.Findings = append(c.Findings, adapter.Finding{Level: adapter.Warning, Code: "AWS_PREFLIGHT_AUTH",
+				Message: "anyship couldn't tell from `aws configure list` whether the aws CLI has credentials.", Hint: fmt.Sprintf("Check with `%s`, as apply's preflight does.", check)})
 		case found && kind == "":
 			c.Findings = append(c.Findings, adapter.Finding{Level: adapter.Error, Code: "AWS_PREFLIGHT_AUTH", Message: "The aws CLI has no credentials.", Hint: loginHint})
 		case found:

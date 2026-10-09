@@ -1439,3 +1439,17 @@ func TestPlanWarnsAboutMovingTags(t *testing.T) {
 		}
 	}
 }
+
+// An old buildx is a warning; the build and the deploy go ahead.
+func TestApplyWarnsAboutOldBuildx(t *testing.T) {
+	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "start": "node server.js"}}, `+target+`}`)
+	env, fc := newEnv(t, nodeApp(t), nil)
+	fc.out["docker buildx version"] = "github.com/docker/buildx v0.5.1 11057da\n"
+	res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+	if err != nil || !res.OK || res.Findings[0].Code != "GCP_PREFLIGHT_VERSION" || !strings.Contains(res.Findings[0].Message, "docker buildx 0.6.0 or newer") {
+		t.Fatalf("an old buildx should only warn: %v %+v", err, res)
+	}
+	if fc.find("docker buildx build") == nil || fc.find("gcloud run deploy") == nil {
+		t.Error("not built and deployed")
+	}
+}

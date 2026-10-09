@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/j75689/anyship/adapter"
 	"github.com/j75689/anyship/internal/exectest"
 )
 
@@ -53,8 +54,24 @@ func TestDoctor(t *testing.T) {
 	if c := New().Doctor(context.Background(), s, f.Env(t.TempDir())); !slices.Equal(exectest.Codes(c.Findings), []string{"AWS_PREFLIGHT_AUTH"}) {
 		t.Errorf("unknown profile: %+v", c.Findings)
 	}
+	// Output anyship can't read is said so, not passed as a login.
+	f.Answers["aws configure list --profile prod"] = exectest.Answer{Stdout: "something new\n"}
+	if c := New().Doctor(context.Background(), s, f.Env(t.TempDir())); !slices.Equal(exectest.Codes(c.Findings), []string{"AWS_PREFLIGHT_AUTH"}) || c.Findings[0].Level != adapter.Warning ||
+		!strings.Contains(c.Findings[0].Hint, "aws sts get-caller-identity --profile prod") || c.Tools[0].Login != "" {
+		t.Errorf("unreadable credentials: %+v", c)
+	}
 	f.Answers["aws --version"] = exectest.Missing("aws")
 	if c := New().Doctor(context.Background(), nil, f.Env(t.TempDir())); !slices.Equal(exectest.Codes(c.Findings), []string{"AWS_PREFLIGHT_CLI"}) {
 		t.Errorf("no aws: %+v", c.Findings)
+	}
+	// Starting the aws CLI is slow; its version is read in one run.
+	var versions int
+	for _, call := range f.Calls {
+		if call.Line == "aws --version" {
+			versions++
+		}
+	}
+	if runs := 5; versions != runs {
+		t.Errorf("aws --version ran %d times for %d checkups", versions, runs)
 	}
 }

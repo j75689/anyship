@@ -628,3 +628,31 @@ func TestPlanWarnsAboutMovingTags(t *testing.T) {
 		}
 	}
 }
+
+// An old aws CLI or buildx is a warning; the deploy goes ahead.
+func TestApplyWarnsAboutOldTools(t *testing.T) {
+	t.Run("aws", func(t *testing.T) {
+		s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx"}}, `+target+`}`)
+		env, fa := newEnv(t, t.TempDir(), nil)
+		fa.out["aws --version"] = "aws-cli/2.27.0 Python/3.13.1 Darwin/25.6.0 exe/arm64\n"
+		res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+		if err != nil || !res.OK || res.Findings[0].Code != "AWS_PREFLIGHT_VERSION" || !strings.Contains(res.Findings[0].Message, "aws CLI 2.32.2 or newer") {
+			t.Fatalf("an old aws CLI should only warn: %v %+v", err, res)
+		}
+		if fa.find("aws ecs create-express-gateway-service") == nil {
+			t.Error("not deployed")
+		}
+	})
+	t.Run("buildx", func(t *testing.T) {
+		s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "start": "node server.js", "ports": [{"port": 3000}]}}, `+target+`}`)
+		env, fa := newEnv(t, nodeApp(t), nil)
+		fa.out["docker buildx version"] = "github.com/docker/buildx v0.5.1 11057da\n"
+		res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+		if err != nil || !res.OK || res.Findings[0].Code != "AWS_PREFLIGHT_VERSION" || !strings.Contains(res.Findings[0].Message, "docker buildx 0.6.0 or newer") {
+			t.Fatalf("an old buildx should only warn: %v %+v", err, res)
+		}
+		if fa.find("docker buildx build") == nil {
+			t.Error("not built")
+		}
+	})
+}

@@ -85,7 +85,7 @@ func diagnoseContext(ctx context.Context, d *deployment, config, note string, ch
 		SpecPath: config,
 		SpecRaw:  raw,
 		Adapter:  d.adapter,
-		NewEnv:   capturingEnv(d.env),
+		NewEnv:   capturingEnv(d),
 		Note:     note,
 		Checks:   checks,
 		Progress: progress,
@@ -94,16 +94,14 @@ func diagnoseContext(ctx context.Context, d *deployment, config, note string, ch
 	return withoutLinesAbout(collected.Render(), filepath.Base(outDir)), nil
 }
 
-// capturingEnv derives Envs whose progress and command output go to out and
-// whose commands get an empty stdin.
-func capturingEnv(base *adapter.Env) func(dryRun bool, out io.Writer) *adapter.Env {
+// capturingEnv derives Envs for d's target whose progress and command
+// output go to out and whose commands get an empty stdin.
+func capturingEnv(d *deployment) func(dryRun bool, out io.Writer) *adapter.Env {
 	return func(dryRun bool, out io.Writer) *adapter.Env {
-		env := *base
+		env := *d.env
 		env.DryRun = dryRun
 		env.Logf = func(format string, args ...any) { fmt.Fprintf(out, format+"\n", args...) }
-		env.Exec = func(ctx context.Context, opts adapter.ExecOptions, name string, args ...string) error {
-			return runWith(ctx, opts, stdio{in: bytes.NewReader(nil), out: out, err: out}, name, args...)
-		}
+		env.Exec = execFor(d.adapter.Name(), stdio{in: bytes.NewReader(nil), out: out, err: out})
 		return &env
 	}
 }

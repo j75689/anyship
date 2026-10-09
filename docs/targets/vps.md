@@ -13,6 +13,8 @@ spec:
       sudo: false                      # run docker via `sudo -n`
 ```
 
+- `anyship doctor` checks that this machine has an `ssh` client, and its version. Docker runs on the
+  server, so `apply` checks it there.
 - The spec becomes a Docker Compose project (`.anyship/vps/compose.yaml`, kept locally for review).
   `apply` uploads it with the build context of every service that builds from source over `ssh`,
   then runs `docker compose up -d --build` on the host. The host needs Docker with the Compose plugin.

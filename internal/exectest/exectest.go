@@ -21,7 +21,8 @@ type Answer struct {
 func Missing(name string) Answer { return Answer{Err: &exec.Error{Name: name, Err: exec.ErrNotFound}} }
 
 // Fake answers commands from Answers, by the longest prefix of the command
-// line that has an answer; a command no prefix matches succeeds silently. Calls records each command line with its options.
+// line that has an answer; a command no prefix matches succeeds silently.
+// Calls records each command line with its options.
 type Fake struct {
 	Answers map[string]Answer
 	Calls   []Call
