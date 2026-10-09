@@ -36,7 +36,7 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 			c.Findings = append(c.Findings, adapter.Finding{Level: adapter.Error, Code: "GCP_PREFLIGHT_AUTH", Message: "gcloud has no account set.", Hint: loginHint(o.Configuration)})
 		}
 	}
-	buildx, findings := adapter.Buildx(ctx, env, s, "GCP_PREFLIGHT_DOCKER")
+	buildx, findings := adapter.Buildx(ctx, env, adapter.BuildsFromSource(s), "GCP")
 	c.Tools = append(c.Tools, gcloud, buildx)
 	c.Findings = append(c.Findings, findings...)
 	return c

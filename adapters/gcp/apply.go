@@ -335,9 +335,8 @@ func preflight(ctx context.Context, g gcloud, d *planData) (string, []adapter.Fi
 		}
 	}
 	if building {
-		if err := g.env.Exec(ctx, adapter.ExecOptions{Dir: g.env.Dir, Stdout: io.Discard, Stderr: io.Discard}, "docker", "buildx", "version"); err != nil {
-			add(adapter.Error, "GCP_PREFLIGHT_DOCKER", "Building from source needs Docker with buildx on this machine.", "Install Docker Desktop or the buildx plugin, or set services.<name>.image.")
-		}
+		_, buildx := adapter.Buildx(ctx, g.env, true, "GCP")
+		findings = append(findings, buildx...)
 	}
 	if !adapter.HasErrors(findings) {
 		add(adapter.Info, "GCP_PREFLIGHT_OK", fmt.Sprintf("Project %s is ready for %s: the required APIs are enabled.", d.opts.Project, account), "")

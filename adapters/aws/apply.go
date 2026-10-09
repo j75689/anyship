@@ -194,6 +194,17 @@ const (
 	infrastructurePolicy = "arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRoleforExpressGatewayServices"
 )
 
+// cliFloor: services are ECS Express Mode services, whose
+// *-express-gateway-service commands came with aws CLI 2.32.2.
+var cliFloor = adapter.Floor{Min: "2.32.2", Feature: "the ECS Express Mode commands (`aws ecs create-express-gateway-service`)",
+	Hint: "Update the aws CLI: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"}
+
+// cliVersion reads the aws CLI's version; v1 printed it to stderr.
+func cliVersion(ctx context.Context, env *adapter.Env) string {
+	out, errOut, _ := adapter.Probe(ctx, env, adapter.ExecOptions{}, "aws", "--version")
+	return adapter.VersionIn(out + " " + errOut)
+}
+
 var notInstalled = adapter.Finding{Level: adapter.Error, Code: "AWS_PREFLIGHT_CLI", Message: "The aws CLI isn't installed on this machine.",
 	Hint: "Install AWS CLI v2 (https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), then run `aws configure` or `aws sso login`."}
 
@@ -215,6 +226,7 @@ func preflight(ctx context.Context, c cli, d *planData) (identity, []adapter.Fin
 		add(adapter.Error, "AWS_PREFLIGHT_AUTH", "The aws CLI isn't logged in.", loginHint)
 		return id, findings
 	}
+	findings = append(findings, cliFloor.Check("the aws CLI", cliVersion(ctx, c.env), "AWS_PREFLIGHT_VERSION")...)
 
 	var clusters struct {
 		Clusters []struct {
@@ -252,9 +264,8 @@ func preflight(ctx context.Context, c cli, d *planData) (identity, []adapter.Fin
 			add(adapter.Error, "AWS_PREFLIGHT_REPOSITORY", fmt.Sprintf("ECR repository %s doesn't exist in %s.", d.opts.Repository, d.opts.Region),
 				fmt.Sprintf("aws ecr create-repository --repository-name %s --region %s", d.opts.Repository, d.opts.Region))
 		}
-		if err := c.env.Exec(ctx, adapter.ExecOptions{Dir: c.env.Dir, Stdout: io.Discard}, "docker", "buildx", "version"); err != nil {
-			add(adapter.Error, "AWS_PREFLIGHT_DOCKER", "Building from source needs Docker with buildx on this machine.", "Install Docker Desktop or the buildx plugin, or set services.<name>.image.")
-		}
+		_, buildx := adapter.Buildx(ctx, c.env, true, "AWS")
+		findings = append(findings, buildx...)
 	}
 	if !adapter.HasErrors(findings) {
 		add(adapter.Info, "AWS_PREFLIGHT_OK", fmt.Sprintf("Account %s is ready in %s: logged in, cluster %s and the IAM roles exist.", id.Account, d.opts.Region, cluster), "")

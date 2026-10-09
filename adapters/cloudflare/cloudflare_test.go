@@ -311,6 +311,13 @@ func TestApplyPreflight(t *testing.T) {
 			}
 			return "3.114.0", nil
 		}, "CF_PREFLIGHT_AUTH", adapter.Error, false},
+		// An old wrangler is only a warning.
+		{"old wrangler", false, func(line string) (string, error) {
+			if line == "npx --no-install wrangler whoami --json" {
+				return `{"loggedIn": true}`, nil
+			}
+			return "3.80.0", nil
+		}, "CF_PREFLIGHT_VERSION", adapter.Warning, true},
 		{"ready", false, func(line string) (string, error) {
 			if line == "npx --no-install wrangler whoami --json" {
 				return `{"loggedIn": true, "email": "dev@example.com"}`, nil
@@ -346,7 +353,7 @@ func TestApplyPreflight(t *testing.T) {
 				return err
 			}
 			res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
-			if err != nil || len(res.Findings) != 1 || res.Findings[0].Code != tc.code || res.Findings[0].Level != tc.level {
+			if err != nil || len(res.Findings) == 0 || res.Findings[0].Code != tc.code || res.Findings[0].Level != tc.level {
 				t.Fatalf("result = %+v, %v", res, err)
 			}
 			if res.OK != tc.deploys || built != tc.deploys {

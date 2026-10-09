@@ -330,7 +330,8 @@ func TestApplyBuildsAndCreates(t *testing.T) {
 	}
 
 	for _, c := range fa.calls {
-		if c.name == "aws" && (!slices.Contains(c.args, "--region") || !slices.Contains(c.args, "--no-cli-pager")) {
+		// Only reading the CLI's own version is local.
+		if c.name == "aws" && c.line() != "aws --version" && (!slices.Contains(c.args, "--region") || !slices.Contains(c.args, "--no-cli-pager")) {
 			t.Errorf("aws call without --region/--no-cli-pager: %s", c.line())
 		}
 	}

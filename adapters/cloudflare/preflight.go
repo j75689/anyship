@@ -13,6 +13,11 @@ import (
 
 var versionPattern = regexp.MustCompile(`\d+\.\d+\.\d+`)
 
+// wranglerFloor: anyship renders wrangler.jsonc, which wrangler reads
+// without an experimental flag since 3.91.0. Node.js has no floor of its
+// own: each wrangler checks the Node.js it runs on, and says so.
+var wranglerFloor = adapter.Floor{Min: "3.91.0", Feature: "`wrangler.jsonc`", Hint: "Update the project's wrangler: `npm install --save-dev wrangler@latest`."}
+
 const installNode = "Install Node.js 18 or newer (https://nodejs.org/), which brings npx; wrangler runs on it."
 
 var notLoggedIn = adapter.Finding{Level: adapter.Error, Code: "CF_PREFLIGHT_AUTH", Message: "wrangler isn't logged in to Cloudflare.",
@@ -66,6 +71,7 @@ func preflight(ctx context.Context, env *adapter.Env, dryRun bool) []adapter.Fin
 		return findings
 	}
 	version := versionPattern.FindString(out)
+	findings = append(findings, wranglerFloor.Check("wrangler", version, "CF_PREFLIGHT_VERSION")...)
 
 	if ok, _ := whoami(probe, "npx", "--no-install", "wrangler"); !ok {
 		f := notLoggedIn

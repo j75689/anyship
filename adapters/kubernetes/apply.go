@@ -229,6 +229,10 @@ func rolloutFailure(ctx context.Context, k kubectl, d *planData, sv service, err
 	return append(messages, fmt.Sprintf("Look closer with `kubectl %s describe deployment/%s` and `anyship logs -t kubernetes %s`.", strings.Join(k.args(), " "), sv.object, sv.name))
 }
 
+// kubectlFloor: deploys prune what the spec dropped with --prune-allowlist,
+// which kubectl 1.26 renamed from --prune-whitelist.
+var kubectlFloor = adapter.Floor{Min: "1.26", Feature: "`apply --prune-allowlist`", Hint: "Install a newer kubectl: https://kubernetes.io/docs/tasks/tools/"}
+
 var notInstalled = adapter.Finding{Level: adapter.Error, Code: "K8S_PREFLIGHT_KUBECTL", Message: "kubectl isn't installed on this machine.",
 	Hint: "Install it: https://kubernetes.io/docs/tasks/tools/"}
 
@@ -241,9 +245,11 @@ func preflight(ctx context.Context, k kubectl, d *planData) (string, []adapter.F
 		findings = append(findings, adapter.Finding{Level: level, Code: code, Message: message, Hint: hint})
 	}
 
-	if _, err := k.probe(ctx, "version", "--client"); err != nil {
+	version, err := k.probe(ctx, "version", "--client")
+	if err != nil {
 		return "", append(findings, adapter.Missing(notInstalled, "kubectl", err))
 	}
+	findings = append(findings, kubectlFloor.Check("kubectl", adapter.VersionIn(version), "K8S_PREFLIGHT_VERSION")...)
 	cluster := k.context
 	if cluster == "" {
 		current, err := k.probe(ctx, "config", "current-context")
@@ -307,9 +313,8 @@ func preflight(ctx context.Context, k kubectl, d *planData) (string, []adapter.F
 		if d.platform == "" {
 			d.platform = nodePlatform(ctx, k, add)
 		}
-		if err := k.env.Exec(ctx, adapter.ExecOptions{Dir: k.env.Dir, Stdout: io.Discard, Stderr: io.Discard}, "docker", "buildx", "version"); err != nil {
-			add(adapter.Error, "K8S_PREFLIGHT_DOCKER", "Building from source needs Docker with buildx on this machine.", "Install Docker Desktop or the buildx plugin, or set services.<name>.image.")
-		}
+		_, buildx := adapter.Buildx(ctx, k.env, true, "K8S")
+		findings = append(findings, buildx...)
 	}
 	if !adapter.HasErrors(findings) {
 		message := fmt.Sprintf("Namespace %s of %s is ready.", k.namespace, cluster)

@@ -125,7 +125,8 @@ Credentials stay on your machine; anyship has no server.
 Every target drives the platform's own CLI (`gcloud`, `aws`, `kubectl`, `wrangler`, `ssh`, and
 `docker buildx` to build images). `anyship doctor` says which of them this machine has, their
 versions and who they are logged in as, for the targets `anyship.yaml` names (or `-t <target>`);
-add `--json` when you paste it into an issue.
+add `--json` when you paste it into an issue. A tool older than a feature anyship uses (kubectl
+1.26, docker buildx 0.6, aws CLI 2.32.2, wrangler 3.91) gets a warning there and in `apply`'s checks.
 
 ## The spec
 

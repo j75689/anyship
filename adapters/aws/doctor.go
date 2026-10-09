@@ -24,12 +24,12 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 	}
 
 	var c adapter.Checkup
-	cli := adapter.Tool{Name: "aws", Need: "deploys to ECS Express Mode"}
-	// aws CLI v1 printed its version to stderr.
-	if out, errOut, err := adapter.Probe(ctx, env, adapter.ExecOptions{}, "aws", "--version"); err != nil {
+	cli := adapter.Tool{Name: "aws", Need: "deploys to ECS Express Mode", Min: cliFloor.Min}
+	if _, _, err := adapter.Probe(ctx, env, adapter.ExecOptions{}, "aws", "--version"); err != nil {
 		c.Findings = append(c.Findings, adapter.Missing(notInstalled, "aws", err))
 	} else {
-		cli.Found, cli.Version = true, adapter.VersionIn(out+" "+errOut)
+		cli.Found, cli.Version = true, cliVersion(ctx, env)
+		c.Findings = append(c.Findings, cliFloor.Check("the aws CLI", cli.Version, "AWS_PREFLIGHT_VERSION")...)
 		args := []string{"configure", "list"}
 		if o.Profile != "" {
 			args = append(args, "--profile", o.Profile)
@@ -46,7 +46,7 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 			cli.Login = fmt.Sprintf("%s (%s)", cmpString(o.Profile, "default"), kind)
 		}
 	}
-	buildx, findings := adapter.Buildx(ctx, env, s, "AWS_PREFLIGHT_DOCKER")
+	buildx, findings := adapter.Buildx(ctx, env, adapter.BuildsFromSource(s), "AWS")
 	c.Tools = append(c.Tools, cli, buildx)
 	c.Findings = append(c.Findings, findings...)
 	return c
