@@ -17,10 +17,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a failed rollout). The table gains `RESTARTS`, `SINCE` and `URL` columns and lists the warnings
   under it; `--json` and the MCP `status` tool carry the new fields, and the address leaves
   `detail` (#127).
-- The cloudflare target runs preflight checks before it builds or deploys, with `--dry-run` too:
-  Node.js and npx are installed (`CF_PREFLIGHT_NODE`), `npx wrangler --version` runs
-  (`CF_PREFLIGHT_WRANGLER`) and wrangler is logged in (`CF_PREFLIGHT_AUTH`, read from
-  `wrangler whoami --json`, since plain `whoami` exits 0 when logged out) (#130).
+- The cloudflare target runs preflight checks before it builds or deploys: Node.js and npx are
+  installed (`CF_PREFLIGHT_NODE`), wrangler runs (`CF_PREFLIGHT_WRANGLER`) and is logged in
+  (`CF_PREFLIGHT_AUTH`, read from `wrangler whoami --json`, since plain `whoami` exits 0 when
+  logged out). Nothing that worked before stops working: `apply --dry-run` still runs without a
+  login (a missing one is a warning there, an error only for a real deploy), and the checks never
+  download wrangler (`npx --no-install`); one that isn't in the project or npx's cache yet skips
+  them, and the deploy's npx downloads it as before (#130).
 
 ### Fixed
 

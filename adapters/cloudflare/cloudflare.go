@@ -321,7 +321,7 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 	}
 
 	env.Logf("checking node and wrangler")
-	checks := preflight(ctx, env)
+	checks := preflight(ctx, env, env.DryRun)
 	result := func(ok bool, messages ...string) *adapter.Result {
 		return &adapter.Result{OK: ok, Findings: checks, Messages: messages}
 	}
