@@ -24,7 +24,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   login (a missing one is a warning there, an error only for a real deploy), and the checks never
   download wrangler (`npx --no-install`); one that isn't in the project or npx's cache yet skips
   them, and the deploy's npx downloads it as before (#130).
-
 - `anyship doctor [-t <target>] [--json]` checks this machine for the targets `anyship.yaml` names,
   or every target: for each CLI a target drives (`gcloud`, `aws`, `kubectl`, `docker buildx`,
   `node` and `wrangler`, `ssh`), whether it is installed, its version and who it is logged in as,
