@@ -122,6 +122,11 @@ The Cloudflare target runs `npx wrangler deploy`, so it needs Node.js, which any
 to Workers already has. Log in once with `npx wrangler login` (or set `CLOUDFLARE_API_TOKEN`).
 Credentials stay on your machine; anyship has no server.
 
+Every target drives the platform's own CLI (`gcloud`, `aws`, `kubectl`, `wrangler`, `ssh`, and
+`docker buildx` to build images). `anyship doctor` says which of them this machine has, their
+versions and who they are logged in as, for the targets `anyship.yaml` names (or `-t <target>`);
+add `--json` when you paste it into an issue.
+
 ## The spec
 
 ```yaml
@@ -330,6 +335,7 @@ that look like projects, so the agent can pass one as `dir`.
 | `plan` | what a deploy would do, every unmet need, and the generated files with their contents | no |
 | `status`, `logs` | what runs on the target (with a `healthy` verdict), and its recent logs (`timestamps` to date them) | no |
 | `diagnose_context` | everything above plus dry-run checks, redacted, for diagnosing a failure | no |
+| `doctor` | which CLIs a target needs are installed on this machine, their versions and logins | no |
 | `apply` | deploy; `dry_run` runs the target's checks and generates the deployment files; the result names the files written | `.anyship/<target>/`; deploys only with `--allow-deploy` |
 | `destroy` | remove a deployment; `volumes` also deletes data | no; removes only with `--allow-deploy` |
 

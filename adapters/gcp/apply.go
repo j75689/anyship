@@ -231,6 +231,16 @@ var requiredAPIs = map[string]string{
 	"compute":  "compute.googleapis.com",
 }
 
+var notInstalled = adapter.Finding{Level: adapter.Error, Code: "GCP_PREFLIGHT_GCLOUD", Message: "gcloud isn't installed on this machine.",
+	Hint: "Install the Google Cloud CLI (https://cloud.google.com/sdk/docs/install), then run `gcloud auth login`."}
+
+func loginHint(configuration string) string {
+	if configuration != "" {
+		return fmt.Sprintf("Run `gcloud auth login`, then `gcloud config set account <email> --configuration %s`.", configuration)
+	}
+	return "Run `gcloud auth login`."
+}
+
 // preflight checks the login, project, APIs and registry before anything
 // changes, and returns the project's Compute Engine default service account,
 // which a service runs as when the spec names no other.
@@ -242,16 +252,10 @@ func preflight(ctx context.Context, g gcloud, d *planData) (string, []adapter.Fi
 
 	account, err := g.probe(ctx, "config", "get-value", "account")
 	if adapter.NotInstalled(err) {
-		add(adapter.Error, "GCP_PREFLIGHT_GCLOUD", "gcloud isn't installed on this machine.",
-			"Install the Google Cloud CLI (https://cloud.google.com/sdk/docs/install), then run `gcloud auth login`.")
-		return "", findings
+		return "", append(findings, notInstalled)
 	}
 	if _, err := g.probe(ctx, "auth", "print-access-token"); err != nil || account == "" {
-		hint := "Run `gcloud auth login`."
-		if g.configuration != "" {
-			hint = fmt.Sprintf("Run `gcloud auth login`, then `gcloud config set account <email> --configuration %s`.", g.configuration)
-		}
-		add(adapter.Error, "GCP_PREFLIGHT_AUTH", "gcloud isn't logged in.", hint)
+		add(adapter.Error, "GCP_PREFLIGHT_AUTH", "gcloud isn't logged in.", loginHint(g.configuration))
 		return "", findings
 	}
 	number, err := g.probe(ctx, "projects", "describe", d.opts.Project, "--format", "value(projectNumber)")

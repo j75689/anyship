@@ -229,6 +229,9 @@ func rolloutFailure(ctx context.Context, k kubectl, d *planData, sv service, err
 	return append(messages, fmt.Sprintf("Look closer with `kubectl %s describe deployment/%s` and `anyship logs -t kubernetes %s`.", strings.Join(k.args(), " "), sv.object, sv.name))
 }
 
+var notInstalled = adapter.Finding{Level: adapter.Error, Code: "K8S_PREFLIGHT_KUBECTL", Message: "kubectl isn't installed on this machine.",
+	Hint: "Install it: https://kubernetes.io/docs/tasks/tools/"}
+
 // preflight checks that kubectl is installed, that the context and the
 // namespace exist, that this login may create Deployments there, and that
 // images can be built. It returns the name of the cluster's context.
@@ -238,12 +241,8 @@ func preflight(ctx context.Context, k kubectl, d *planData) (string, []adapter.F
 		findings = append(findings, adapter.Finding{Level: level, Code: code, Message: message, Hint: hint})
 	}
 
-	if _, err := k.probe(ctx, "version", "--client"); adapter.NotInstalled(err) {
-		add(adapter.Error, "K8S_PREFLIGHT_KUBECTL", "kubectl isn't installed on this machine.", "Install it: https://kubernetes.io/docs/tasks/tools/")
-		return "", findings
-	} else if err != nil {
-		add(adapter.Error, "K8S_PREFLIGHT_KUBECTL", fmt.Sprintf("kubectl doesn't run on this machine: %v.", err), "Install it: https://kubernetes.io/docs/tasks/tools/")
-		return "", findings
+	if _, err := k.probe(ctx, "version", "--client"); err != nil {
+		return "", append(findings, adapter.Missing(notInstalled, "kubectl", err))
 	}
 	cluster := k.context
 	if cluster == "" {

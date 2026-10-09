@@ -65,7 +65,7 @@ func (a *app) rootCommand(version string) *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.AddCommand(a.initCommand(), a.validateCommand(), a.planCommand(), a.applyCommand(),
-		a.logsCommand(), a.statusCommand(), a.destroyCommand(), a.diagnoseCommand(), a.targetsCommand(),
+		a.logsCommand(), a.statusCommand(), a.destroyCommand(), a.diagnoseCommand(), a.doctorCommand(), a.targetsCommand(),
 		a.schemaCommand(), a.mcpCommand(version))
 	return root
 }
