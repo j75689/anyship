@@ -66,6 +66,9 @@ var (
 	backtickedCommand = regexp.MustCompile("`anyship (init|apply|status|logs|destroy|plan|validate|diagnose|doctor)\\b([^`]*)`")
 	bareCommand       = regexp.MustCompile(`\banyship (init|apply|status|logs|destroy|plan|validate|diagnose|doctor)\b`)
 	bareFlags         = strings.NewReplacer("destroy --volumes", "destroy with volumes=true", "apply --dry-run", "apply with dry_run=true")
+	// targetFlag is a command line whose only flag picks the target, which
+	// becomes the tool's target argument.
+	targetFlag = regexp.MustCompile(`^ -t ([a-z]+)$`)
 )
 
 // toolFor names the tool behind a command, where the two differ.
@@ -94,6 +97,8 @@ func agentText(text string) string {
 	text = backtickedCommand.ReplaceAllStringFunc(text, func(match string) string {
 		m := backtickedCommand.FindStringSubmatch(match)
 		switch {
+		case targetFlag.MatchString(m[2]):
+			return tool(m[1]) + " with target=" + targetFlag.FindStringSubmatch(m[2])[1]
 		case strings.Contains(m[2], "--volumes"):
 			return tool(m[1]) + " with volumes=true"
 		case strings.Contains(m[2], "--dry-run"):
@@ -461,9 +466,7 @@ func (a *app) prepareForMCP(config, target string, dryRun bool) (*deployment, *t
 	}
 	output := &tailBuffer{max: maxToolOutput}
 	d.env.Logf = func(format string, args ...any) { fmt.Fprintf(output, format+"\n", args...) }
-	d.env.Exec = func(ctx context.Context, opts adapter.ExecOptions, name string, args ...string) error {
-		return runWith(ctx, opts, stdio{in: bytes.NewReader(nil), out: output, err: output}, name, args...)
-	}
+	d.env.Exec = execFor(target, stdio{in: bytes.NewReader(nil), out: output, err: output})
 	return d, output, nil
 }
 

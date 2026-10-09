@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/j75689/anyship/adapter"
+	"github.com/j75689/anyship/internal/exectest"
 	"github.com/j75689/anyship/internal/spectest"
 	"github.com/j75689/anyship/spec"
 )
@@ -462,5 +463,31 @@ func TestDestroyDeletesTheWorker(t *testing.T) {
 
 	if _, err := New().DestroySummary(s, adapter.DestroyOptions{Volumes: true}); err == nil {
 		t.Error("--volumes should be refused on cloudflare")
+	}
+}
+
+// npm before 10 prefixed its messages with "npm ERR!", and Node.js 18 ships
+// one; a wrangler that isn't downloaded yet must read the same there.
+func TestPreflightReadsOlderNpmErrors(t *testing.T) {
+	f := &exectest.Fake{Answers: map[string]exectest.Answer{
+		"node --version": {Stdout: "v18.17.0\n"},
+		"npx --no-install wrangler --version": {Err: errors.New("exit status 1"),
+			Stderr: "npm ERR! canceled due to missing packages and no YES option: [\"wrangler@4.149.0\"]\n\nnpm ERR! A complete log of this run can be found in: /x/_logs/1-debug-0.log\n"},
+	}}
+	findings := preflight(context.Background(), f.Env(t.TempDir()), false)
+	if len(findings) != 1 || findings[0].Code != "CF_PREFLIGHT_WRANGLER" || findings[0].Level != adapter.Info {
+		t.Errorf("findings = %+v", findings)
+	}
+	for stderr, want := range map[string]string{
+		"npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/x\n":                             "code E404",
+		"npm ERR! canceled due to missing packages\nnpm ERR! A complete log of this run can be found in: /x\n":          "canceled due to missing packages",
+		"Error: Cannot find module 'undici'\n    at Module._resolveFilename\n    at Module._load\n":                     "Error: Cannot find module 'undici'",
+		"node:internal/modules/cjs/loader:1228\n  throw err;\n  ^\n\nTypeError [ERR_INVALID_ARG_TYPE]: bad\n    at f\n": "TypeError [ERR_INVALID_ARG_TYPE]: bad",
+		"something else went wrong\n": "something else went wrong",
+		"":                            "",
+	} {
+		if got := npxError(stderr); got != want {
+			t.Errorf("npxError(%q) = %q, want %q", stderr, got, want)
+		}
 	}
 }

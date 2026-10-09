@@ -26,10 +26,11 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 
 	var c adapter.Checkup
 	gcloud := adapter.Tool{Name: "gcloud", Need: "deploys to Cloud Run", Min: adapter.GCloudFloor.Min}
-	if _, _, err := adapter.Probe(ctx, env, opts, "gcloud", "--version"); err != nil {
+	out, _, err := adapter.Probe(ctx, env, opts, "gcloud", "--version")
+	if err != nil {
 		c.Findings = append(c.Findings, adapter.Missing(notInstalled, "gcloud", err))
 	} else {
-		gcloud.Found, gcloud.Version = true, gcloudVersion(ctx, env, opts)
+		gcloud.Found, gcloud.Version = true, gcloudVersionIn(out)
 		c.Findings = append(c.Findings, adapter.GCloudFloor.Check(gcloud.Version, "GCP_PREFLIGHT_VERSION")...)
 		gcloud.Login, _, _ = adapter.Probe(ctx, env, opts, "gcloud", "config", "get-value", "account")
 		if gcloud.Login == "" {

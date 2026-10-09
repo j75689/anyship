@@ -234,12 +234,15 @@ var requiredAPIs = map[string]string{
 var notInstalled = adapter.Finding{Level: adapter.Error, Code: "GCP_PREFLIGHT_GCLOUD", Message: "gcloud isn't installed on this machine.",
 	Hint: "Install the Google Cloud CLI (https://cloud.google.com/sdk/docs/install), then run `gcloud auth login`."}
 
-// gcloudVersion reads the first line of `gcloud --version`, "Google Cloud
-// SDK 587.0.0"; it is "" when gcloud doesn't say.
+// gcloudVersion reads gcloud's version.
 func gcloudVersion(ctx context.Context, env *adapter.Env, opts adapter.ExecOptions) string {
 	out, _, _ := adapter.Probe(ctx, env, opts, "gcloud", "--version")
-	return adapter.VersionIn(strings.SplitN(out, "\n", 2)[0])
+	return gcloudVersionIn(out)
 }
+
+// gcloudVersionIn picks the version out of the first line of `gcloud
+// --version`, "Google Cloud SDK 587.0.0"; it is "" when gcloud doesn't say.
+func gcloudVersionIn(out string) string { return adapter.VersionIn(strings.SplitN(out, "\n", 2)[0]) }
 
 func loginHint(configuration string) string {
 	if configuration != "" {
@@ -493,7 +496,7 @@ func grantAccess(ctx context.Context, g gcloud, secretID, account string) error 
 func dockerLogin(ctx context.Context, g gcloud, o Options) error {
 	token, err := g.output(ctx, "auth", "print-access-token")
 	if err != nil || token == "" {
-		return fmt.Errorf("couldn't get an access token from gcloud: %v", err)
+		return fmt.Errorf("couldn't get an access token from gcloud: %w", err)
 	}
 	g.env.Logf("$ docker login %s", o.registryHost())
 	err = g.env.Exec(ctx, adapter.ExecOptions{Dir: g.env.Dir, Stdin: strings.NewReader(token), Stdout: io.Discard},

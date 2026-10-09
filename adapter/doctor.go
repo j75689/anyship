@@ -43,10 +43,13 @@ type Doctor interface {
 }
 
 // Probe runs a command with an empty stdin and returns its trimmed stdout
-// and stderr, so nothing reaches the terminal or waits on it.
+// and stderr, so nothing reaches the terminal or waits on it. It runs in
+// env.Dir unless opts.Dir names another directory.
 func Probe(ctx context.Context, env *Env, opts ExecOptions, name string, args ...string) (string, string, error) {
 	var out, errOut bytes.Buffer
-	opts.Dir = env.Dir
+	if opts.Dir == "" {
+		opts.Dir = env.Dir
+	}
 	opts.Stdin, opts.Stdout, opts.Stderr = strings.NewReader(""), &out, &errOut
 	err := env.Exec(ctx, opts, name, args...)
 	return strings.TrimSpace(out.String()), strings.TrimSpace(errOut.String()), err
@@ -54,10 +57,11 @@ func Probe(ctx context.Context, env *Env, opts ExecOptions, name string, args ..
 
 // Missing is the finding for a tool whose version command failed: missing
 // itself when the tool isn't installed, or the same code saying it doesn't
-// run when it is.
+// run, and why, when it is; the install hint gives way to one about that.
 func Missing(missing Finding, tool string, err error) Finding {
 	if !NotInstalled(err) {
 		missing.Message = fmt.Sprintf("%s is installed but doesn't run: %v.", tool, err)
+		missing.Hint = fmt.Sprintf("Run `%s` by hand to see why, or reinstall it.", tool)
 	}
 	return missing
 }

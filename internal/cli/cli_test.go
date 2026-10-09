@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/j75689/anyship/adapter"
+	"github.com/j75689/anyship/spec"
 )
 
 func TestValidSince(t *testing.T) {
@@ -142,5 +145,24 @@ func TestMissingToolNamesItself(t *testing.T) {
 	}
 	if other := errors.New("exit status 1"); causeForUser(other) != other {
 		t.Error("another error was replaced")
+	}
+}
+
+// A tool a target's command needs points doctor at that target, which checks
+// it whatever the spec names; over MCP the doctor tool takes it as target.
+func TestMissingToolNamesTheTarget(t *testing.T) {
+	config := filepath.Join(t.TempDir(), spec.Filename)
+	src := "apiVersion: anyship/v1alpha1\nkind: App\nmetadata:\n  name: demo\nspec:\n  services:\n    web:\n      kind: server\n      image: nginx\n    offline:\n      kind: worker\n      image: busybox\n"
+	if err := os.WriteFile(config, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runCLI(t, "logs", "-t", "fake", "-c", config, "offline")
+	want := "anyship-no-such-tool isn't installed on this machine; `anyship doctor -t fake` says how to install it"
+	if !adapter.NotInstalled(err) || causeForUser(err).Error() != want {
+		t.Errorf("logs: %v", err)
+	}
+	h := connectMCP(t, false)
+	if msg := h.call(t, "logs", map[string]any{"config": config, "target": "fake", "service": "offline"}, nil); msg != "anyship-no-such-tool isn't installed on this machine; the doctor tool with target=fake says how to install it" {
+		t.Errorf("logs tool: %q", msg)
 	}
 }

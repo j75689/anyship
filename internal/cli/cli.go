@@ -375,10 +375,8 @@ func (a *app) keepStdoutForJSON(d *deployment) *tailBuffer {
 		a.logToStderr(format, args...)
 		fmt.Fprintf(output, format+"\n", args...)
 	}
-	d.env.Exec = func(ctx context.Context, opts adapter.ExecOptions, name string, args ...string) error {
-		both := io.MultiWriter(os.Stderr, output)
-		return runWith(ctx, opts, stdio{in: os.Stdin, out: both, err: both}, name, args...)
-	}
+	both := io.MultiWriter(os.Stderr, output)
+	d.env.Exec = execFor(d.adapter.Name(), stdio{in: os.Stdin, out: both, err: both})
 	return output
 }
 
@@ -496,7 +494,7 @@ func (a *app) prepare(config, target string, dryRun bool) (*deployment, error) {
 			OutDir:    filepath.Join(dir, ".anyship", ad.Name()),
 			DryRun:    dryRun,
 			Logf:      func(format string, args ...any) { fmt.Fprintln(a.out, a.style.dim(fmt.Sprintf(format, args...))) },
-			Exec:      run,
+			Exec:      execFor(ad.Name(), stdio{in: os.Stdin, out: os.Stdout, err: os.Stderr}),
 			LookupEnv: os.LookupEnv,
 		},
 	}, nil
@@ -570,14 +568,35 @@ func runWith(ctx context.Context, opts adapter.ExecOptions, std stdio, name stri
 // error, so adapter.NotInstalled still recognizes it.
 type notInstalledError struct {
 	tool string
-	err  error
+	// target is the target whose command needed the tool, when known;
+	// doctor is then pointed at that target, whatever anyship.yaml names.
+	target string
+	err    error
 }
 
 func (e *notInstalledError) Error() string {
-	return fmt.Sprintf("%s isn't installed on this machine; `anyship doctor` says how to install it", e.tool)
+	doctor := "anyship doctor"
+	if e.target != "" {
+		doctor += " -t " + e.target
+	}
+	return fmt.Sprintf("%s isn't installed on this machine; `%s` says how to install it", e.tool, doctor)
 }
 
 func (e *notInstalledError) Unwrap() error { return e.err }
+
+// execFor is the Exec of a target's commands: they run with std's streams
+// unless the options say otherwise, and a tool that isn't installed names
+// the target, so the error points at `anyship doctor -t <target>`.
+func execFor(target string, std stdio) func(ctx context.Context, opts adapter.ExecOptions, name string, args ...string) error {
+	return func(ctx context.Context, opts adapter.ExecOptions, name string, args ...string) error {
+		err := runWith(ctx, opts, std, name, args...)
+		var missing *notInstalledError
+		if errors.As(err, &missing) {
+			missing.target = target
+		}
+		return err
+	}
+}
 
 // causeForUser returns the error to show for err: a missing tool alone, since
 // the rest of the message ("has it been deployed?") only misleads then.

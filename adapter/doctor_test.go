@@ -51,8 +51,8 @@ func TestMissingAndVersionIn(t *testing.T) {
 	if got := adapter.Missing(missing, "x", exectest.Missing("x").Err); got.Message != missing.Message {
 		t.Errorf("not installed: %q", got.Message)
 	}
-	if got := adapter.Missing(missing, "x", context.Canceled); got.Message != "x is installed but doesn't run: context canceled." {
-		t.Errorf("broken: %q", got.Message)
+	if got := adapter.Missing(missing, "x", context.Canceled); got.Message != "x is installed but doesn't run: context canceled." || got.Hint != "Run `x` by hand to see why, or reinstall it." {
+		t.Errorf("broken: %+v", got)
 	}
 	for in, want := range map[string]string{"Google Cloud SDK 587.0.0": "587.0.0", "v1.33.9": "1.33.9", "aws-cli/2.27.0 Python/3.13.1": "2.27.0", "none": ""} {
 		if got := adapter.VersionIn(in); got != want {
