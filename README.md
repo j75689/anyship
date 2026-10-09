@@ -134,6 +134,7 @@ Some tools need a minimum version, for a feature anyship uses. An older one gets
 |---|---|---|
 | kubectl | 1.26 | `apply --prune-allowlist` |
 | docker buildx | 0.6.0 | `--metadata-file`, whose digest anyship deploys by |
+| gcloud | 515.0.0 | `gcloud run deploy --startup-probe`, which every deploy sets |
 | aws CLI | 2.32.2 | the ECS Express Mode commands |
 | wrangler | 3.91.0 | `wrangler.jsonc` without an experimental flag |
 

@@ -1038,6 +1038,18 @@ func TestApplyPreflight(t *testing.T) {
 		}
 	})
 
+	t.Run("old gcloud", func(t *testing.T) {
+		env, fc := newEnv(t, t.TempDir(), nil)
+		fc.out["gcloud --version"] = "Google Cloud SDK 502.0.0\nbq 2.1.9\n"
+		res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+		if err != nil || !res.OK || res.Findings[0].Code != "GCP_PREFLIGHT_VERSION" || !strings.Contains(res.Findings[0].Message, "gcloud 515.0.0 or newer") {
+			t.Fatalf("an old gcloud should only warn: %v %+v", err, res)
+		}
+		if fc.find("gcloud run deploy") == nil {
+			t.Error("not deployed")
+		}
+	})
+
 	t.Run("not installed", func(t *testing.T) {
 		env, fc := newEnv(t, t.TempDir(), nil)
 		env.Exec = func(ctx context.Context, opts adapter.ExecOptions, name string, args ...string) error {

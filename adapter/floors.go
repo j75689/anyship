@@ -19,6 +19,10 @@ var (
 	// --metadata-file`, whose digest anyship deploys by; buildx 0.6.0 added it.
 	BuildxFloor = Floor{Tool: "docker buildx", Min: "0.6.0", Feature: "`--metadata-file`",
 		Hint: "Update Docker Desktop, or the buildx plugin: https://github.com/docker/buildx#installing"}
+	// GCloudFloor: every Cloud Run deploy sets or clears the startup probe
+	// with --startup-probe, GA in `gcloud run deploy` since 515.0.0.
+	GCloudFloor = Floor{Tool: "gcloud", Min: "515.0.0", Feature: "`gcloud run deploy --startup-probe`",
+		Hint: "Update it with `gcloud components update`, or with the package manager that installed it."}
 	// AWSFloor: aws services are ECS Express Mode services, whose
 	// *-express-gateway-service commands came with aws CLI 2.32.2.
 	AWSFloor = Floor{Tool: "aws CLI", Min: "2.32.2", Feature: "the ECS Express Mode commands (`aws ecs create-express-gateway-service`)",
@@ -31,7 +35,7 @@ var (
 )
 
 // Floors lists every floor, for documentation and its test.
-var Floors = []Floor{KubectlFloor, BuildxFloor, AWSFloor, WranglerFloor}
+var Floors = []Floor{KubectlFloor, BuildxFloor, GCloudFloor, AWSFloor, WranglerFloor}
 
 // Floor is the oldest version of a tool that has a feature anyship uses.
 type Floor struct {

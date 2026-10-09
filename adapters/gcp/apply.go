@@ -234,6 +234,13 @@ var requiredAPIs = map[string]string{
 var notInstalled = adapter.Finding{Level: adapter.Error, Code: "GCP_PREFLIGHT_GCLOUD", Message: "gcloud isn't installed on this machine.",
 	Hint: "Install the Google Cloud CLI (https://cloud.google.com/sdk/docs/install), then run `gcloud auth login`."}
 
+// gcloudVersion reads the first line of `gcloud --version`, "Google Cloud
+// SDK 587.0.0"; it is "" when gcloud doesn't say.
+func gcloudVersion(ctx context.Context, env *adapter.Env, opts adapter.ExecOptions) string {
+	out, _, _ := adapter.Probe(ctx, env, opts, "gcloud", "--version")
+	return adapter.VersionIn(strings.SplitN(out, "\n", 2)[0])
+}
+
 func loginHint(configuration string) string {
 	if configuration != "" {
 		return fmt.Sprintf("Run `gcloud auth login`, then `gcloud config set account <email> --configuration %s`.", configuration)
@@ -258,6 +265,7 @@ func preflight(ctx context.Context, g gcloud, d *planData) (string, []adapter.Fi
 		add(adapter.Error, "GCP_PREFLIGHT_AUTH", "gcloud isn't logged in.", loginHint(g.configuration))
 		return "", findings
 	}
+	findings = append(findings, adapter.GCloudFloor.Check(gcloudVersion(ctx, g.env, g.options(nil, nil, nil)), "GCP_PREFLIGHT_VERSION")...)
 	number, err := g.probe(ctx, "projects", "describe", d.opts.Project, "--format", "value(projectNumber)")
 	if err != nil || number == "" {
 		add(adapter.Error, "GCP_PREFLIGHT_PROJECT", fmt.Sprintf("%s can't read project %s; check that it exists and that this account has access (%v).", account, d.opts.Project, err),
