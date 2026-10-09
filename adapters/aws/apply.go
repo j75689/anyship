@@ -194,6 +194,11 @@ const (
 	infrastructurePolicy = "arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRoleforExpressGatewayServices"
 )
 
+var notInstalled = adapter.Finding{Level: adapter.Error, Code: "AWS_PREFLIGHT_CLI", Message: "The aws CLI isn't installed on this machine.",
+	Hint: "Install AWS CLI v2 (https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), then run `aws configure` or `aws sso login`."}
+
+const loginHint = "Run `aws configure` or `aws sso login`, or set spec.targets.aws.profile."
+
 // preflight checks the login, cluster, roles and registry before anything changes.
 func preflight(ctx context.Context, c cli, d *planData) (identity, []adapter.Finding) {
 	var findings []adapter.Finding
@@ -204,12 +209,10 @@ func preflight(ctx context.Context, c cli, d *planData) (identity, []adapter.Fin
 	var id identity
 	err := c.json(ctx, &id, "sts", "get-caller-identity")
 	if adapter.NotInstalled(err) {
-		add(adapter.Error, "AWS_PREFLIGHT_CLI", "The aws CLI isn't installed on this machine.",
-			"Install AWS CLI v2 (https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), then run `aws configure` or `aws sso login`.")
-		return id, findings
+		return id, append(findings, notInstalled)
 	}
 	if err != nil || id.Account == "" {
-		add(adapter.Error, "AWS_PREFLIGHT_AUTH", "The aws CLI isn't logged in.", "Run `aws configure` or `aws sso login`, or set spec.targets.aws.profile.")
+		add(adapter.Error, "AWS_PREFLIGHT_AUTH", "The aws CLI isn't logged in.", loginHint)
 		return id, findings
 	}
 

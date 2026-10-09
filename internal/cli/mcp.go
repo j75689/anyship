@@ -25,6 +25,7 @@ const mcpInstructions = `anyship deploys an app described by anyship.yaml to a t
 
 Typical flow for a directory without anyship.yaml: detect (draft a spec) → write anyship.yaml → validate → plan → apply with dry_run → apply.
 If anyship.yaml already exists, start from it: validate → plan → apply; detect then says so (existing) and its draft is only for comparison, not a replacement.
+When a target's CLI is missing or not logged in, doctor says which one and how to fix it.
 Read-only tools never change anything. Deploying and destroying are only possible when the server was started with --allow-deploy.
 Never pass volumes=true to destroy unless the user explicitly asked to delete data; it deletes volumes and secrets for good.
 Resources: anyship://schema is the JSON schema of anyship.yaml, and anyship://targets/<name> is each target's page with its options under spec.targets.<name>, how it deploys and what it refuses. Read a target's page before writing its options.`
@@ -281,6 +282,16 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			}
 			return nil, newStatusOutput(st), nil
 		})
+
+	addTool(server, &mcp.Tool{
+		Name: "doctor",
+		Description: "Check that this machine has the command-line tools a target deploys with (gcloud, aws, kubectl, docker buildx, node and wrangler, ssh), " +
+			"their versions and their logins. Run it first when a target's tool fails or a check says it isn't installed or logged in. Deploys and changes nothing.",
+		Annotations: readsTarget,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in doctorInput) (*mcp.CallToolResult, doctorOutput, error) {
+		out, err := a.newDoctorOutput(ctx, orDefault(in.Config, spec.Filename), in.Config != "", in.Target, agent)
+		return nil, out, err
+	})
 
 	addTool(server, &mcp.Tool{
 		Name:        "logs",

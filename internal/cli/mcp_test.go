@@ -37,6 +37,16 @@ func (*fakeAdapter) Plan(_ context.Context, _ *spec.Spec, env *adapter.Env) (*ad
 	}, nil
 }
 
+// Doctor reports one tool, and an error when the spec's fake options say
+// broken.
+func (*fakeAdapter) Doctor(_ context.Context, s *spec.Spec, _ *adapter.Env) adapter.Checkup {
+	c := adapter.Checkup{Tools: []adapter.Tool{{Name: "fakectl", Need: "deploys the fake", Found: true, Version: "1.2.3", Login: "dev"}}}
+	if s != nil && strings.Contains(string(s.Targets["fake"]), "broken") {
+		c.Findings = []adapter.Finding{{Level: adapter.Error, Code: "FAKE_DOCTOR", Message: "fakectl is broken.", Hint: "Run `anyship targets fake`."}}
+	}
+	return c
+}
+
 func (*fakeAdapter) Status(context.Context, *spec.Spec, *adapter.Env) (*adapter.Status, error) {
 	return &adapter.Status{Target: "fake", Location: "nowhere", Deployed: false, Services: []adapter.ServiceStatus{}}, nil
 }
@@ -172,6 +182,7 @@ func TestMCPListsToolsWithSafetyHints(t *testing.T) {
 		"status":           {readOnly: true, idempotent: true, openWorld: true},
 		"logs":             {readOnly: true, idempotent: true, openWorld: true},
 		"diagnose_context": {readOnly: true, idempotent: true, openWorld: true},
+		"doctor":           {readOnly: true, idempotent: true, openWorld: true},
 		"apply":            {destructive: true, openWorld: true},
 		"destroy":          {destructive: true, idempotent: true, openWorld: true},
 	}
@@ -434,6 +445,7 @@ func TestMCPReadOnlyToolsWriteNothing(t *testing.T) {
 		"status":           onTarget,
 		"logs":             onTarget,
 		"diagnose_context": onTarget,
+		"doctor":           onTarget,
 	}
 
 	listed, err := h.session.ListTools(context.Background(), nil)

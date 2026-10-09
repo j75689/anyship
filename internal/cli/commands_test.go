@@ -246,3 +246,48 @@ func TestCommandsAndToolsAgree(t *testing.T) {
 		t.Errorf("status\n cli  %+v\n tool %+v", viaCLI, status)
 	}
 }
+
+func TestDoctor(t *testing.T) {
+	config := fakeSpec(t)
+	h := connectMCP(t, false)
+
+	out, err := runCLI(t, "doctor", "-t", "fake", "-c", config, "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	viaCLI := decode[doctorOutput](t, out)
+	if !viaCLI.OK || viaCLI.Spec == "" || len(viaCLI.Targets) != 1 || viaCLI.Targets[0].Tools[0].Version != "1.2.3" {
+		t.Errorf("doctor = %+v", viaCLI)
+	}
+	var viaTool doctorOutput
+	if msg := h.call(t, "doctor", map[string]any{"config": config, "target": "fake"}, &viaTool); msg != "" {
+		t.Fatal(msg)
+	}
+	if !reflect.DeepEqual(viaCLI, viaTool) {
+		t.Errorf("doctor\n cli  %+v\n tool %+v", viaCLI, viaTool)
+	}
+
+	// Without --target, the targets the spec names; a failed check exits 1.
+	broken := filepath.Join(t.TempDir(), spec.Filename)
+	src, _ := os.ReadFile(config)
+	if err := os.WriteFile(broken, append(src, "  targets:\n    fake: {broken: true}\n"...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err = runCLI(t, "doctor", "-c", broken)
+	if !errors.Is(err, errReported) || !strings.Contains(out, "fakectl  1.2.3  dev") || !strings.Contains(out, "fakectl is broken.") ||
+		!strings.Contains(out, "Fix the errors above to deploy to fake.") || strings.Contains(out, "vps") {
+		t.Errorf("doctor: %v\n%s", err, out)
+	}
+	if msg := h.call(t, "doctor", map[string]any{"config": broken}, &viaTool); msg != "" || viaTool.OK || !strings.Contains(viaTool.Targets[0].Findings[0].Hint, "anyship://targets/fake") {
+		t.Errorf("doctor tool: %s %+v", msg, viaTool)
+	}
+
+	// No spec is fine, unless one was asked for.
+	t.Chdir(t.TempDir())
+	if out, err := runCLI(t, "doctor", "-t", "fake", "--json"); err != nil || decode[doctorOutput](t, out).Spec != "" {
+		t.Errorf("doctor without a spec: %v\n%s", err, out)
+	}
+	if _, err := runCLI(t, "doctor", "-t", "fake", "-c", "missing.yaml"); err == nil {
+		t.Error("a missing -c spec was accepted")
+	}
+}
