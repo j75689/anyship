@@ -4,6 +4,9 @@ Deploys edge handlers and static sites to Cloudflare Workers by running `npx wra
 needs Node.js and a `wrangler login` (or `CLOUDFLARE_API_TOKEN`). The generated config is kept in
 `.anyship/cloudflare/wrangler.jsonc` for review.
 
+- Every `apply` first checks that Node.js and npx are installed, that `npx wrangler --version` runs
+  and that wrangler is logged in (`wrangler whoami`), before the build runs; `apply --dry-run` runs
+  the same checks (`CF_PREFLIGHT_NODE`, `CF_PREFLIGHT_WRANGLER`, `CF_PREFLIGHT_AUTH`).
 - A spec maps to **one Worker**. Multi-service specs, container images, volumes and non-HTTP ports are
   rejected with a reason and a suggested alternative.
 - `init` scans your code for Node-only APIs (`child_process`, native modules, ...) and marks the

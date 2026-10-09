@@ -202,7 +202,13 @@ func preflight(ctx context.Context, c cli, d *planData) (identity, []adapter.Fin
 	}
 
 	var id identity
-	if err := c.json(ctx, &id, "sts", "get-caller-identity"); err != nil || id.Account == "" {
+	err := c.json(ctx, &id, "sts", "get-caller-identity")
+	if adapter.NotInstalled(err) {
+		add(adapter.Error, "AWS_PREFLIGHT_CLI", "The aws CLI isn't installed on this machine.",
+			"Install AWS CLI v2 (https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), then run `aws configure` or `aws sso login`.")
+		return id, findings
+	}
+	if err != nil || id.Account == "" {
 		add(adapter.Error, "AWS_PREFLIGHT_AUTH", "The aws CLI isn't logged in.", "Run `aws configure` or `aws sso login`, or set spec.targets.aws.profile.")
 		return id, findings
 	}

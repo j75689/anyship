@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"reflect"
 	"slices"
 	"strings"
@@ -128,6 +129,10 @@ func ExitCode(err error) (int, bool) {
 	return 0, false
 }
 
+// NotInstalled reports whether an error from Env.Exec means the command isn't
+// on this machine at all, as opposed to running and failing.
+func NotInstalled(err error) bool { return errors.Is(err, exec.ErrNotFound) }
+
 // Env is what an adapter may use to touch the outside world.
 type Env struct {
 	// Dir is the directory containing anyship.yaml.
@@ -139,7 +144,7 @@ type Env struct {
 	DryRun bool
 	Logf   func(format string, args ...any)
 	// Exec runs a command with inherited stdio (unless opts.Stdin is set) and
-	// returns an error if it fails.
+	// returns an error if it fails; NotInstalled tells a missing command apart.
 	Exec func(ctx context.Context, opts ExecOptions, name string, args ...string) error
 	// LookupEnv reads the deployer's environment, e.g. for secret values.
 	LookupEnv func(key string) (string, bool)

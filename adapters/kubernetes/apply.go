@@ -238,7 +238,10 @@ func preflight(ctx context.Context, k kubectl, d *planData) (string, []adapter.F
 		findings = append(findings, adapter.Finding{Level: level, Code: code, Message: message, Hint: hint})
 	}
 
-	if _, err := k.probe(ctx, "version", "--client"); err != nil {
+	if _, err := k.probe(ctx, "version", "--client"); adapter.NotInstalled(err) {
+		add(adapter.Error, "K8S_PREFLIGHT_KUBECTL", "kubectl isn't installed on this machine.", "Install it: https://kubernetes.io/docs/tasks/tools/")
+		return "", findings
+	} else if err != nil {
 		add(adapter.Error, "K8S_PREFLIGHT_KUBECTL", fmt.Sprintf("kubectl doesn't run on this machine: %v.", err), "Install it: https://kubernetes.io/docs/tasks/tools/")
 		return "", findings
 	}

@@ -240,7 +240,12 @@ func preflight(ctx context.Context, g gcloud, d *planData) (string, []adapter.Fi
 		findings = append(findings, adapter.Finding{Level: level, Code: code, Message: message, Hint: hint})
 	}
 
-	account, _ := g.probe(ctx, "config", "get-value", "account")
+	account, err := g.probe(ctx, "config", "get-value", "account")
+	if adapter.NotInstalled(err) {
+		add(adapter.Error, "GCP_PREFLIGHT_GCLOUD", "gcloud isn't installed on this machine.",
+			"Install the Google Cloud CLI (https://cloud.google.com/sdk/docs/install), then run `gcloud auth login`.")
+		return "", findings
+	}
 	if _, err := g.probe(ctx, "auth", "print-access-token"); err != nil || account == "" {
 		hint := "Run `gcloud auth login`."
 		if g.configuration != "" {
