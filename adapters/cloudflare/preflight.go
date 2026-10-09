@@ -66,6 +66,7 @@ func preflight(ctx context.Context, env *adapter.Env, dryRun bool) []adapter.Fin
 		return findings
 	}
 	version := versionPattern.FindString(out)
+	findings = append(findings, adapter.WranglerFloor.Check(version, "CF_PREFLIGHT_VERSION")...)
 
 	if ok, _ := whoami(probe, "npx", "--no-install", "wrangler"); !ok {
 		f := notLoggedIn

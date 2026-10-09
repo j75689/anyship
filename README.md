@@ -127,6 +127,19 @@ Every target drives the platform's own CLI (`gcloud`, `aws`, `kubectl`, `wrangle
 versions and who they are logged in as, for the targets `anyship.yaml` names (or `-t <target>`);
 add `--json` when you paste it into an issue.
 
+Some tools need a minimum version, for a feature anyship uses. An older one gets a warning in
+`doctor` and in `apply`'s checks, never a refusal:
+
+| Tool | Oldest version | For |
+|---|---|---|
+| kubectl | 1.26 | `apply --prune-allowlist` |
+| docker buildx | 0.6.0 | `--metadata-file`, whose digest anyship deploys by |
+| gcloud | 515.0.0 | `gcloud run deploy --startup-probe`, which every deploy sets |
+| aws CLI | 2.32.2 | the ECS Express Mode commands |
+| wrangler | 3.91.0 | `wrangler.jsonc` without an experimental flag |
+
+Node.js has none of its own: wrangler checks the Node.js it runs on.
+
 ## The spec
 
 ```yaml

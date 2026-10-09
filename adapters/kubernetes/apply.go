@@ -241,9 +241,11 @@ func preflight(ctx context.Context, k kubectl, d *planData) (string, []adapter.F
 		findings = append(findings, adapter.Finding{Level: level, Code: code, Message: message, Hint: hint})
 	}
 
-	if _, err := k.probe(ctx, "version", "--client"); err != nil {
+	version, err := k.probe(ctx, "version", "--client")
+	if err != nil {
 		return "", append(findings, adapter.Missing(notInstalled, "kubectl", err))
 	}
+	findings = append(findings, adapter.KubectlFloor.Check(adapter.VersionIn(version), "K8S_PREFLIGHT_VERSION")...)
 	cluster := k.context
 	if cluster == "" {
 		current, err := k.probe(ctx, "config", "current-context")
@@ -307,9 +309,8 @@ func preflight(ctx context.Context, k kubectl, d *planData) (string, []adapter.F
 		if d.platform == "" {
 			d.platform = nodePlatform(ctx, k, add)
 		}
-		if err := k.env.Exec(ctx, adapter.ExecOptions{Dir: k.env.Dir, Stdout: io.Discard, Stderr: io.Discard}, "docker", "buildx", "version"); err != nil {
-			add(adapter.Error, "K8S_PREFLIGHT_DOCKER", "Building from source needs Docker with buildx on this machine.", "Install Docker Desktop or the buildx plugin, or set services.<name>.image.")
-		}
+		_, buildx := adapter.Buildx(ctx, k.env, true, "K8S")
+		findings = append(findings, buildx...)
 	}
 	if !adapter.HasErrors(findings) {
 		message := fmt.Sprintf("Namespace %s of %s is ready.", k.namespace, cluster)

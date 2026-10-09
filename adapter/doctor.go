@@ -18,6 +18,9 @@ type Tool struct {
 	Need    string `json:"need"`
 	Found   bool   `json:"found"`
 	Version string `json:"version,omitempty"`
+	// Min is the oldest version anyship works with, when it needs a
+	// feature that older ones lack.
+	Min string `json:"min,omitempty"`
 	// Login is who the tool is logged in as, or the context it points at,
 	// for tools that have one.
 	Login string `json:"login,omitempty"`
@@ -78,18 +81,19 @@ func BuildsFromSource(s *spec.Spec) bool {
 	return false
 }
 
-// Buildx checks for docker buildx, which the container targets build with.
-// A missing buildx is an error under code when s builds an image, and a
-// warning otherwise.
-func Buildx(ctx context.Context, env *Env, s *spec.Spec, code string) (Tool, []Finding) {
-	tool := Tool{Name: "docker buildx", Need: "builds images from source"}
+// Buildx checks for docker buildx, which the container targets build with,
+// and its version. Codes start with prefix, such as GCP: a missing buildx
+// is <prefix>_PREFLIGHT_DOCKER, an error when needed (a service builds from
+// source) and a warning otherwise; an old one is <prefix>_PREFLIGHT_VERSION.
+func Buildx(ctx context.Context, env *Env, needed bool, prefix string) (Tool, []Finding) {
+	tool := Tool{Name: "docker buildx", Need: "builds images from source", Min: BuildxFloor.Min}
 	out, _, err := Probe(ctx, env, ExecOptions{}, "docker", "buildx", "version")
 	if err == nil {
 		tool.Found, tool.Version = true, VersionIn(out)
-		return tool, nil
+		return tool, BuildxFloor.Check(tool.Version, prefix+"_PREFLIGHT_VERSION")
 	}
-	hint := "Install Docker Desktop or the buildx plugin, or set services.<name>.image."
-	if BuildsFromSource(s) {
+	code, hint := prefix+"_PREFLIGHT_DOCKER", "Install Docker Desktop or the buildx plugin, or set services.<name>.image."
+	if needed {
 		return tool, []Finding{{Level: Error, Code: code, Message: "Building from source needs Docker with buildx on this machine.", Hint: hint}}
 	}
 	return tool, []Finding{{Level: Warning, Code: code, Message: "Docker with buildx isn't on this machine; only services built from source need it.", Hint: hint}}

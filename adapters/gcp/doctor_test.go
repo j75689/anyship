@@ -26,6 +26,11 @@ func TestDoctor(t *testing.T) {
 		}
 	}
 
+	f.Answers["gcloud --version"] = exectest.Answer{Stdout: "Google Cloud SDK 502.0.0\n"}
+	if c := New().Doctor(context.Background(), s, f.Env(t.TempDir())); !slices.Equal(exectest.Codes(c.Findings), []string{"GCP_PREFLIGHT_VERSION"}) || c.Tools[0].Min != "515.0.0" {
+		t.Errorf("old gcloud: %+v", c)
+	}
+	f.Answers["gcloud --version"] = exectest.Answer{Stdout: "Google Cloud SDK 587.0.0\n"}
 	f.Answers["gcloud config get-value account"] = exectest.Answer{}
 	if c := New().Doctor(context.Background(), s, f.Env(t.TempDir())); !slices.Equal(exectest.Codes(c.Findings), []string{"GCP_PREFLIGHT_AUTH"}) {
 		t.Errorf("no account: %+v", c.Findings)

@@ -25,8 +25,9 @@ spec:
       maxTasks: 4                   # autoscaling ceiling (at least replicas)
 ```
 
-- anyship drives your installed `aws` CLI (v2, with ECS Express Mode support) with its current login,
-  and `docker buildx` for builds. App Runner no longer takes new customers, so services run on
+- anyship drives your installed `aws` CLI (2.32.2 or newer, the first with the ECS Express Mode
+  commands) with its current login, and `docker buildx` (0.6.0 or newer) for builds. App Runner no
+  longer takes new customers, so services run on
   [ECS Express Mode](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-overview.html),
   which provisions the load balancer, HTTPS URL (`<service>.ecs.<region>.on.aws`) and autoscaling.
 - Create once per account and region: the cluster, the ECR repository and the two IAM roles from

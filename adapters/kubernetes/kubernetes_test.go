@@ -601,8 +601,15 @@ func TestApplyPreflight(t *testing.T) {
 		}
 	}
 
+	// An old kubectl is a warning; the deploy goes ahead.
 	s := parse(t, `{"name": "shop", "services": {"web": {"kind": "server", "image": "nginx:1.27.0", "ports": [{"port": 80}]}}, `+target+"}")
 	env, fc := newEnv(t, t.TempDir(), nil)
+	fc.out["kubectl version --client"] = "Client Version: v1.24.3\nKustomize Version: v4.5.4\n"
+	if r := apply(t, s, env); !r.OK || !slices.Contains(resultCodes(r), "K8S_PREFLIGHT_VERSION") || fc.find("kubectl apply") == nil {
+		t.Errorf("old kubectl: ok=%v findings=%v", r.OK, resultCodes(r))
+	}
+
+	env, fc = newEnv(t, t.TempDir(), nil)
 	fc.fail["kubectl get namespace"] = `Error from server (NotFound): namespaces "apps" not found`
 	r := apply(t, s, env)
 	var hint string
