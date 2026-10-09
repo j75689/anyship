@@ -45,6 +45,7 @@ func forAgent(err error) error {
 	if err == nil {
 		return nil
 	}
+	err = causeForUser(err)
 	var missing *spec.NotFoundError
 	if errors.As(err, &missing) {
 		return fmt.Errorf("%s does not exist; draft a spec with the detect tool and write it there, or pass config if the spec is somewhere else", missing.Path)
@@ -62,8 +63,8 @@ func forAgent(err error) error {
 // about other programs (ssh, gcloud, restarting this server) is left as it
 // is, for the agent to pass on.
 var (
-	backtickedCommand = regexp.MustCompile("`anyship (init|apply|status|logs|destroy|plan|validate|diagnose)\\b([^`]*)`")
-	bareCommand       = regexp.MustCompile(`\banyship (init|apply|status|logs|destroy|plan|validate|diagnose)\b`)
+	backtickedCommand = regexp.MustCompile("`anyship (init|apply|status|logs|destroy|plan|validate|diagnose|doctor)\\b([^`]*)`")
+	bareCommand       = regexp.MustCompile(`\banyship (init|apply|status|logs|destroy|plan|validate|diagnose|doctor)\b`)
 	bareFlags         = strings.NewReplacer("destroy --volumes", "destroy with volumes=true", "apply --dry-run", "apply with dry_run=true")
 )
 
