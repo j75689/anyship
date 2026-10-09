@@ -479,10 +479,12 @@ func TestPreflightReadsOlderNpmErrors(t *testing.T) {
 		t.Errorf("findings = %+v", findings)
 	}
 	for stderr, want := range map[string]string{
-		"npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/x\n":                    "code E404",
-		"npm ERR! canceled due to missing packages\nnpm ERR! A complete log of this run can be found in: /x\n": "canceled due to missing packages",
-		"Error: Cannot find module 'undici'\n    at Module._resolveFilename\n":                                 "at Module._resolveFilename",
-		"": "",
+		"npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/x\n":                             "code E404",
+		"npm ERR! canceled due to missing packages\nnpm ERR! A complete log of this run can be found in: /x\n":          "canceled due to missing packages",
+		"Error: Cannot find module 'undici'\n    at Module._resolveFilename\n    at Module._load\n":                     "Error: Cannot find module 'undici'",
+		"node:internal/modules/cjs/loader:1228\n  throw err;\n  ^\n\nTypeError [ERR_INVALID_ARG_TYPE]: bad\n    at f\n": "TypeError [ERR_INVALID_ARG_TYPE]: bad",
+		"something else went wrong\n": "something else went wrong",
+		"":                            "",
 	} {
 		if got := npxError(stderr); got != want {
 			t.Errorf("npxError(%q) = %q, want %q", stderr, got, want)

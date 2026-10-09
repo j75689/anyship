@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/j75689/anyship/adapter"
@@ -98,9 +99,14 @@ func preflight(ctx context.Context, env *adapter.Env, dryRun bool) []adapter.Fin
 	return append(findings, adapter.Finding{Level: adapter.Info, Code: "CF_PREFLIGHT_OK", Message: fmt.Sprintf("wrangler %s runs and is logged in.", t.wrangler)})
 }
 
+// errorLine is how Node.js names an uncaught error, before its stack:
+// `Error: …`, `TypeError: …`, `Error [ERR_MODULE_NOT_FOUND]: …`.
+var errorLine = regexp.MustCompile(`^\w*Error\b`)
+
 // npxError picks npm's or the command's message out of npx's error output:
 // the first npm error line (`npm error` since npm 10, `npm ERR!` before),
-// else the last line.
+// else the line that names the error (the stack follows it, so the last
+// line would be a frame), else the last line.
 func npxError(stderr string) string {
 	lines := strings.Split(strings.TrimSpace(stderr), "\n")
 	for _, line := range lines {
@@ -109,6 +115,11 @@ func npxError(stderr string) string {
 			if msg, ok := strings.CutPrefix(line, prefix); ok {
 				return msg
 			}
+		}
+	}
+	for _, line := range lines {
+		if line = strings.TrimSpace(line); errorLine.MatchString(line) {
+			return line
 		}
 	}
 	return strings.TrimSpace(lines[len(lines)-1])
