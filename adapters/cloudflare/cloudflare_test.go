@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -236,7 +238,11 @@ func TestApplyWritesConfigBuildsThenDeploys(t *testing.T) {
 	env.DryRun = true
 	var calls []string
 	env.Exec = func(_ context.Context, opts adapter.ExecOptions, name string, args ...string) error {
-		calls = append(calls, strings.Join(append([]string{name}, args...), " "))
+		line := strings.Join(append([]string{name}, args...), " ")
+		calls = append(calls, line)
+		if line == "npx --no-install wrangler whoami --json" {
+			_, _ = io.WriteString(opts.Stdout, `{"loggedIn": true}`)
+		}
 		return nil
 	}
 
@@ -249,12 +255,107 @@ func TestApplyWritesConfigBuildsThenDeploys(t *testing.T) {
 	if !result.OK {
 		t.Fatalf("result = %+v", result)
 	}
-	if want := []string{"make", "npx wrangler deploy --config " + configPath + " --dry-run"}; !slices.Equal(calls, want) {
+	if want := []string{"node --version", "npx --no-install wrangler --version", "npx --no-install wrangler whoami --json", "make", "npx wrangler deploy --config " + configPath + " --dry-run"}; !slices.Equal(calls, want) {
 		t.Errorf("calls = %q, want %q", calls, want)
 	}
 	written, err := os.ReadFile(configPath)
 	if err != nil || !bytes.Contains(written, []byte(`"name": "site"`)) {
 		t.Errorf("config not written: %v %s", err, written)
+	}
+}
+
+func TestApplyPreflight(t *testing.T) {
+	s := parse(t, `{"name": "site", "services": {"web": {"kind": "static", "build": {"command": "make", "output": "out"}}}}`)
+	missing := func(name string) error { return &exec.Error{Name: name, Err: exec.ErrNotFound} }
+	loggedOut := func(line string) (string, error) {
+		if line == "npx --no-install wrangler whoami --json" {
+			return `{"loggedIn": false}`, errors.New("exit status 1")
+		}
+		return "4.1.0", nil
+	}
+	for _, tc := range []struct {
+		name   string
+		dryRun bool
+		// answer returns the stdout, stderr and error of one command line.
+		answer func(line string) (string, error)
+		code   string
+		level  adapter.Level
+		// deploys says whether the build and the deploy run.
+		deploys bool
+	}{
+		{"no node", false, func(line string) (string, error) {
+			return "", missing(strings.Fields(line)[0])
+		}, "CF_PREFLIGHT_NODE", adapter.Error, false},
+		{"wrangler broken", false, func(line string) (string, error) {
+			if strings.HasPrefix(line, "npx") {
+				return "", errors.New("exit status 1")
+			}
+			return "v22.1.0", nil
+		}, "CF_PREFLIGHT_WRANGLER", adapter.Error, false},
+		// Not downloaded yet: the deploy's npx downloads it, asking first.
+		{"wrangler not downloaded", false, func(line string) (string, error) {
+			if strings.HasPrefix(line, "npx") {
+				return "", errors.New("exit status 1: npx canceled due to missing packages and no YES option: [\"wrangler@4.149.0\"]")
+			}
+			return "v22.1.0", nil
+		}, "CF_PREFLIGHT_WRANGLER", adapter.Info, true},
+		{"logged out", false, loggedOut, "CF_PREFLIGHT_AUTH", adapter.Error, false},
+		// wrangler deploy --dry-run needs no login.
+		{"logged out, dry run", true, loggedOut, "CF_PREFLIGHT_AUTH", adapter.Warning, true},
+		{"logged out, wrangler 3", false, func(line string) (string, error) {
+			switch line {
+			case "npx --no-install wrangler whoami --json":
+				return "", errors.New("exit status 1")
+			case "npx --no-install wrangler whoami":
+				return "Getting User settings...\nYou are not authenticated. Please run `wrangler login`.", nil
+			}
+			return "3.114.0", nil
+		}, "CF_PREFLIGHT_AUTH", adapter.Error, false},
+		{"ready", false, func(line string) (string, error) {
+			if line == "npx --no-install wrangler whoami --json" {
+				return `{"loggedIn": true, "email": "dev@example.com"}`, nil
+			}
+			return " ⛅️ wrangler 4.1.0", nil
+		}, "CF_PREFLIGHT_OK", adapter.Info, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newEnv()
+			env.Dir = t.TempDir()
+			env.OutDir = filepath.Join(env.Dir, ".anyship", "cloudflare")
+			env.DryRun = tc.dryRun
+			var built bool
+			env.Exec = func(_ context.Context, opts adapter.ExecOptions, name string, args ...string) error {
+				line := strings.Join(append([]string{name}, args...), " ")
+				if opts.Shell || strings.Contains(line, "deploy") {
+					built = true
+					return nil
+				}
+				if opts.Stdin == nil {
+					t.Errorf("%s may wait on the terminal", line)
+				}
+				if strings.HasPrefix(line, "npx") && !strings.HasPrefix(line, "npx --no-install") {
+					t.Errorf("%s may download wrangler", line)
+				}
+				out, err := tc.answer(line)
+				_, _ = io.WriteString(opts.Stdout, out)
+				if err != nil && strings.Contains(err.Error(), ": ") {
+					msg := err.Error()[strings.Index(err.Error(), ": ")+2:]
+					_, _ = io.WriteString(opts.Stderr, "npm error "+msg+"\n")
+					err = errors.New("exit status 1")
+				}
+				return err
+			}
+			res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+			if err != nil || len(res.Findings) != 1 || res.Findings[0].Code != tc.code || res.Findings[0].Level != tc.level {
+				t.Fatalf("result = %+v, %v", res, err)
+			}
+			if res.OK != tc.deploys || built != tc.deploys {
+				t.Errorf("ok = %v, built = %v", res.OK, built)
+			}
+			if tc.code == "CF_PREFLIGHT_OK" && !strings.Contains(res.Findings[0].Message, "4.1.0") {
+				t.Errorf("message = %q", res.Findings[0].Message)
+			}
+		})
 	}
 }
 

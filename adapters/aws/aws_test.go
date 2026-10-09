@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -423,6 +424,20 @@ func TestApplyPreflight(t *testing.T) {
 		fa.fail = []string{"aws sts"}
 		res, _ := New().Apply(context.Background(), plan(t, s, env), s, env)
 		if res.OK || res.Findings[0].Code != "AWS_PREFLIGHT_AUTH" {
+			t.Errorf("result = %+v", res)
+		}
+	})
+
+	t.Run("not installed", func(t *testing.T) {
+		env, fa := newEnv(t, t.TempDir(), nil)
+		env.Exec = func(ctx context.Context, opts adapter.ExecOptions, name string, args ...string) error {
+			if name == "aws" {
+				return &exec.Error{Name: name, Err: exec.ErrNotFound}
+			}
+			return fa.exec(ctx, opts, name, args...)
+		}
+		res, _ := New().Apply(context.Background(), plan(t, s, env), s, env)
+		if res.OK || len(res.Findings) != 1 || res.Findings[0].Code != "AWS_PREFLIGHT_CLI" || !strings.Contains(res.Findings[0].Hint, "getting-started-install") {
 			t.Errorf("result = %+v", res)
 		}
 	})

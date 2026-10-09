@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -1033,6 +1034,20 @@ func TestApplyPreflight(t *testing.T) {
 		fc.fail = []string{"gcloud auth"}
 		res, _ := New().Apply(context.Background(), plan(t, s, env), s, env)
 		if res.OK || res.Findings[0].Code != "GCP_PREFLIGHT_AUTH" {
+			t.Errorf("result = %+v", res)
+		}
+	})
+
+	t.Run("not installed", func(t *testing.T) {
+		env, fc := newEnv(t, t.TempDir(), nil)
+		env.Exec = func(ctx context.Context, opts adapter.ExecOptions, name string, args ...string) error {
+			if name == "gcloud" {
+				return &exec.Error{Name: name, Err: exec.ErrNotFound}
+			}
+			return fc.exec(ctx, opts, name, args...)
+		}
+		res, _ := New().Apply(context.Background(), plan(t, s, env), s, env)
+		if res.OK || len(res.Findings) != 1 || res.Findings[0].Code != "GCP_PREFLIGHT_GCLOUD" || !strings.Contains(res.Findings[0].Hint, "cloud.google.com/sdk") {
 			t.Errorf("result = %+v", res)
 		}
 	})

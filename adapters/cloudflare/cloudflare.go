@@ -320,10 +320,19 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		env.Logf("wrote %s", filepath.ToSlash(rel))
 	}
 
+	env.Logf("checking node and wrangler")
+	checks := preflight(ctx, env, env.DryRun)
+	result := func(ok bool, messages ...string) *adapter.Result {
+		return &adapter.Result{OK: ok, Findings: checks, Messages: messages}
+	}
+	if adapter.HasErrors(checks) {
+		return result(false, "Preflight checks failed; nothing was changed."), nil
+	}
+
 	if data.buildCommand != "" {
 		env.Logf("$ %s", data.buildCommand)
 		if err := env.Exec(ctx, adapter.ExecOptions{Dir: data.serviceDir, Shell: true}, data.buildCommand); err != nil {
-			return &adapter.Result{Messages: []string{"Build failed: " + err.Error()}}, nil
+			return result(false, "Build failed: "+err.Error()), nil
 		}
 	}
 
@@ -333,12 +342,12 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 	}
 	env.Logf("$ npx %s", strings.Join(args, " "))
 	if err := env.Exec(ctx, adapter.ExecOptions{Dir: env.Dir}, "npx", args...); err != nil {
-		return &adapter.Result{Messages: []string{"wrangler deploy failed: " + err.Error()}}, nil
+		return result(false, "wrangler deploy failed: "+err.Error()), nil
 	}
 	if env.DryRun {
-		return &adapter.Result{OK: true, Messages: []string{"Dry run finished; nothing was deployed."}}, nil
+		return result(true, "Dry run finished; nothing was deployed."), nil
 	}
-	return &adapter.Result{OK: true, Messages: []string{"Deployed to Cloudflare."}}, nil
+	return result(true, "Deployed to Cloudflare."), nil
 }
 
 // Logs streams live Worker logs with `wrangler tail`. Workers keep no log

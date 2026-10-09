@@ -46,9 +46,9 @@ spec:
   `ghcr.io` image, or one from another registry, pull it through an Artifact Registry
   [remote repository](https://cloud.google.com/artifact-registry/docs/repositories/remote-repo)
   and name it by that path, or push it to Artifact Registry.
-- Every `apply` first checks the login, the project, the required APIs (`run`, and
-  `artifactregistry`, `secretmanager` or `cloudscheduler` when the spec needs them) and the
-  repository; `apply --dry-run` stops after the checks. Errors name the gcloud account in use,
+- Every `apply` first checks that gcloud is installed (`GCP_PREFLIGHT_GCLOUD`), the login, the
+  project, the required APIs (`run`, and `artifactregistry`, `secretmanager` or `cloudscheduler`
+  when the spec needs them) and the repository; `apply --dry-run` stops after the checks. Errors name the gcloud account in use,
   which matters when you have several (`gcloud auth list`).
 - Secrets live in Secret Manager as `<spec name>-<NAME>` and reach the container as environment
   variables. A value in the deployer's environment adds a new version; `generate: "hex32"` secrets
