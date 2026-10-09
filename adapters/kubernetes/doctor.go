@@ -22,7 +22,7 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 	}
 
 	var c adapter.Checkup
-	kubectl := adapter.Tool{Name: "kubectl", Need: "deploys to the cluster", Min: kubectlFloor.Min}
+	kubectl := adapter.Tool{Name: "kubectl", Need: "deploys to the cluster", Min: adapter.KubectlFloor.Min}
 	if out, _, err := adapter.Probe(ctx, env, adapter.ExecOptions{}, "kubectl", "version", "--client", "-o", "json"); err != nil {
 		c.Findings = append(c.Findings, adapter.Missing(notInstalled, "kubectl", err))
 	} else {
@@ -33,7 +33,7 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 		}
 		_ = json.Unmarshal([]byte(out), &v)
 		kubectl.Found, kubectl.Version = true, adapter.VersionIn(v.ClientVersion.GitVersion)
-		c.Findings = append(c.Findings, kubectlFloor.Check("kubectl", kubectl.Version, "K8S_PREFLIGHT_VERSION")...)
+		c.Findings = append(c.Findings, adapter.KubectlFloor.Check(kubectl.Version, "K8S_PREFLIGHT_VERSION")...)
 		if o.Context == "" {
 			kubectl.Login, _, _ = adapter.Probe(ctx, env, adapter.ExecOptions{}, "kubectl", "config", "current-context")
 			if kubectl.Login == "" {

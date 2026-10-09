@@ -24,12 +24,12 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 	}
 
 	var c adapter.Checkup
-	cli := adapter.Tool{Name: "aws", Need: "deploys to ECS Express Mode", Min: cliFloor.Min}
+	cli := adapter.Tool{Name: "aws", Need: "deploys to ECS Express Mode", Min: adapter.AWSFloor.Min}
 	if _, _, err := adapter.Probe(ctx, env, adapter.ExecOptions{}, "aws", "--version"); err != nil {
 		c.Findings = append(c.Findings, adapter.Missing(notInstalled, "aws", err))
 	} else {
 		cli.Found, cli.Version = true, cliVersion(ctx, env)
-		c.Findings = append(c.Findings, cliFloor.Check("the aws CLI", cli.Version, "AWS_PREFLIGHT_VERSION")...)
+		c.Findings = append(c.Findings, adapter.AWSFloor.Check(cli.Version, "AWS_PREFLIGHT_VERSION")...)
 		args := []string{"configure", "list"}
 		if o.Profile != "" {
 			args = append(args, "--profile", o.Profile)

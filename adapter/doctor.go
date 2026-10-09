@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/j75689/anyship/spec"
@@ -63,67 +62,6 @@ func Missing(missing Finding, tool string, err error) Finding {
 	return missing
 }
 
-// Floor is the oldest version of a tool that has a feature anyship uses.
-type Floor struct {
-	Min string
-	// Feature is what anyship needs that older versions lack.
-	Feature string
-	// Hint says how to get a newer version.
-	Hint string
-}
-
-// Check warns under code when version is older than the floor. It is a
-// warning, not an error: a version string anyship misreads must not block a
-// deploy. An unknown version passes.
-func (f Floor) Check(tool, version, code string) []Finding {
-	if !Older(version, f.Min) {
-		return nil
-	}
-	return []Finding{{Level: Warning, Code: code, Hint: f.Hint,
-		Message: fmt.Sprintf("anyship needs %s %s or newer for %s; this machine has %s.", tool, f.Min, f.Feature, version)}}
-}
-
-// Older reports whether version is older than min, comparing dotted
-// numbers ("1.24.3" < "1.26"); a missing part counts as 0. It is false when
-// either can't be read.
-func Older(version, min string) bool {
-	a, okA := parseVersion(version)
-	b, okB := parseVersion(min)
-	if !okA || !okB {
-		return false
-	}
-	for i := range max(len(a), len(b)) {
-		var x, y int
-		if i < len(a) {
-			x = a[i]
-		}
-		if i < len(b) {
-			y = b[i]
-		}
-		if x != y {
-			return x < y
-		}
-	}
-	return false
-}
-
-func parseVersion(v string) ([]int, bool) {
-	v = VersionIn(v)
-	if v == "" {
-		return nil, false
-	}
-	parts := strings.Split(v, ".")
-	out := make([]int, len(parts))
-	for i, p := range parts {
-		n, err := strconv.Atoi(p)
-		if err != nil {
-			return nil, false
-		}
-		out[i] = n
-	}
-	return out, true
-}
-
 var versionRe = regexp.MustCompile(`\d+\.\d+(\.\d+)?`)
 
 // VersionIn picks the first version number out of a tool's output.
@@ -143,20 +81,16 @@ func BuildsFromSource(s *spec.Spec) bool {
 	return false
 }
 
-// buildxFloor: images are built with `docker buildx build --metadata-file`,
-// whose digest anyship deploys by.
-var buildxFloor = Floor{Min: "0.6.0", Feature: "`--metadata-file`", Hint: "Update Docker Desktop, or the buildx plugin: https://github.com/docker/buildx#installing"}
-
 // Buildx checks for docker buildx, which the container targets build with,
 // and its version. Codes start with prefix, such as GCP: a missing buildx
 // is <prefix>_PREFLIGHT_DOCKER, an error when needed (a service builds from
 // source) and a warning otherwise; an old one is <prefix>_PREFLIGHT_VERSION.
 func Buildx(ctx context.Context, env *Env, needed bool, prefix string) (Tool, []Finding) {
-	tool := Tool{Name: "docker buildx", Need: "builds images from source", Min: buildxFloor.Min}
+	tool := Tool{Name: "docker buildx", Need: "builds images from source", Min: BuildxFloor.Min}
 	out, _, err := Probe(ctx, env, ExecOptions{}, "docker", "buildx", "version")
 	if err == nil {
 		tool.Found, tool.Version = true, VersionIn(out)
-		return tool, buildxFloor.Check(tool.Name, tool.Version, prefix+"_PREFLIGHT_VERSION")
+		return tool, BuildxFloor.Check(tool.Version, prefix+"_PREFLIGHT_VERSION")
 	}
 	code, hint := prefix+"_PREFLIGHT_DOCKER", "Install Docker Desktop or the buildx plugin, or set services.<name>.image."
 	if needed {

@@ -27,7 +27,7 @@ spec:
       subnet: default       # services that call one with an internal port
 ```
 
-- anyship drives your installed `gcloud` with its current login, and `docker buildx` (0.6 or newer)
+- anyship drives your installed `gcloud` with its current login, and `docker buildx` (0.6.0 or newer)
   for builds. It
   creates nothing outside Cloud Run and Secret Manager: create the Artifact Registry repository once
   (`gcloud artifacts repositories create apps --repository-format docker --location us-central1`).

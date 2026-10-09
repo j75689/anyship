@@ -18,7 +18,7 @@ func (a *Adapter) Doctor(ctx context.Context, _ *spec.Spec, env *adapter.Env) (c
 		return out, err
 	}
 	node := adapter.Tool{Name: "node", Need: "runs wrangler (through npx)"}
-	wrangler := adapter.Tool{Name: "wrangler", Need: "deploys the Worker", Min: wranglerFloor.Min}
+	wrangler := adapter.Tool{Name: "wrangler", Need: "deploys the Worker", Min: adapter.WranglerFloor.Min}
 	defer func() { c.Tools = []adapter.Tool{node, wrangler} }()
 
 	out, err := probe("node", "--version")
@@ -41,7 +41,7 @@ func (a *Adapter) Doctor(ctx context.Context, _ *spec.Spec, env *adapter.Env) (c
 		return c
 	}
 	wrangler.Found, wrangler.Version = true, adapter.VersionIn(out)
-	c.Findings = append(c.Findings, wranglerFloor.Check("wrangler", wrangler.Version, "CF_PREFLIGHT_VERSION")...)
+	c.Findings = append(c.Findings, adapter.WranglerFloor.Check(wrangler.Version, "CF_PREFLIGHT_VERSION")...)
 	ok, email := whoami(probe, "npx", "--no-install", "wrangler")
 	switch {
 	case !ok:

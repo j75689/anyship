@@ -229,10 +229,6 @@ func rolloutFailure(ctx context.Context, k kubectl, d *planData, sv service, err
 	return append(messages, fmt.Sprintf("Look closer with `kubectl %s describe deployment/%s` and `anyship logs -t kubernetes %s`.", strings.Join(k.args(), " "), sv.object, sv.name))
 }
 
-// kubectlFloor: deploys prune what the spec dropped with --prune-allowlist,
-// which kubectl 1.26 renamed from --prune-whitelist.
-var kubectlFloor = adapter.Floor{Min: "1.26", Feature: "`apply --prune-allowlist`", Hint: "Install a newer kubectl: https://kubernetes.io/docs/tasks/tools/"}
-
 var notInstalled = adapter.Finding{Level: adapter.Error, Code: "K8S_PREFLIGHT_KUBECTL", Message: "kubectl isn't installed on this machine.",
 	Hint: "Install it: https://kubernetes.io/docs/tasks/tools/"}
 
@@ -249,7 +245,7 @@ func preflight(ctx context.Context, k kubectl, d *planData) (string, []adapter.F
 	if err != nil {
 		return "", append(findings, adapter.Missing(notInstalled, "kubectl", err))
 	}
-	findings = append(findings, kubectlFloor.Check("kubectl", adapter.VersionIn(version), "K8S_PREFLIGHT_VERSION")...)
+	findings = append(findings, adapter.KubectlFloor.Check(adapter.VersionIn(version), "K8S_PREFLIGHT_VERSION")...)
 	cluster := k.context
 	if cluster == "" {
 		current, err := k.probe(ctx, "config", "current-context")

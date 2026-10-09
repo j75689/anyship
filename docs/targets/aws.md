@@ -26,7 +26,7 @@ spec:
 ```
 
 - anyship drives your installed `aws` CLI (2.32.2 or newer, the first with the ECS Express Mode
-  commands) with its current login, and `docker buildx` (0.6 or newer) for builds. App Runner no
+  commands) with its current login, and `docker buildx` (0.6.0 or newer) for builds. App Runner no
   longer takes new customers, so services run on
   [ECS Express Mode](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-overview.html),
   which provisions the load balancer, HTTPS URL (`<service>.ecs.<region>.on.aws`) and autoscaling.

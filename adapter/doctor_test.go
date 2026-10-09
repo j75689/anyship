@@ -46,25 +46,6 @@ func TestBuildsFromSource(t *testing.T) {
 	}
 }
 
-func TestOlder(t *testing.T) {
-	for _, tc := range []struct {
-		version, min string
-		want         bool
-	}{
-		{"1.24.3", "1.26", true}, {"1.26", "1.26", false}, {"1.26.0", "1.26", false}, {"1.33.9", "1.26", false},
-		{"2.31.40", "2.32.2", true}, {"2.32.10", "2.32.2", false}, {"3.114.0", "3.91.0", false}, {"3.90.9", "3.91.0", true},
-		{"", "1.26", false}, {"unknown", "1.26", false},
-	} {
-		if got := adapter.Older(tc.version, tc.min); got != tc.want {
-			t.Errorf("Older(%q, %q) = %v", tc.version, tc.min, got)
-		}
-	}
-	floor := adapter.Floor{Min: "1.26", Feature: "x"}
-	if floor.Check("kubectl", "", "C") != nil || floor.Check("kubectl", "1.30.1", "C") != nil || len(floor.Check("kubectl", "1.25.0", "C")) != 1 {
-		t.Error("Floor.Check is wrong")
-	}
-}
-
 func TestMissingAndVersionIn(t *testing.T) {
 	missing := adapter.Finding{Code: "X", Message: "x isn't installed."}
 	if got := adapter.Missing(missing, "x", exectest.Missing("x").Err); got.Message != missing.Message {

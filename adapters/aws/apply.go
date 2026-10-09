@@ -194,11 +194,6 @@ const (
 	infrastructurePolicy = "arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRoleforExpressGatewayServices"
 )
 
-// cliFloor: services are ECS Express Mode services, whose
-// *-express-gateway-service commands came with aws CLI 2.32.2.
-var cliFloor = adapter.Floor{Min: "2.32.2", Feature: "the ECS Express Mode commands (`aws ecs create-express-gateway-service`)",
-	Hint: "Update the aws CLI: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"}
-
 // cliVersion reads the aws CLI's version; v1 printed it to stderr.
 func cliVersion(ctx context.Context, env *adapter.Env) string {
 	out, errOut, _ := adapter.Probe(ctx, env, adapter.ExecOptions{}, "aws", "--version")
@@ -226,7 +221,7 @@ func preflight(ctx context.Context, c cli, d *planData) (identity, []adapter.Fin
 		add(adapter.Error, "AWS_PREFLIGHT_AUTH", "The aws CLI isn't logged in.", loginHint)
 		return id, findings
 	}
-	findings = append(findings, cliFloor.Check("the aws CLI", cliVersion(ctx, c.env), "AWS_PREFLIGHT_VERSION")...)
+	findings = append(findings, adapter.AWSFloor.Check(cliVersion(ctx, c.env), "AWS_PREFLIGHT_VERSION")...)
 
 	var clusters struct {
 		Clusters []struct {

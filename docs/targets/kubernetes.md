@@ -2,7 +2,7 @@
 
 Deploys to any Kubernetes cluster through your `kubectl` (1.26 or newer, for
 `apply --prune-allowlist`), as a Deployment and a Service per spec service, in a namespace you name.
-Builds use `docker buildx` 0.6 or newer.
+Builds use `docker buildx` 0.6.0 or newer.
 
 ```yaml
 spec:

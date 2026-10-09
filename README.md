@@ -125,8 +125,19 @@ Credentials stay on your machine; anyship has no server.
 Every target drives the platform's own CLI (`gcloud`, `aws`, `kubectl`, `wrangler`, `ssh`, and
 `docker buildx` to build images). `anyship doctor` says which of them this machine has, their
 versions and who they are logged in as, for the targets `anyship.yaml` names (or `-t <target>`);
-add `--json` when you paste it into an issue. A tool older than a feature anyship uses (kubectl
-1.26, docker buildx 0.6, aws CLI 2.32.2, wrangler 3.91) gets a warning there and in `apply`'s checks.
+add `--json` when you paste it into an issue.
+
+Some tools need a minimum version, for a feature anyship uses. An older one gets a warning in
+`doctor` and in `apply`'s checks, never a refusal:
+
+| Tool | Oldest version | For |
+|---|---|---|
+| kubectl | 1.26 | `apply --prune-allowlist` |
+| docker buildx | 0.6.0 | `--metadata-file`, whose digest anyship deploys by |
+| aws CLI | 2.32.2 | the ECS Express Mode commands |
+| wrangler | 3.91.0 | `wrangler.jsonc` without an experimental flag |
+
+Node.js has none of its own: wrangler checks the Node.js it runs on.
 
 ## The spec
 

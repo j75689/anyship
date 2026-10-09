@@ -1,7 +1,7 @@
 # The `cloudflare` target
 
 Deploys edge handlers and static sites to Cloudflare Workers by running `npx wrangler deploy`, so it
-needs Node.js, wrangler 3.91 or newer (the first to read `wrangler.jsonc` without a flag) and a
+needs Node.js, wrangler 3.91.0 or newer (the first to read `wrangler.jsonc` without a flag) and a
 `wrangler login` (or `CLOUDFLARE_API_TOKEN`). The generated config is kept in
 `.anyship/cloudflare/wrangler.jsonc` for review.
 
