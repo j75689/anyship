@@ -48,6 +48,7 @@ func Execute(version string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if err := a.rootCommand(version).ExecuteContext(ctx); err != nil {
+		err = causeForUser(err)
 		if !errors.Is(err, errReported) {
 			fmt.Fprintln(os.Stderr, style.red("error: "+err.Error()))
 		}
@@ -556,7 +557,36 @@ func runWith(ctx context.Context, opts adapter.ExecOptions, std stdio, name stri
 	if len(opts.Env) > 0 {
 		cmd.Env = append(os.Environ(), opts.Env...)
 	}
-	return cmd.Run()
+	err := cmd.Run()
+	if adapter.NotInstalled(err) && !opts.Shell {
+		return &notInstalledError{tool: name, err: err}
+	}
+	return err
+}
+
+// notInstalledError is what a command that isn't on this machine fails
+// with, in place of exec's "executable file not found in $PATH": it names
+// the tool and where to find how to install it. It unwraps to the exec
+// error, so adapter.NotInstalled still recognizes it.
+type notInstalledError struct {
+	tool string
+	err  error
+}
+
+func (e *notInstalledError) Error() string {
+	return fmt.Sprintf("%s isn't installed on this machine; `anyship doctor` says how to install it", e.tool)
+}
+
+func (e *notInstalledError) Unwrap() error { return e.err }
+
+// causeForUser returns the error to show for err: a missing tool alone, since
+// the rest of the message ("has it been deployed?") only misleads then.
+func causeForUser(err error) error {
+	var missing *notInstalledError
+	if errors.As(err, &missing) {
+		return missing
+	}
+	return err
 }
 
 func confirm(w io.Writer, question string) (bool, error) {

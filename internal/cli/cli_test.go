@@ -3,6 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"testing"
@@ -117,5 +120,27 @@ func TestAgo(t *testing.T) {
 		if got := ago(stamp, now); got != want {
 			t.Errorf("ago(%q) = %q, want %q", stamp, got, want)
 		}
+	}
+}
+
+func TestMissingToolNamesItself(t *testing.T) {
+	err := runWith(context.Background(), adapter.ExecOptions{}, stdio{in: bytes.NewReader(nil), out: io.Discard, err: io.Discard}, "anyship-no-such-tool", "--version")
+	if !adapter.NotInstalled(err) {
+		t.Fatalf("err = %v, which preflight wouldn't see as a missing tool", err)
+	}
+	want := "anyship-no-such-tool isn't installed on this machine; `anyship doctor` says how to install it"
+	if err.Error() != want {
+		t.Errorf("err = %q", err)
+	}
+	// Wrapped by an adapter, the missing tool is all the user is shown.
+	wrapped := fmt.Errorf("reading logs for web failed (%w); has it been deployed with `anyship apply -t gcp`?", err)
+	if got := causeForUser(wrapped); got.Error() != want {
+		t.Errorf("shown: %q", got)
+	}
+	if got := forAgent(wrapped); got.Error() != "anyship-no-such-tool isn't installed on this machine; the doctor tool says how to install it" {
+		t.Errorf("agent: %q", got)
+	}
+	if other := errors.New("exit status 1"); causeForUser(other) != other {
+		t.Error("another error was replaced")
 	}
 }

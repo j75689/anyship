@@ -44,6 +44,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A missing `gcloud` or `aws` CLI is reported as not installed, with the install link
   (`GCP_PREFLIGHT_GCLOUD`, `AWS_PREFLIGHT_CLI`), instead of as a missing login; a missing `kubectl`
   says it isn't installed instead of quoting the exec error (#130).
+- `status`, `logs` and `destroy` (and any other command) say which tool isn't installed and point
+  at `anyship doctor`, instead of exec's "executable file not found in $PATH" behind a guess such
+  as "has it been deployed?"; over MCP the message names the `doctor` tool (#130).
 
 ## [0.6.0] - 2026-10-08
 
