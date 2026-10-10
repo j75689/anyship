@@ -71,9 +71,9 @@ type doctorOutput struct {
 }
 
 type doctorTarget struct {
-	Name     string            `json:"name"`
-	Tools    []adapter.Tool    `json:"tools"`
-	Findings []adapter.Finding `json:"findings"`
+	Name         string               `json:"name"`
+	Dependencies []adapter.Dependency `json:"dependencies"`
+	Findings     []adapter.Finding    `json:"findings"`
 }
 
 // newDoctorOutput checks this machine for target, or for the targets the
@@ -108,10 +108,10 @@ func (a *app) newDoctorOutput(ctx context.Context, config string, explicit bool,
 	env := &adapter.Env{Dir: dir, Logf: func(string, ...any) {}, Exec: run, LookupEnv: os.LookupEnv}
 	for _, name := range names {
 		ad, _ := a.registry.Get(name)
-		t := doctorTarget{Name: name, Tools: []adapter.Tool{}, Findings: []adapter.Finding{}}
+		t := doctorTarget{Name: name, Dependencies: []adapter.Dependency{}, Findings: []adapter.Finding{}}
 		if doc, ok := ad.(adapter.Doctor); ok {
 			c := doc.Doctor(ctx, s, env)
-			t.Tools = append(t.Tools, c.Tools...)
+			t.Dependencies = append(t.Dependencies, c.Dependencies...)
 			t.Findings = append(t.Findings, aud.findings(c.Findings)...)
 		} else {
 			t.Findings = append(t.Findings, adapter.Finding{Level: adapter.Info, Code: "DOCTOR_NOTHING_TO_CHECK",
@@ -134,7 +134,7 @@ func (a *app) printDoctor(out doctorOutput) {
 	for _, t := range out.Targets {
 		fmt.Fprintln(a.out, "\n"+s.bold(t.Name))
 		tw := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
-		for _, tool := range t.Tools {
+		for _, tool := range t.Dependencies {
 			// What a missing tool means is in the findings below it.
 			icon, version := s.green("✔"), tool.Version
 			if !tool.Found {

@@ -24,7 +24,7 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 	}
 
 	var c adapter.Checkup
-	cli := adapter.Tool{Name: "aws", Need: "deploys to ECS Express Mode", Min: adapter.AWSFloor.Min}
+	cli := adapter.Dependency{Name: "aws", Need: "deploys to ECS Express Mode", Min: adapter.AWSFloor.Min}
 	out, errOut, err := adapter.Probe(ctx, env, adapter.ExecOptions{}, "aws", "--version")
 	if err != nil {
 		c.Findings = append(c.Findings, adapter.Missing(notInstalled, "aws", err))
@@ -57,7 +57,7 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 		}
 	}
 	buildx, findings := adapter.Buildx(ctx, env, adapter.BuildsFromSource(s), "AWS")
-	c.Tools = append(c.Tools, cli, buildx)
+	c.Dependencies = append(c.Dependencies, cli, buildx)
 	c.Findings = append(c.Findings, findings...)
 	return c
 }

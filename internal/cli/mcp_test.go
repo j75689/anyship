@@ -40,7 +40,7 @@ func (*fakeAdapter) Plan(_ context.Context, _ *spec.Spec, env *adapter.Env) (*ad
 // Doctor reports one tool, and an error when the spec's fake options say
 // broken.
 func (*fakeAdapter) Doctor(_ context.Context, s *spec.Spec, _ *adapter.Env) adapter.Checkup {
-	c := adapter.Checkup{Tools: []adapter.Tool{{Name: "fakectl", Need: "deploys the fake", Found: true, Version: "1.2.3", Login: "dev"}}}
+	c := adapter.Checkup{Dependencies: []adapter.Dependency{{Name: "fakectl", Need: "deploys the fake", Found: true, Version: "1.2.3", Login: "dev"}}}
 	if s != nil && strings.Contains(string(s.Targets["fake"]), "broken") {
 		c.Findings = []adapter.Finding{{Level: adapter.Error, Code: "FAKE_DOCTOR", Message: "fakectl is broken.", Hint: "Run `anyship targets fake`."}}
 	}
