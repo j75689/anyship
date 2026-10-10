@@ -25,7 +25,7 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 	}
 
 	var c adapter.Checkup
-	gcloud := adapter.Tool{Name: "gcloud", Need: "deploys to Cloud Run", Min: adapter.GCloudFloor.Min}
+	gcloud := adapter.Dependency{Name: "gcloud", Need: "deploys to Cloud Run", Min: adapter.GCloudFloor.Min}
 	out, _, err := adapter.Probe(ctx, env, opts, "gcloud", "--version")
 	if err != nil {
 		c.Findings = append(c.Findings, adapter.Missing(notInstalled, "gcloud", err))
@@ -38,7 +38,7 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 		}
 	}
 	buildx, findings := adapter.Buildx(ctx, env, adapter.BuildsFromSource(s), "GCP")
-	c.Tools = append(c.Tools, gcloud, buildx)
+	c.Dependencies = append(c.Dependencies, gcloud, buildx)
 	c.Findings = append(c.Findings, findings...)
 	return c
 }

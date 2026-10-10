@@ -16,14 +16,14 @@ var _ adapter.Doctor = (*Adapter)(nil)
 func (a *Adapter) Doctor(ctx context.Context, _ *spec.Spec, env *adapter.Env) adapter.Checkup {
 	probe := npxProbe(ctx, env)
 	t, findings := checkTools(probe)
-	c := adapter.Checkup{Findings: findings, Tools: []adapter.Tool{
+	c := adapter.Checkup{Findings: findings, Dependencies: []adapter.Dependency{
 		{Name: "node", Need: "runs wrangler (through npx)", Found: t.nodeRuns, Version: t.node},
 		{Name: "wrangler", Need: "deploys the Worker", Min: adapter.WranglerFloor.Min, Found: t.wranglerRuns, Version: t.wrangler},
 	}}
 	if !t.wranglerRuns {
 		return c
 	}
-	wrangler := &c.Tools[1]
+	wrangler := &c.Dependencies[1]
 	ok, email := whoami(probe, "npx", "--no-install", "wrangler")
 	switch {
 	case !ok:

@@ -41,7 +41,7 @@ func TestDoctor(t *testing.T) {
 		"docker buildx version":             {Stdout: "github.com/docker/buildx v0.33.0 abc\n"},
 	}}
 	c := New().Doctor(context.Background(), s, f.Env(t.TempDir()))
-	if len(c.Findings) != 0 || c.Tools[0].Version != "2.33.1" || c.Tools[0].Login != "prod (sso)" {
+	if len(c.Findings) != 0 || c.Dependencies[0].Version != "2.33.1" || c.Dependencies[0].Login != "prod (sso)" {
 		t.Errorf("checkup = %+v", c)
 	}
 	f.Answers["aws --version"] = exectest.Answer{Stdout: "aws-cli/2.27.0 Python/3.13.1\n"}
@@ -57,7 +57,7 @@ func TestDoctor(t *testing.T) {
 	// Output anyship can't read is said so, not passed as a login.
 	f.Answers["aws configure list --profile prod"] = exectest.Answer{Stdout: "something new\n"}
 	if c := New().Doctor(context.Background(), s, f.Env(t.TempDir())); !slices.Equal(exectest.Codes(c.Findings), []string{"AWS_PREFLIGHT_AUTH"}) || c.Findings[0].Level != adapter.Warning ||
-		!strings.Contains(c.Findings[0].Hint, "aws sts get-caller-identity --profile prod") || c.Tools[0].Login != "" {
+		!strings.Contains(c.Findings[0].Hint, "aws sts get-caller-identity --profile prod") || c.Dependencies[0].Login != "" {
 		t.Errorf("unreadable credentials: %+v", c)
 	}
 	f.Answers["aws --version"] = exectest.Missing("aws")

@@ -256,7 +256,7 @@ func TestDoctor(t *testing.T) {
 		t.Fatal(err)
 	}
 	viaCLI := decode[doctorOutput](t, out)
-	if !viaCLI.OK || viaCLI.Spec == "" || len(viaCLI.Targets) != 1 || viaCLI.Targets[0].Tools[0].Version != "1.2.3" {
+	if !viaCLI.OK || viaCLI.Spec == "" || len(viaCLI.Targets) != 1 || viaCLI.Targets[0].Dependencies[0].Version != "1.2.3" {
 		t.Errorf("doctor = %+v", viaCLI)
 	}
 	var viaTool doctorOutput

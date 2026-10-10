@@ -22,7 +22,7 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 	}
 
 	var c adapter.Checkup
-	kubectl := adapter.Tool{Name: "kubectl", Need: "deploys to the cluster", Min: adapter.KubectlFloor.Min}
+	kubectl := adapter.Dependency{Name: "kubectl", Need: "deploys to the cluster", Min: adapter.KubectlFloor.Min}
 	if out, _, err := adapter.Probe(ctx, env, adapter.ExecOptions{}, "kubectl", "version", "--client", "-o", "json"); err != nil {
 		c.Findings = append(c.Findings, adapter.Missing(notInstalled, "kubectl", err))
 	} else {
@@ -48,7 +48,7 @@ func (a *Adapter) Doctor(ctx context.Context, s *spec.Spec, env *adapter.Env) ad
 		}
 	}
 	buildx, findings := adapter.Buildx(ctx, env, adapter.BuildsFromSource(s), "K8S")
-	c.Tools = append(c.Tools, kubectl, buildx)
+	c.Dependencies = append(c.Dependencies, kubectl, buildx)
 	c.Findings = append(c.Findings, findings...)
 	return c
 }

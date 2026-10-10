@@ -10,9 +10,9 @@ import (
 	"github.com/j75689/anyship/spec"
 )
 
-// Tool is one command-line tool a target drives on this machine, as Doctor
-// found it.
-type Tool struct {
+// Dependency is one command-line tool a target drives on this machine, as
+// Doctor found it.
+type Dependency struct {
 	Name string `json:"name"`
 	// Need says what the target uses it for.
 	Need    string `json:"need"`
@@ -26,11 +26,11 @@ type Tool struct {
 	Login string `json:"login,omitempty"`
 }
 
-// Checkup is what Doctor reports: the tools, and a finding for each one
+// Checkup is what Doctor reports: the dependencies, and a finding for each one
 // that is missing or not logged in.
 type Checkup struct {
-	Tools    []Tool
-	Findings []Finding
+	Dependencies []Dependency
+	Findings     []Finding
 }
 
 // Doctor is implemented by adapters that can check this machine for a
@@ -89,8 +89,8 @@ func BuildsFromSource(s *spec.Spec) bool {
 // and its version. Codes start with prefix, such as GCP: a missing buildx
 // is <prefix>_PREFLIGHT_DOCKER, an error when needed (a service builds from
 // source) and a warning otherwise; an old one is <prefix>_PREFLIGHT_VERSION.
-func Buildx(ctx context.Context, env *Env, needed bool, prefix string) (Tool, []Finding) {
-	tool := Tool{Name: "docker buildx", Need: "builds images from source", Min: BuildxFloor.Min}
+func Buildx(ctx context.Context, env *Env, needed bool, prefix string) (Dependency, []Finding) {
+	tool := Dependency{Name: "docker buildx", Need: "builds images from source", Min: BuildxFloor.Min}
 	out, _, err := Probe(ctx, env, ExecOptions{}, "docker", "buildx", "version")
 	if err == nil {
 		tool.Found, tool.Version = true, VersionIn(out)

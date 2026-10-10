@@ -17,7 +17,7 @@ func TestDoctor(t *testing.T) {
 		"docker buildx version":           {Stdout: "github.com/docker/buildx v0.33.0 abc\n"},
 	}}
 	c := New().Doctor(context.Background(), s, f.Env(t.TempDir()))
-	if len(c.Findings) != 0 || c.Tools[0].Version != "587.0.0" || c.Tools[0].Login != "dev@example.com" || !c.Tools[1].Found {
+	if len(c.Findings) != 0 || c.Dependencies[0].Version != "587.0.0" || c.Dependencies[0].Login != "dev@example.com" || !c.Dependencies[1].Found {
 		t.Errorf("checkup = %+v", c)
 	}
 	for _, call := range f.Calls {
@@ -27,7 +27,7 @@ func TestDoctor(t *testing.T) {
 	}
 
 	f.Answers["gcloud --version"] = exectest.Answer{Stdout: "Google Cloud SDK 502.0.0\n"}
-	if c := New().Doctor(context.Background(), s, f.Env(t.TempDir())); !slices.Equal(exectest.Codes(c.Findings), []string{"GCP_PREFLIGHT_VERSION"}) || c.Tools[0].Min != "515.0.0" {
+	if c := New().Doctor(context.Background(), s, f.Env(t.TempDir())); !slices.Equal(exectest.Codes(c.Findings), []string{"GCP_PREFLIGHT_VERSION"}) || c.Dependencies[0].Min != "515.0.0" {
 		t.Errorf("old gcloud: %+v", c)
 	}
 	f.Answers["gcloud --version"] = exectest.Answer{Stdout: "Google Cloud SDK 587.0.0\n"}
@@ -36,7 +36,7 @@ func TestDoctor(t *testing.T) {
 		t.Errorf("no account: %+v", c.Findings)
 	}
 	f.Answers["gcloud --version"] = exectest.Missing("gcloud")
-	if c := New().Doctor(context.Background(), nil, f.Env(t.TempDir())); !slices.Equal(exectest.Codes(c.Findings), []string{"GCP_PREFLIGHT_GCLOUD"}) || c.Tools[0].Found {
+	if c := New().Doctor(context.Background(), nil, f.Env(t.TempDir())); !slices.Equal(exectest.Codes(c.Findings), []string{"GCP_PREFLIGHT_GCLOUD"}) || c.Dependencies[0].Found {
 		t.Errorf("no gcloud: %+v", c)
 	}
 }
