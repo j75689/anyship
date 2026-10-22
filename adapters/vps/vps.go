@@ -375,6 +375,7 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, dir string) chec
 	}
 
 	if tag, moving := image.MovingTag(svc.Image); svc.Image != "" && svc.Dockerfile == "" && moving {
+		// Its hint is reworded for MCP agents by agentText in internal/cli/mcp.go; keep in sync.
 		add(adapter.Info, "VPS_MUTABLE_TAG",
 			fmt.Sprintf("image %s is deployed by the tag %q, which can move, so every apply pulls it again and the host runs what the tag points at then.", svc.Image, tag),
 			fmt.Sprintf("Pin it by digest in anyship.yaml (image: name@sha256:…) for a deploy that only changes when the spec does, or override it for one deploy: `anyship apply --image %s=<ref>`.", name))

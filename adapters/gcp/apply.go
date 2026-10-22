@@ -471,6 +471,7 @@ func (d *planData) readLive(ctx context.Context, g gcloud, defaultAccount string
 			crs, ok := found[name]
 			switch {
 			case !ok:
+				// Its hint is reworded for MCP agents by agentText in internal/cli/mcp.go; keep in sync.
 				findings = append(findings, adapter.Finding{Level: adapter.Error, Code: "GCP_SERVICE_NOT_DEPLOYED", Service: sv.name,
 					Message: fmt.Sprintf("%s refers to ${services.%s.url}, but %s isn't deployed in %s/%s.", sv.name, ref, name, d.opts.Project, d.opts.Region),
 					Hint:    fmt.Sprintf("Deploy it first with `anyship apply -t gcp --service %s`, or drop --service.", ref)})
