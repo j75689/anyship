@@ -389,6 +389,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 	addTool(server, &mcp.Tool{
 		Name: "apply",
 		Description: "Deploy the spec to a target. With dry_run, only run the target's checks and write the generated files under .anyship/. " +
+			"Its findings are the plan's warnings and notes, then the target's checks. " +
 			"Real deploys need the server to run with --allow-deploy; ask the user before deploying.",
 		Annotations: deploys,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in applyInput) (*mcp.CallToolResult, resultOutput, error) {
@@ -416,10 +417,7 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 		if err != nil {
 			return nil, resultOutput{}, err
 		}
-		out := newResultOutput(result, nil, output, agent)
-		for _, f := range p.Files {
-			out.Files = append(out.Files, f.Path)
-		}
+		out := newApplyOutput(p, result, output, agent)
 		return nil, out, nil
 	})
 

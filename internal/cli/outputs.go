@@ -229,8 +229,9 @@ func newStatusOutput(st *adapter.Status) statusOutput {
 }
 
 type resultOutput struct {
-	OK       bool              `json:"ok"`
-	Summary  []string          `json:"summary,omitempty"`
+	OK      bool     `json:"ok"`
+	Summary []string `json:"summary,omitempty"`
+	// Findings are the plan's findings (apply only), then the target's checks.
 	Findings []adapter.Finding `json:"findings"`
 	Messages []string          `json:"messages"`
 	// Output is what the target's tools (ssh, wrangler, ...) printed.
@@ -245,6 +246,19 @@ type resultOutput struct {
 func newResultOutput(r *adapter.Result, summary []string, output *tailBuffer, aud audience) resultOutput {
 	out := resultOutput{OK: r.OK, Summary: aud.lines(summary), Findings: aud.findings(r.Findings), Messages: aud.lines(r.Messages)}
 	out.Output, out.Truncated = output.String()
+	return out
+}
+
+// newApplyOutput is the outcome of an apply: the plan's findings, then what
+// Apply found on the target, so a caller that didn't plan first still sees the
+// plan's warnings. The plan has no errors here: apply stops before Apply when
+// it does. Files are the generated files Apply wrote.
+func newApplyOutput(p *adapter.Plan, r *adapter.Result, output *tailBuffer, aud audience) resultOutput {
+	out := newResultOutput(r, nil, output, aud)
+	out.Findings = append(aud.findings(p.Findings), out.Findings...)
+	for _, f := range p.Files {
+		out.Files = append(out.Files, f.Path)
+	}
 	return out
 }
 

@@ -64,6 +64,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - gcp: an `apply --service` that fails because it can't list the Cloud Run services (to read the
   ones left out) no longer prints "Project … is ready" (`GCP_PREFLIGHT_OK`) next to the error,
   like the `GCP_SERVICE_NOT_DEPLOYED` failure in #145 (#151).
+- `apply --json` and the MCP `apply` result include the plan's warnings and notes ahead of the
+  target's checks, on every target, so an agent that applies without calling `plan` first, or a
+  script reading `apply --json`, sees them too, such as `GCP_SECRET_SHARED_LEFT_OUT` on a
+  `services`/`--service` run. The terminal output is unchanged and shows each warning once (#144).
 - A missing `gcloud` or `aws` CLI is reported as not installed, with the install link
   (`GCP_PREFLIGHT_GCLOUD`, `AWS_PREFLIGHT_CLI`), instead of as a missing login; a missing `kubectl`
   says it isn't installed instead of quoting the exec error (#130).

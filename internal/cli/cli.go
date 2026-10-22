@@ -354,10 +354,7 @@ func (a *app) applyCommand() *cobra.Command {
 				return err
 			}
 			if asJSON {
-				out := newResultOutput(result, nil, output, shell)
-				for _, f := range p.Files {
-					out.Files = append(out.Files, f.Path)
-				}
+				out := newApplyOutput(p, result, output, shell)
 				if err := printJSON(a.out, out); err != nil {
 					return err
 				}

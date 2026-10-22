@@ -60,7 +60,13 @@ func helper(program string, args ...string) (adapter.ExecOptions, string, []stri
 // fake one, and returns what it printed to stdout.
 func runCLI(t *testing.T, args ...string) (string, error) {
 	t.Helper()
-	registry, err := adapter.NewRegistry(cloudflare.New(), vps.New(), &fakeAdapter{})
+	return runCLIOn(t, []adapter.Adapter{cloudflare.New(), vps.New(), &fakeAdapter{}}, args...)
+}
+
+// runCLIOn is runCLI against the given targets.
+func runCLIOn(t *testing.T, adapters []adapter.Adapter, args ...string) (string, error) {
+	t.Helper()
+	registry, err := adapter.NewRegistry(adapters...)
 	if err != nil {
 		t.Fatal(err)
 	}

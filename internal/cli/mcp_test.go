@@ -29,13 +29,23 @@ type fakeAdapter struct{ destroyed *adapter.DestroyOptions }
 func (*fakeAdapter) Name() string        { return "fake" }
 func (*fakeAdapter) Description() string { return "test target" }
 
-func (*fakeAdapter) Plan(_ context.Context, _ *spec.Spec, env *adapter.Env) (*adapter.Plan, error) {
-	return &adapter.Plan{
+// Plan has one action and one file, and a warning when the spec's fake options
+// say warn.
+func (*fakeAdapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adapter.Plan, error) {
+	p := &adapter.Plan{
 		Target:  "fake",
 		Actions: []adapter.Action{{Op: adapter.OpDeploy, Kind: "thing", Name: "x"}},
 		Files:   []adapter.File{{Path: filepath.Join(env.OutDir, "generated.yaml"), Contents: []byte("generated: for review\n")}},
-	}, nil
+	}
+	if strings.Contains(string(s.Targets["fake"]), "warn") {
+		p.Findings = []adapter.Finding{fakePlanWarning}
+	}
+	return p, nil
 }
+
+// fakePlanWarning's hint names a flag, so tests can see the MCP rewording.
+var fakePlanWarning = adapter.Finding{Level: adapter.Warning, Code: "FAKE_PLAN_WARNING",
+	Message: "The fake plan has a warning.", Hint: "Run `anyship apply --service x` to deploy it alone."}
 
 // Doctor reports one tool, and an error when the spec's fake options say
 // broken.
@@ -100,10 +110,12 @@ type mcpHarness struct {
 	fake    *fakeAdapter
 }
 
-func connectMCP(t *testing.T, allowDeploy bool) *mcpHarness {
+// connectMCP serves the cloudflare and vps targets, a fake one and any extra
+// ones.
+func connectMCP(t *testing.T, allowDeploy bool, extra ...adapter.Adapter) *mcpHarness {
 	t.Helper()
 	fake := &fakeAdapter{}
-	registry, err := adapter.NewRegistry(cloudflare.New(), vps.New(), fake)
+	registry, err := adapter.NewRegistry(append([]adapter.Adapter{cloudflare.New(), vps.New(), fake}, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
