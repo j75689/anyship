@@ -204,7 +204,11 @@ type planFile struct {
 // newPlanOutput is a plan with empty lists kept as lists and the generated
 // files' contents, since plan writes none of them.
 func newPlanOutput(p *adapter.Plan, aud audience) planOutput {
-	out := planOutput{Target: p.Target, Ready: !adapter.HasErrors(p.Findings), Findings: aud.findings(p.Findings), Actions: nonNil(p.Actions), Files: []planFile{}}
+	out := planOutput{Target: p.Target, Ready: !adapter.HasErrors(p.Findings), Findings: aud.findings(p.Findings), Actions: []adapter.Action{}, Files: []planFile{}}
+	for _, a := range p.Actions {
+		a.Detail = aud.text(a.Detail)
+		out.Actions = append(out.Actions, a)
+	}
 	for _, f := range p.Files {
 		out.Files = append(out.Files, planFile{Path: f.Path, Contents: string(f.Contents)})
 	}

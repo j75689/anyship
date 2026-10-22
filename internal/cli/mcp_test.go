@@ -585,8 +585,22 @@ func TestAgentTextNamesToolsNotCommands(t *testing.T) {
 		"Removed nothing; `anyship destroy -t vps --volumes` also deletes data.":                                  "Removed nothing; the destroy tool with volumes=true also deletes data.",
 		"Check the host first with `anyship apply -t vps --dry-run`.":                                             "Check the host first with the apply tool with dry_run=true.",
 		"Pin it by digest, or override it for one deploy: `anyship apply --image web=<ref>`.":                     "Pin it by digest, or override it for one deploy: the apply tool with its images argument.",
-		"Deploy it first with `anyship apply -t gcp --service search`, or drop --service.":                        "Deploy it first with the apply tool with its services argument, or drop --service.",
-		"Ask Claude with `anyship diagnose -t vps`.":                                                              "Ask Claude with the diagnose_context tool with target=vps.",
+		"Deploy it first with `anyship apply -t gcp --service search`, or drop --service.":                        "Deploy it first with the apply tool with target=gcp and services=[search], or drop the services argument.",
+		"Run `anyship apply` without --service, or add --service api --service worker.":                           "Run the apply tool without the services argument, or add api and worker to the services argument.",
+		"Run `anyship apply` without --service, or add --service a --service b --service c.":                      "Run the apply tool without the services argument, or add a, b and c to the services argument.",
+		"Run `anyship apply` without --service, or add --service api.":                                            "Run the apply tool without the services argument, or add api to the services argument.",
+		"left untouched (not selected with --service); its Cloud Scheduler jobs are kept":                         "left untouched (not selected with the services argument); its Cloud Scheduler jobs are kept",
+		"--service names web twice": "the services argument names web twice",
+		"the vps target can't deploy some services only; drop --service to deploy all of them":        "the vps target can't deploy some services only; drop the services argument to deploy all of them",
+		"--image search is for a service this run leaves out; add --service search or drop the image": "the images argument sets an image for search, which this run leaves out; add search to the services argument or drop the image",
+		"Apply both with `anyship apply -t gcp --service web --service search`.":                      "Apply both with the apply tool with target=gcp and services=[web, search].",
+		"Ask Claude with `anyship diagnose -t vps`.":                                                  "Ask Claude with the diagnose_context tool with target=vps.",
+		"a PersistentVolumeClaim, kept until destroy --volumes":                                       "a PersistentVolumeClaim, kept until destroy with volumes=true",
+		// Longer flags that start like --service or --image are not theirs.
+		"drop --service-account to use the default":                   "drop --service-account to use the default",
+		"without --service-account, or selected with --service-name":  "without --service-account, or selected with --service-name",
+		"add --service-account deploy":                                "add --service-account deploy",
+		"--image-repository web is for a service this run leaves out": "--image-repository web is for a service this run leaves out",
 		// Advice about other programs, and about this server, is the user's to act on.
 		"Check that `ssh -p 2222 deploy@h` works without a password prompt.":                                   "Check that `ssh -p 2222 deploy@h` works without a password prompt.",
 		"this anyship MCP server only allows dry runs; restart it with `anyship mcp --allow-deploy` to deploy": "this anyship MCP server only allows dry runs; restart it with `anyship mcp --allow-deploy` to deploy",
@@ -622,6 +636,15 @@ func TestMCPWordsMessagesForAnAgent(t *testing.T) {
 	}
 	if err := forAgent(errors.New("has it been deployed with `anyship apply -t gcp`?")); err.Error() != "has it been deployed with the apply tool with target=gcp?" {
 		t.Errorf("error over MCP: %v", err)
+	}
+	plan := newPlanOutput(&adapter.Plan{Actions: []adapter.Action{{Op: adapter.OpNote, Detail: "left untouched (not selected with --service)"}}}, agent)
+	if got := plan.Actions[0].Detail; got != "left untouched (not selected with the services argument)" {
+		t.Errorf("plan action over MCP: %q", got)
+	}
+	// Every target's details go through it, such as a kubernetes volume's.
+	plan = newPlanOutput(&adapter.Plan{Actions: []adapter.Action{{Op: adapter.OpCreate, Detail: "10Gi at /data, kept until destroy --volumes"}}}, agent)
+	if got := plan.Actions[0].Detail; got != "10Gi at /data, kept until destroy with volumes=true" {
+		t.Errorf("kubernetes volume over MCP: %q", got)
 	}
 	if forAgent(nil) != nil {
 		t.Error("no error must stay no error")
