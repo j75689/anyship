@@ -11,9 +11,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Breaking:** `status --json` and the MCP `status` tool report a service's address in the new
   `url` field instead of in `detail`. In 0.6.0 `detail` held the run.app URL on gcp, the `on.aws`
-  URL on aws, and ended with `, load balancer <address>` on kubernetes; now it is `revision <name>`
-  on gcp, empty on aws unless a rollout reports a reason, and `<n>/<m> available` on kubernetes. A
-  script that read the address from `detail` reads `url` instead (#127).
+  URL on aws, and ended with `, load balancer <address>` (or `, load balancer address pending`) on
+  kubernetes; now it is `revision <name>` on gcp, empty on aws unless a rollout reports a reason,
+  and `<n>/<m> available` on kubernetes. A script that read the address from `detail` reads `url`
+  instead (#127).
 
 ### Added
 
@@ -48,8 +49,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   docker buildx 0.6.0 (`--metadata-file`), gcloud 515.0.0 (`run deploy --startup-probe`), aws CLI
   2.32.2 (the ECS Express Mode commands) and wrangler 3.91.0 (`wrangler.jsonc` without a flag). An
   older tool is a warning, `<TARGET>_PREFLIGHT_VERSION` (`K8S_`, `AWS_`, `GCP_` for buildx, `CF_`),
-  in `apply`'s checks and in `doctor`, whose tools carry the floor as `min`; it never blocks a
-  deploy. Node.js has no floor of its own: wrangler checks the Node.js it runs on (#130).
+  in `apply`'s checks and in `doctor`, whose `--json` gives the floor as `min` on each of the
+  `dependencies`; it never blocks a deploy. Node.js has no floor of its own: wrangler checks the
+  Node.js it runs on (#130).
 
 ### Fixed
 
