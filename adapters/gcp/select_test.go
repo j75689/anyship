@@ -262,6 +262,35 @@ func TestApplySelectedLiveFallbacks(t *testing.T) {
 	}
 }
 
+// A secret written from the environment that a left-out service lists too
+// is called out; one the run doesn't write isn't.
+func TestPlanSelectedWarnsSharedSecret(t *testing.T) {
+	s := selectSpec(t, "")
+	env, _ := selectEnv(t)
+	if got := codes(plan(t, s, env), adapter.Warning); slices.Contains(got, "GCP_SECRET_SHARED_LEFT_OUT") {
+		t.Errorf("warned without $DB_URL: %q", got)
+	}
+
+	env.LookupEnv = func(key string) (string, bool) { return "postgres://new", key == "DB_URL" || key == "SEARCH_KEY" }
+	p := plan(t, s, env)
+	var shared []adapter.Finding
+	for _, f := range p.Findings {
+		if f.Code == "GCP_SECRET_SHARED_LEFT_OUT" {
+			shared = append(shared, f)
+		}
+	}
+	if len(shared) != 1 || shared[0].Level != adapter.Warning || !strings.Contains(shared[0].Message, "shop-DB_URL") ||
+		!strings.Contains(shared[0].Message, "search list(s) it too") || !strings.Contains(shared[0].Hint, "--service search") {
+		t.Errorf("findings = %+v, want one warning for shop-DB_URL and search", shared)
+	}
+
+	// Nothing is left out that lists it.
+	env.Services = []string{"web", "search"}
+	if got := codes(plan(t, s, env), adapter.Warning); slices.Contains(got, "GCP_SECRET_SHARED_LEFT_OUT") {
+		t.Errorf("warned with search selected: %q", got)
+	}
+}
+
 // Criterion 4: a run fails before any change when a service it deploys
 // refers to a left-out service that isn't running.
 func TestApplySelectedFailsWhenReferenceNotDeployed(t *testing.T) {

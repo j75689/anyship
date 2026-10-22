@@ -127,7 +127,11 @@ spec:
   deployed (`GCP_SERVICE_NOT_DEPLOYED`). A selected service that calls a left-out internal one
   gets a warning (`GCP_SERVICE_LEFT_OUT_INTERNAL`): that service's invoker binding isn't changed,
   so a caller whose service account changed or is new waits for a full `apply`. So does a stale
-  grant to an account a left-out service runs as.
+  grant to an account a left-out service runs as. A secret whose `$NAME` is set gets a new version
+  even when a left-out service lists it too; that service isn't redeployed and reads `:latest` as
+  its instances start, so new instances get the new value while running ones keep the old. The
+  plan warns about it (`GCP_SECRET_SHARED_LEFT_OUT`); apply without `--service`, or select that
+  service too, to roll it out everywhere at once.
 - Refused with a reason: static sites, workers, volumes, TCP/UDP ports, `domains`
   (`GCP_DOMAIN_UNSUPPORTED`; map them with `gcloud beta run domain-mappings` or a load balancer) and
   resources anyship would have to provision. `logs -f` points to `gcloud beta run services logs tail`.

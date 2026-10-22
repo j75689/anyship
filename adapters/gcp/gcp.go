@@ -361,6 +361,7 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 		}
 		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpNote, Kind: "Secret Manager secret", Name: sc.id, Detail: detail})
 	}
+	plan.Findings = append(plan.Findings, sharedLeftOut(data, env)...)
 	if len(data.secrets) > 0 {
 		plan.Findings = append(plan.Findings, adapter.Finding{
 			Level: adapter.Info, Code: "GCP_SECRETS_AS_ENV",
@@ -423,6 +424,34 @@ func untouchedDetail(sv service, used map[string]bool, project string) string {
 		detail += "; secret(s) no selected service lists are kept: " + strings.Join(kept, ", ")
 	}
 	return detail
+}
+
+// sharedLeftOut warns about the secrets this run writes from the deployer's
+// environment that a left-out service lists too: it isn't redeployed, so its
+// instances read the new value only as they start.
+func sharedLeftOut(d *planData, env *adapter.Env) []adapter.Finding {
+	var findings []adapter.Finding
+	for _, sc := range d.secrets {
+		var readers []string
+		for _, other := range d.others {
+			if slices.Contains(other.svc.Secrets, sc.name) {
+				readers = append(readers, other.name)
+			}
+		}
+		if len(readers) == 0 {
+			continue
+		}
+		if value, ok := env.LookupEnv(sc.name); !ok || value == "" {
+			continue
+		}
+		findings = append(findings, adapter.Finding{
+			Level: adapter.Warning, Code: "GCP_SECRET_SHARED_LEFT_OUT",
+			Message: fmt.Sprintf("$%s is set, so this run writes its value into %s as a new version. %s list(s) it too and this run leaves them out: their instances pick the new value up as they restart, while running ones keep the old one.",
+				sc.name, sc.id, strings.Join(readers, ", ")),
+			Hint: fmt.Sprintf("Run `anyship apply` without --service, or add --service %s.", strings.Join(readers, " --service ")),
+		})
+	}
+	return findings
 }
 
 // leftOutCallees warns about selected services that call an internal service
