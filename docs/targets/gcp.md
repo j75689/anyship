@@ -36,10 +36,11 @@ spec:
 - Services that build from source are built for `linux/amd64`, pushed, and deployed by digest, so a
   deploy runs exactly the image it built. Generated Dockerfiles are kept in `.anyship/gcp/` for review.
 - Next to them, `<service>.gcloud.txt` holds the service's deploy command. `plan` shows placeholders
-  for what it can't read: the project number, the URLs of left-out services and the image digest.
-  Every `apply`, dry run or not, with or without `--service`, writes it again once the checks pass,
-  with the project number and those URLs read from the project; only the digest stays a
-  placeholder. A run whose checks fail leaves the plan's placeholders.
+  for what it can't read: the project number and the URLs of left-out services. Every `apply`, dry
+  run or not, with or without `--service`, writes it again once the checks pass, with those read
+  from the project; a run whose checks fail leaves the plan's placeholders. A service anyship builds
+  from source also has a placeholder for its image digest, which stays in every run: the digest is
+  only known after the build, and the file is written before it.
 - A service that sets `image` is deployed from exactly that reference. A tag that moves (`:latest`,
   `:main`, no tag at all) is pulled again on every deploy, and behind a caching registry it can
   resolve to an older image while the deploy reports success, so `plan` warns about it
