@@ -36,3 +36,14 @@ func TestDecodeOptionsSpeaksYAML(t *testing.T) {
 		t.Errorf("valid options: %+v %v", o, err)
 	}
 }
+
+func TestEnvSelected(t *testing.T) {
+	all := &Env{}
+	if !all.Selected("web") || !all.Selected("api") {
+		t.Error("a run that names no services must deploy every one")
+	}
+	some := &Env{Services: []string{"web"}}
+	if !some.Selected("web") || some.Selected("api") {
+		t.Errorf("Services %v: web %v, api %v", some.Services, some.Selected("web"), some.Selected("api"))
+	}
+}

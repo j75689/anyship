@@ -142,12 +142,22 @@ type Env struct {
 	// back to learn what is deployed. Ask the platform instead.
 	OutDir string
 	DryRun bool
-	Logf   func(format string, args ...any)
+	// Services limits a deploy to these spec services, by name; empty means all
+	// of them. Only an adapter that implements ServiceSelector is given any.
+	// The spec still holds every service, so the adapter can leave the others'
+	// resources alone.
+	Services []string
+	Logf     func(format string, args ...any)
 	// Exec runs a command with inherited stdio (unless opts.Stdin is set) and
 	// returns an error if it fails; NotInstalled tells a missing command apart.
 	Exec func(ctx context.Context, opts ExecOptions, name string, args ...string) error
 	// LookupEnv reads the deployer's environment, e.g. for secret values.
 	LookupEnv func(key string) (string, bool)
+}
+
+// Selected reports whether a run deploys the named service.
+func (e *Env) Selected(service string) bool {
+	return len(e.Services) == 0 || slices.Contains(e.Services, service)
 }
 
 // Adapter is a deploy target. Plan must be side-effect free: it only inspects
@@ -176,6 +186,13 @@ type LogOptions struct {
 // cancelled while following. Options the platform can't honor are errors.
 type LogReader interface {
 	Logs(ctx context.Context, s *spec.Spec, env *Env, opts LogOptions) error
+}
+
+// ServiceSelector is implemented by adapters that can deploy some of a
+// spec's services and leave the rest untouched: what those services own
+// (access, schedules, URLs others refer to) is kept.
+type ServiceSelector interface {
+	SelectsServices()
 }
 
 // Status is what is currently running for a spec on a target.
