@@ -444,6 +444,7 @@ func sharedLeftOut(d *planData, env *adapter.Env) []adapter.Finding {
 		if value, ok := env.LookupEnv(sc.name); !ok || value == "" {
 			continue
 		}
+		// Its hint is reworded for MCP agents by agentText in internal/cli/mcp.go; keep in sync.
 		findings = append(findings, adapter.Finding{
 			Level: adapter.Warning, Code: "GCP_SECRET_SHARED_LEFT_OUT",
 			Message: fmt.Sprintf("$%s is set, so this run writes its value into %s as a new version. %s list(s) it too and this run leaves them out: their instances pick the new value up as they restart, while running ones keep the old one.",
@@ -465,6 +466,7 @@ func leftOutCallees(d *planData) []adapter.Finding {
 			if i < 0 || !d.others[i].internal {
 				continue
 			}
+			// Its hint is reworded for MCP agents by agentText in internal/cli/mcp.go; keep in sync.
 			findings = append(findings, adapter.Finding{
 				Level: adapter.Warning, Code: "GCP_SERVICE_LEFT_OUT_INTERNAL", Service: sv.name,
 				Message: fmt.Sprintf("%s calls %s, which this run leaves out, so %s's run.invoker binding isn't changed. That only matters if %s's service account changed or is new: then it can't call %s until a full apply.", sv.name, ref, ref, sv.name, ref),
