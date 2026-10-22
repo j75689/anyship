@@ -235,6 +235,33 @@ func TestApplySelectedResolvesURLFromCloudRun(t *testing.T) {
 	}
 }
 
+// Cloud Run may leave out the account a service runs as, and its URL: the
+// default compute account keeps its access, and the URL is the formula one.
+func TestApplySelectedLiveFallbacks(t *testing.T) {
+	s := selectSpec(t, "")
+	env, fc := selectEnv(t)
+	// reels is selected, so only Cloud Run says search runs as the default
+	// account.
+	env.Services = []string{"web", "reels"}
+	fc.out["gcloud run services list"] = `[{"metadata": {"name": "shop-search"}, "spec": {"template": {"spec": {}}}, "status": {"url": ""}}]`
+	const def = "123456789-compute@developer.gserviceaccount.com"
+	const old = "old@my-project.iam.gserviceaccount.com"
+	fc.out["gcloud secrets get-iam-policy shop-DB_URL"] = policyWith("serviceAccount:"+def, "serviceAccount:"+old)
+	res := applySelected(t, s, env)
+	if !res.OK {
+		t.Fatalf("apply: %+v", res)
+	}
+	if got, want := revokedFrom(fc), []string{"shop-DB_URL serviceAccount:" + old}; !slices.Equal(got, want) {
+		t.Errorf("revoked = %q, want %q", got, want)
+	}
+	if deploy := fc.find("gcloud run deploy shop-web"); deploy == nil || !strings.Contains(deploy.line(), "SEARCH="+searchURL+" ") {
+		t.Errorf("web wasn't given search's formula URL: %+v", deploy)
+	}
+	if got := codesOf(res.Findings, adapter.Warning); slices.Contains(got, "GCP_SERVICE_URL_LEGACY") {
+		t.Errorf("warnings = %q", got)
+	}
+}
+
 // Criterion 4: a run fails before any change when a service it deploys
 // refers to a left-out service that isn't running.
 func TestApplySelectedFailsWhenReferenceNotDeployed(t *testing.T) {
