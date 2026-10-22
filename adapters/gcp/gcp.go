@@ -423,6 +423,7 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 
 // untouchedDetail says what a run that leaves a service out keeps of it.
 func untouchedDetail(sv service, used map[string]bool, project string) string {
+	// This detail is reworded for MCP agents by agentText in internal/cli/mcp.go; keep in sync.
 	detail := "left untouched (not selected with --service)"
 	if len(sv.svc.Cron) > 0 {
 		detail += "; its Cloud Scheduler jobs are kept"
@@ -652,6 +653,7 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 				"Create "+remote+", or push the image to Artifact Registry.")
 		}
 		if tag, moving := image.MovingTag(svc.Image); moving {
+			// Its hint is reworded for MCP agents by agentText in internal/cli/mcp.go; keep in sync.
 			add(adapter.Warning, "GCP_MUTABLE_TAG",
 				fmt.Sprintf("image %s is deployed by the tag %q, which can move: Cloud Run runs whatever it points at when pulled, and behind a caching registry that can be an older image.", svc.Image, tag),
 				fmt.Sprintf("Pin it by digest in anyship.yaml (image: name@sha256:…), or override it for one deploy: `anyship apply --image %s=<ref>`.", name))
