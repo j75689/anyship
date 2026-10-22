@@ -320,11 +320,11 @@ func answerPrompt(t *testing.T, interactive bool, answer string) func() string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	isTerminal, oldIn, oldErr := stdinIsTerminal, os.Stdin, os.Stderr
+	oldTerminal, oldIn, oldErr := stdinIsTerminal, os.Stdin, os.Stderr
 	stdinIsTerminal = func() bool { return interactive }
 	os.Stdin, os.Stderr = stdin, stderr
 	t.Cleanup(func() {
-		stdinIsTerminal, os.Stdin, os.Stderr = isTerminal, oldIn, oldErr
+		stdinIsTerminal, os.Stdin, os.Stderr = oldTerminal, oldIn, oldErr
 		_ = stdin.Close()
 		_ = stderr.Close()
 	})
@@ -353,6 +353,22 @@ func TestApplyJSONShowsPlanFindingsBeforeThePrompt(t *testing.T) {
 	prompt := strings.Index(errOut, "Deploy demo to fake? [y/N]")
 	if findings < 0 || prompt < findings {
 		t.Errorf("stderr should show the findings before the prompt:\n%s", errOut)
+	}
+}
+
+// Answering no deploys nothing and prints no JSON.
+func TestApplyJSONPromptAborts(t *testing.T) {
+	stderr := answerPrompt(t, true, "n")
+	out, err := runCLI(t, "apply", "-t", "fake", "-c", warnSpec(t), "--json")
+	if err != nil || out != "" {
+		t.Fatalf("apply --json = %q, %v; want no output", out, err)
+	}
+	errOut := stderr()
+	findings := strings.Index(errOut, "\nFindings:\n  ! "+fakePlanWarning.Message+"\n")
+	prompt := strings.Index(errOut, "Deploy demo to fake? [y/N]")
+	aborted := strings.Index(errOut, "Aborted.\n")
+	if findings < 0 || prompt < findings || aborted < prompt || strings.Contains(errOut, "deploying") {
+		t.Errorf("stderr should show the findings, the prompt and then Aborted.:\n%s", errOut)
 	}
 }
 
