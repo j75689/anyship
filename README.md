@@ -360,7 +360,7 @@ that look like projects, so the agent can pass one as `dir`.
 | `status`, `logs` | what runs on the target (with a `healthy` verdict), and its recent logs (`timestamps` to date them) | no |
 | `diagnose_context` | everything above plus dry-run checks, redacted, for diagnosing a failure | no |
 | `doctor` | which CLIs a target needs are installed on this machine, their versions and logins | no |
-| `apply` | deploy; `dry_run` runs the target's checks and generates the deployment files; the result names the files written | `.anyship/<target>/`; deploys only with `--allow-deploy` |
+| `apply` | deploy; `dry_run` runs the target's checks and generates the deployment files; the result names the files written, and its findings start with the plan's warnings and notes | `.anyship/<target>/`; deploys only with `--allow-deploy` |
 | `destroy` | remove a deployment; `volumes` also deletes data | no; removes only with `--allow-deploy` |
 
 The server also serves two kinds of resources, for an agent writing `anyship.yaml`: `anyship://schema`,
