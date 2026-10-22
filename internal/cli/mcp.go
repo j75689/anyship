@@ -65,10 +65,18 @@ func forAgent(err error) error {
 var (
 	backtickedCommand = regexp.MustCompile("`anyship (init|apply|status|logs|destroy|plan|validate|diagnose|doctor)\\b([^`]*)`")
 	bareCommand       = regexp.MustCompile(`\banyship (init|apply|status|logs|destroy|plan|validate|diagnose|doctor)\b`)
-	bareFlags         = strings.NewReplacer("destroy --volumes", "destroy with volumes=true", "apply --dry-run", "apply with dry_run=true")
+	bareFlags         = strings.NewReplacer("destroy --volumes", "destroy with volumes=true", "apply --dry-run", "apply with dry_run=true",
+		"drop --service", "drop the services argument", "without --service", "without the services argument",
+		"selected with --service", "selected with the services argument", "--service names", "the services argument names")
 	// targetFlag is a command line whose only flag picks the target, which
 	// becomes the tool's target argument.
 	targetFlag = regexp.MustCompile(`^ -t ([a-z]+)$`)
+	// targetServices is one that also picks services, which become the
+	// services argument.
+	targetServices = regexp.MustCompile(`^ -t ([a-z]+)((?: --service [a-z0-9-]+)+)$`)
+	// Bare --service and --image flags with service names after them.
+	addServices  = regexp.MustCompile(`add --service ([a-z0-9-]+(?: --service [a-z0-9-]+)*)`)
+	leftOutImage = regexp.MustCompile(`--image ([a-z0-9-]+) is for`)
 )
 
 // toolFor names the tool behind a command, where the two differ.
@@ -99,6 +107,9 @@ func agentText(text string) string {
 		switch {
 		case targetFlag.MatchString(m[2]):
 			return tool(m[1]) + " with target=" + targetFlag.FindStringSubmatch(m[2])[1]
+		case targetServices.MatchString(m[2]):
+			t := targetServices.FindStringSubmatch(m[2])
+			return tool(m[1]) + " with target=" + t[1] + " and services=[" + serviceList(t[2]) + "]"
 		case strings.Contains(m[2], "--volumes"):
 			return tool(m[1]) + " with volumes=true"
 		case strings.Contains(m[2], "--dry-run"):
@@ -116,7 +127,16 @@ func agentText(text string) string {
 	text = targetsPage.ReplaceAllStringFunc(text, func(match string) string {
 		return "the " + targetURI(targetsPage.FindStringSubmatch(match)[1]) + " resource"
 	})
+	text = addServices.ReplaceAllStringFunc(text, func(match string) string {
+		return "add " + serviceList(addServices.FindStringSubmatch(match)[1]) + " to the services argument"
+	})
+	text = leftOutImage.ReplaceAllString(text, "the image for $1 in the images argument is for")
 	return bareFlags.Replace(text)
+}
+
+// serviceList turns " --service a --service b" into "a, b".
+func serviceList(flags string) string {
+	return strings.Join(strings.Fields(strings.ReplaceAll(flags, "--service", "")), ", ")
 }
 
 // addTool registers a tool whose errors are worded for an agent.
