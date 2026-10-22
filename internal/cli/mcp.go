@@ -66,17 +66,19 @@ var (
 	backtickedCommand = regexp.MustCompile("`anyship (init|apply|status|logs|destroy|plan|validate|diagnose|doctor)\\b([^`]*)`")
 	bareCommand       = regexp.MustCompile(`\banyship (init|apply|status|logs|destroy|plan|validate|diagnose|doctor)\b`)
 	bareFlags         = strings.NewReplacer("destroy --volumes", "destroy with volumes=true", "apply --dry-run", "apply with dry_run=true",
-		"drop --service", "drop the services argument", "without --service", "without the services argument",
-		"selected with --service", "selected with the services argument", "--service names", "the services argument names")
+		"--service names", "the services argument names")
 	// targetFlag is a command line whose only flag picks the target, which
 	// becomes the tool's target argument.
 	targetFlag = regexp.MustCompile(`^ -t ([a-z]+)$`)
 	// targetServices is one that also picks services, which become the
 	// services argument.
 	targetServices = regexp.MustCompile(`^ -t ([a-z]+)((?: --service [a-z0-9-]+)+)$`)
-	// Bare --service and --image flags with service names after them.
+	// Bare --service and --image flags, alone or with service names after
+	// them. A bare --service must end where the flag does, so that a longer
+	// flag such as --service-account is left alone.
+	bareService  = regexp.MustCompile(`(drop|without|selected with) --service([^-a-z0-9]|$)`)
 	addServices  = regexp.MustCompile(`add --service ([a-z0-9-]+(?: --service [a-z0-9-]+)*)`)
-	leftOutImage = regexp.MustCompile(`--image ([a-z0-9-]+) is for`)
+	leftOutImage = regexp.MustCompile(`--image ([a-z0-9-]+) is for a service this run leaves out`)
 )
 
 // toolFor names the tool behind a command, where the two differ.
@@ -109,7 +111,7 @@ func agentText(text string) string {
 			return tool(m[1]) + " with target=" + targetFlag.FindStringSubmatch(m[2])[1]
 		case targetServices.MatchString(m[2]):
 			t := targetServices.FindStringSubmatch(m[2])
-			return tool(m[1]) + " with target=" + t[1] + " and services=[" + serviceList(t[2]) + "]"
+			return tool(m[1]) + " with target=" + t[1] + " and services=[" + strings.Join(serviceNames(t[2]), ", ") + "]"
 		case strings.Contains(m[2], "--volumes"):
 			return tool(m[1]) + " with volumes=true"
 		case strings.Contains(m[2], "--dry-run"):
@@ -128,15 +130,24 @@ func agentText(text string) string {
 		return "the " + targetURI(targetsPage.FindStringSubmatch(match)[1]) + " resource"
 	})
 	text = addServices.ReplaceAllStringFunc(text, func(match string) string {
-		return "add " + serviceList(addServices.FindStringSubmatch(match)[1]) + " to the services argument"
+		return "add " + inWords(serviceNames(addServices.FindStringSubmatch(match)[1])) + " to the services argument"
 	})
-	text = leftOutImage.ReplaceAllString(text, "the image for $1 in the images argument is for")
+	text = leftOutImage.ReplaceAllString(text, "the images argument sets an image for $1, which this run leaves out")
+	text = bareService.ReplaceAllString(text, "$1 the services argument$2")
 	return bareFlags.Replace(text)
 }
 
-// serviceList turns " --service a --service b" into "a, b".
-func serviceList(flags string) string {
-	return strings.Join(strings.Fields(strings.ReplaceAll(flags, "--service", "")), ", ")
+// serviceNames turns " --service a --service b" into a and b.
+func serviceNames(flags string) []string {
+	return strings.Fields(strings.ReplaceAll(flags, "--service", ""))
+}
+
+// inWords lists names in a sentence: "a", "a and b", "a, b and c".
+func inWords(names []string) string {
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
 
 // addTool registers a tool whose errors are worded for an agent.
