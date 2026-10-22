@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/j75689/anyship/adapters/gcp"
 	"github.com/j75689/anyship/adapters/vps"
 	"github.com/j75689/anyship/spec"
 )
@@ -85,9 +86,9 @@ spec:
 	}
 }
 
-func TestServicesIsACapability(t *testing.T) {
-	if !slices.Contains(capabilities(&selectingAdapter{}), "services") {
-		t.Errorf("capabilities = %q", capabilities(&selectingAdapter{}))
+func TestServicesIsACapabilityOfGCPOnly(t *testing.T) {
+	if !slices.Contains(capabilities(gcp.New()), "services") {
+		t.Errorf("gcp capabilities = %q", capabilities(gcp.New()))
 	}
 	if slices.Contains(capabilities(vps.New()), "services") {
 		t.Errorf("vps capabilities = %q", capabilities(vps.New()))

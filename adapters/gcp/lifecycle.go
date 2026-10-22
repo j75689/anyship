@@ -20,6 +20,9 @@ const defaultLogLimit = 100
 type cloudRunService struct {
 	Metadata struct {
 		Name string `json:"name"`
+		// Annotations hold run.googleapis.com/urls, every URL the service
+		// answers on, as a JSON array.
+		Annotations map[string]string `json:"annotations"`
 	} `json:"metadata"`
 	Spec struct {
 		Template struct {
@@ -27,6 +30,9 @@ type cloudRunService struct {
 				Containers []struct {
 					Image string `json:"image"`
 				} `json:"containers"`
+				// ServiceAccountName is the account the service runs as;
+				// empty for the project's default one.
+				ServiceAccountName string `json:"serviceAccountName"`
 			} `json:"spec"`
 		} `json:"template"`
 	} `json:"spec"`
@@ -48,6 +54,16 @@ func (crs cloudRunService) image() string {
 		return c.Image
 	}
 	return ""
+}
+
+// answersOn reports whether the service answers on a URL.
+func (crs cloudRunService) answersOn(url string) bool {
+	if crs.Status.URL == url {
+		return true
+	}
+	var urls []string
+	_ = json.Unmarshal([]byte(crs.Metadata.Annotations["run.googleapis.com/urls"]), &urls)
+	return slices.Contains(urls, url)
 }
 
 // deployed lists the project's Cloud Run services, found by label.

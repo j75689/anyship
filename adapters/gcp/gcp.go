@@ -153,10 +153,11 @@ var (
 type Adapter struct{}
 
 var (
-	_ adapter.Adapter      = (*Adapter)(nil)
-	_ adapter.LogReader    = (*Adapter)(nil)
-	_ adapter.StatusReader = (*Adapter)(nil)
-	_ adapter.Destroyer    = (*Adapter)(nil)
+	_ adapter.Adapter         = (*Adapter)(nil)
+	_ adapter.LogReader       = (*Adapter)(nil)
+	_ adapter.StatusReader    = (*Adapter)(nil)
+	_ adapter.Destroyer       = (*Adapter)(nil)
+	_ adapter.ServiceSelector = (*Adapter)(nil)
 )
 
 func New() *Adapter { return &Adapter{} }
@@ -165,6 +166,10 @@ func (*Adapter) Name() string { return Name }
 func (*Adapter) Description() string {
 	return "Google Cloud Run (HTTP containers, Secret Manager) via gcloud"
 }
+
+// SelectsServices says the adapter deploys the services env.Services names
+// and keeps what the others own.
+func (*Adapter) SelectsServices() {}
 
 // service is one Cloud Run service to deploy.
 type service struct {
@@ -214,8 +219,13 @@ type planData struct {
 	// others are the spec's services this run leaves out (--service). They
 	// aren't deployed, but what they own is kept: the access their accounts
 	// have, their cron jobs, and the URLs the deployed services refer to.
-	others  []service
-	secrets []secret
+	others []service
+	// live is the URL of each left-out service as Cloud Run reports it, by
+	// spec name; Apply fills it in before anything changes.
+	live map[string]string
+	// liveAccounts are the accounts the left-out services run as on Cloud Run.
+	liveAccounts []string
+	secrets      []secret
 	// scheduler is whether the Cloud Scheduler API is enabled; preflight
 	// finds out.
 	scheduler bool
@@ -227,8 +237,12 @@ type planData struct {
 // known reports whether the spec has the named service, deployed by this run
 // or left out of it.
 func (d *planData) known(name string) bool {
-	has := func(sv service) bool { return sv.name == name }
-	return slices.ContainsFunc(d.services, has) || slices.ContainsFunc(d.others, has)
+	return d.leftOut(name) || slices.ContainsFunc(d.services, func(sv service) bool { return sv.name == name })
+}
+
+// leftOut reports whether the run leaves the named service out.
+func (d *planData) leftOut(name string) bool {
+	return slices.ContainsFunc(d.others, func(sv service) bool { return sv.name == name })
 }
 
 // numberPlaceholder stands for the project number in a plan, before
@@ -238,7 +252,22 @@ const numberPlaceholder = "<project number>"
 // serviceURL is the URL Cloud Run gives a service of the spec, which follows
 // from its name, the project number and the region, so it is known before
 // the service exists.
+//
+// A service the run leaves out answers where Cloud Run says it does, which
+// Apply reads; until then, in a plan, a placeholder stands for it.
 func (d *planData) serviceURL(service string) string {
+	if !d.leftOut(service) {
+		return d.formulaURL(service)
+	}
+	if url, ok := d.live[service]; ok {
+		return url
+	}
+	return fmt.Sprintf("<URL of %s as deployed>", cloudRunName(d.project, service))
+}
+
+// formulaURL is the URL made from the service's name, the project number and
+// the region.
+func (d *planData) formulaURL(service string) string {
 	number := d.number
 	if number == "" {
 		number = numberPlaceholder
@@ -298,6 +327,12 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 	for _, name := range s.DeployOrder() {
 		svc := s.Services[name]
 		sv, findings := checkService(name, svc, s, opts, env.Dir)
+		if !env.Selected(name) {
+			// Its accounts and jobs are still needed, to keep them; its
+			// findings are for the run that deploys it.
+			data.others = append(data.others, sv)
+			continue
+		}
 		plan.Findings = append(plan.Findings, findings...)
 		if len(svc.DependsOn) > 0 && !dependsNoted {
 			dependsNoted = true
@@ -312,6 +347,7 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 		}
 		data.services = append(data.services, sv)
 	}
+	plan.Findings = append(plan.Findings, leftOutCallees(data)...)
 	if adapter.HasErrors(plan.Findings) {
 		return plan, nil
 	}
@@ -330,8 +366,12 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 			Level: adapter.Info, Code: "GCP_SECRETS_AS_ENV",
 			Message: "Secrets reach Cloud Run containers as environment variables named after the secret, not as files under /run/secrets.",
 		})
+		detail := "lets the account each service runs as read the secrets that service lists, and takes that right away from other service accounts"
+		if len(data.others) > 0 {
+			detail = "lets the account each selected service runs as read the secrets it lists, and takes that right away from other service accounts, except those the services left out run as"
+		}
 		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpNote, Kind: "IAM binding", Name: "roles/secretmanager.secretAccessor",
-			Detail: "lets the account each service runs as read the secrets that service lists, and takes that right away from other service accounts" + readersNote(opts)})
+			Detail: detail + readersNote(opts)})
 	}
 
 	for _, sv := range data.services {
@@ -360,8 +400,50 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 				Detail: fmt.Sprintf("%q calls %s %s on %s", job.schedule, job.method, job.path, sv.cloudRun)})
 		}
 	}
+	for _, sv := range data.others {
+		plan.Actions = append(plan.Actions, adapter.Action{Op: adapter.OpNote, Kind: "Cloud Run service", Name: sv.cloudRun, Detail: untouchedDetail(sv, used, s.Name)})
+	}
 	plan.Data = data
 	return plan, nil
+}
+
+// untouchedDetail says what a run that leaves a service out keeps of it.
+func untouchedDetail(sv service, used map[string]bool, project string) string {
+	detail := "left untouched (not selected with --service)"
+	if len(sv.jobs) > 0 {
+		detail += fmt.Sprintf("; its %d Cloud Scheduler job(s) are kept", len(sv.jobs))
+	}
+	var kept []string
+	for _, name := range sv.svc.Secrets {
+		if !used[name] {
+			kept = append(kept, secretID(project, name))
+		}
+	}
+	if len(kept) > 0 {
+		detail += "; secret(s) no selected service lists are kept: " + strings.Join(kept, ", ")
+	}
+	return detail
+}
+
+// leftOutCallees warns about selected services that call an internal service
+// the run leaves out: its run.invoker binding isn't looked at, so a caller
+// that now runs as another account isn't let in until a full apply.
+func leftOutCallees(d *planData) []adapter.Finding {
+	var findings []adapter.Finding
+	for _, sv := range d.services {
+		for _, ref := range sv.svc.RefersTo() {
+			i := slices.IndexFunc(d.others, func(other service) bool { return other.name == ref })
+			if i < 0 || !d.others[i].internal {
+				continue
+			}
+			findings = append(findings, adapter.Finding{
+				Level: adapter.Warning, Code: "GCP_SERVICE_LEFT_OUT_INTERNAL", Service: sv.name,
+				Message: fmt.Sprintf("%s calls %s, which this run leaves out: %s's run.invoker binding isn't changed, so if %s now runs as another account it can't call %s until a full apply.", sv.name, ref, ref, sv.name, ref),
+				Hint:    fmt.Sprintf("Run `anyship apply` without --service, or add --service %s.", ref),
+			})
+		}
+	}
+	return findings
 }
 
 func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, dir string) (service, []adapter.Finding) {
