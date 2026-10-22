@@ -290,7 +290,8 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 	addTool(server, &mcp.Tool{
 		Name: "plan",
 		Description: "Show what deploying to a target would do, and every need the target can't meet. Changes nothing: " +
-			"the files the target would generate come back with their contents, so review them here instead of reading their paths.",
+			"the files the target would generate come back with their contents, so review them here instead of reading their paths; " +
+			"apply may fill in their placeholders with what its checks read.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in planInput) (*mcp.CallToolResult, planOutput, error) {
 		d, _, err := a.prepareForMCP(in.Config, in.Target, false)

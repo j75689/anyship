@@ -184,7 +184,7 @@ func printPlan(w io.Writer, s styler, p *adapter.Plan, dir string) {
 		}
 	}
 	if len(p.Files) > 0 {
-		fmt.Fprintln(w, "\nGenerated files"+s.dim(" (apply writes them, with --dry-run too; plan --json has their contents)")+":")
+		fmt.Fprintln(w, "\nGenerated files"+s.dim(" (apply writes them, with --dry-run too, and may fill in placeholders; plan --json has their contents)")+":")
 		for _, f := range p.Files {
 			rel, err := filepath.Rel(dir, f.Path)
 			if err != nil {
