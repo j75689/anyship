@@ -46,6 +46,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- gcp: `apply` refuses a service whose `<spec name>-<name>-<project number>` is over 63 characters
+  (`GCP_NAME_URL`), with a hint to shorten the name, instead of passing callers and cron jobs a
+  run.app URL that Cloud Run never makes for it. A `--service` run refuses a left-out service it
+  refers to in the same way, so both kinds of run agree. With 12-digit project numbers no valid
+  name is affected (#141).
+- Over MCP, the `plan` and `apply` refusals, hints and plan notes about picking gcp services name
+  the `services` and `images` arguments (such as "the apply tool with target=gcp and
+  services=[api]") instead of the `--service` and `--image` flags; the CLI and `--json` output are
+  unchanged. Plan action details get the same rewording as findings, so the kubernetes volume
+  detail reads "kept until destroy with volumes=true" (#143).
 - A missing `gcloud` or `aws` CLI is reported as not installed, with the install link
   (`GCP_PREFLIGHT_GCLOUD`, `AWS_PREFLIGHT_CLI`), instead of as a missing login; a missing `kubectl`
   says it isn't installed instead of quoting the exec error (#130).

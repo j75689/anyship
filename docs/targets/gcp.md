@@ -85,7 +85,13 @@ spec:
   network at all (`GCP_INTERNAL`).
 - `${services.<name>.url}` in `env` becomes that service's Cloud Run URL
   (`https://<spec name>-<name>-<project number>.<region>.run.app`), which follows from the names,
-  so it is known before the first deploy and the same on every one.
+  so it is known before the first deploy and the same on every one. Cloud Run makes that URL only
+  while its first part, `<spec name>-<name>-<project number>`, is 63 characters or less; past that
+  a service answers only on a random URL. So `apply` (and `apply --dry-run`) refuses such a service
+  before anything changes (`GCP_NAME_URL`), and the hint says how much to shorten the spec or
+  service name and how to delete a service already deployed under the old name, which `destroy` no
+  longer finds once it's renamed. `plan` can't tell yet, as it doesn't read the project number. With
+  today's 12-digit project numbers, a name that passes `GCP_NAME` (49 characters) always fits.
 - `healthCheck.path` becomes the service's startup probe: a new revision gets traffic only once that
   path answers with a 2xx or 3xx status, and a deploy whose revision doesn't answer within 4 minutes
   fails and leaves the previous revision serving. The probe sends no credentials, so the path must
@@ -127,14 +133,15 @@ spec:
   `${services.<name>.url}` for a left-out service is read from Cloud Run before anything changes
   (the plan shows a placeholder): the URL a full `apply` passes when the service answers on it,
   otherwise the one it answers on (`GCP_SERVICE_URL_LEGACY`), and the run fails if it isn't
-  deployed (`GCP_SERVICE_NOT_DEPLOYED`). A selected service that calls a left-out internal one
-  gets a warning (`GCP_SERVICE_LEFT_OUT_INTERNAL`): that service's invoker binding isn't changed,
-  so a caller whose service account changed or is new waits for a full `apply`. So does a stale
-  grant to an account a left-out service runs as. A secret whose `$NAME` is set gets a new version
-  even when a left-out service lists it too; that service isn't redeployed and reads `:latest` as
-  its instances start, so new instances get the new value while running ones keep the old. The
-  plan warns about it (`GCP_SECRET_SHARED_LEFT_OUT`); apply without `--service`, or select that
-  service too, to roll it out everywhere at once.
+  deployed (`GCP_SERVICE_NOT_DEPLOYED`); a left-out service whose URL is too long to follow from its
+  name is refused as in a full `apply` (`GCP_NAME_URL`). A selected service that calls a left-out
+  internal one gets a warning (`GCP_SERVICE_LEFT_OUT_INTERNAL`): that service's invoker binding
+  isn't changed, so a caller whose service account changed or is new waits for a full `apply`. So
+  does a stale grant to an account a left-out service runs as. A secret whose `$NAME` is set gets a
+  new version even when a left-out service lists it too; that service isn't redeployed and reads
+  `:latest` as its instances start, so new instances get the new value while running ones keep the
+  old. The plan warns about it (`GCP_SECRET_SHARED_LEFT_OUT`); apply without `--service`, or select
+  that service too, to roll it out everywhere at once.
 - Refused with a reason: static sites, workers, volumes, TCP/UDP ports, `domains`
   (`GCP_DOMAIN_UNSUPPORTED`; map them with `gcloud beta run domain-mappings` or a load balancer) and
   resources anyship would have to provision. `logs -f` points to `gcloud beta run services logs tail`.

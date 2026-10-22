@@ -249,9 +249,16 @@ func (d *planData) leftOut(name string) bool {
 // preflight has read it.
 const numberPlaceholder = "<project number>"
 
+// maxURLLabel is the longest first part of a run.app URL, the service's
+// name and the project number, for which Cloud Run gives a service the URL
+// formulaURL makes; past it the service answers only on a random one
+// (https://docs.cloud.google.com/run/docs/triggering/https-request).
+const maxURLLabel = 63
+
 // serviceURL is the URL Cloud Run gives a service of the spec, which follows
 // from its name, the project number and the region, so it is known before
-// the service exists.
+// the service exists; preflight refuses a service whose name and project
+// number are too long for it (GCP_NAME_URL).
 //
 // A service the run leaves out answers where Cloud Run says it does, which
 // Apply reads; until then, in a plan, a placeholder stands for it.
@@ -268,11 +275,17 @@ func (d *planData) serviceURL(service string) string {
 // formulaURL is the URL made from the service's name, the project number and
 // the region.
 func (d *planData) formulaURL(service string) string {
+	return fmt.Sprintf("https://%s.%s.run.app", d.urlLabel(service), d.opts.Region)
+}
+
+// urlLabel is the first part of the service's formulaURL: its Cloud Run name
+// and the project number.
+func (d *planData) urlLabel(service string) string {
 	number := d.number
 	if number == "" {
 		number = numberPlaceholder
 	}
-	return fmt.Sprintf("https://%s-%s.%s.run.app", cloudRunName(d.project, service), number, d.opts.Region)
+	return cloudRunName(d.project, service) + "-" + number
 }
 
 // env is the service's environment with references to other services
@@ -484,6 +497,8 @@ func checkService(name string, svc *spec.Service, s *spec.Spec, opts *Options, d
 		findings = append(findings, adapter.Finding{Level: level, Code: code, Service: name, Message: message, Hint: hint})
 	}
 
+	// 49 is Cloud Run's limit on the name. Its URL has a limit too, but that
+	// needs the project number, so preflight checks it (longURLs).
 	if !cloudRunNameRe.MatchString(sv.cloudRun) {
 		add(adapter.Error, "GCP_NAME", fmt.Sprintf("The Cloud Run service name %q is invalid or longer than 49 characters.", sv.cloudRun),
 			"Shorten the spec or service name.")

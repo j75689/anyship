@@ -311,6 +311,69 @@ func TestApplySelectedFailsWhenReferenceNotDeployed(t *testing.T) {
 	}
 }
 
+// A left-out service whose URL label is too long is refused like in a full
+// apply, not called on the URL Cloud Run reports, when a selected service
+// refers to it.
+func TestApplySelectedRefusesLongURLLabel(t *testing.T) {
+	long := "s" + strings.Repeat("a", 43)
+	s := parse(t, `{"name": "shop",
+		"services": {
+			"web": {"kind": "server", "image": "web:1", "env": {"SEARCH": "${services.`+long+`.url}"}},
+			"`+long+`": {"kind": "server", "image": "search:1"},
+			"reels": {"kind": "server", "image": "reels:1"}},
+		`+target+`}`)
+	run := func(t *testing.T, services ...string) (*adapter.Result, *fakeCloud) {
+		t.Helper()
+		env, fc := newEnv(t, t.TempDir(), nil)
+		env.Services = services
+		fc.out["gcloud projects describe my-project"] = longNumber
+		fc.out["gcloud run services list"] = `[{"metadata": {"name": "shop-` + long + `"}, "spec": {"template": {"spec": {}}}, "status": {"url": "` + searchLegacyURL + `"}}]`
+		return applySelected(t, s, env), fc
+	}
+	for _, services := range [][]string{nil, {"web"}} {
+		res, fc := run(t, services...)
+		if res.OK || !slices.Equal(codesOf(res.Findings, adapter.Error), []string{"GCP_NAME_URL"}) || slices.Contains(codesOf(res.Findings, adapter.Warning), "GCP_SERVICE_URL_LEGACY") {
+			t.Errorf("services %q: %+v", services, res)
+		} else if f := res.Findings[slices.IndexFunc(res.Findings, func(f adapter.Finding) bool { return f.Code == "GCP_NAME_URL" })]; f.Service != long {
+			t.Errorf("services %q: finding = %+v", services, f)
+		}
+		if c := fc.find("gcloud run deploy"); c != nil {
+			t.Errorf("services %q: deployed %s", services, c.line())
+		}
+	}
+
+	// A run that doesn't refer to it leaves it to the run that deploys it.
+	if res, fc := run(t, "reels"); !res.OK || fc.find("gcloud run deploy shop-reels") == nil {
+		t.Errorf("reels: %+v", res)
+	}
+}
+
+// GCP_NAME_URL doesn't stop preflight: the run reports the other problems
+// with it. A left-out service that two selected ones refer to is refused once.
+func TestApplyLongURLLabelWithOtherFindings(t *testing.T) {
+	long := "s" + strings.Repeat("a", 43)
+	s := parse(t, `{"name": "shop",
+		"services": {
+			"web": {"kind": "server", "image": "web:1", "env": {"SEARCH": "${services.`+long+`.url}"}},
+			"api": {"kind": "server", "image": "api:1", "env": {"SEARCH": "${services.`+long+`.url}"}},
+			"`+long+`": {"kind": "server", "image": "search:1"}},
+		`+target+`}`)
+	for _, services := range [][]string{nil, {"web"}, {"web", "api"}} {
+		env, fc := newEnv(t, t.TempDir(), nil)
+		env.Services = services
+		fc.out["gcloud projects describe my-project"] = longNumber
+		fc.out["gcloud services list"] = "compute.googleapis.com"
+		fc.out["gcloud run services list"] = `[{"metadata": {"name": "shop-` + long + `"}, "spec": {"template": {"spec": {}}}, "status": {"url": "` + searchLegacyURL + `"}}]`
+		res := applySelected(t, s, env)
+		if res.OK || !slices.Equal(codesOf(res.Findings, adapter.Error), []string{"GCP_NAME_URL", "GCP_PREFLIGHT_API"}) || slices.Contains(codesOf(res.Findings, adapter.Info), "GCP_PREFLIGHT_OK") {
+			t.Errorf("services %q: %+v", services, res)
+		}
+		if c := fc.find("gcloud run deploy"); c != nil {
+			t.Errorf("services %q: deployed %s", services, c.line())
+		}
+	}
+}
+
 // A filtered plan runs nothing, shows a placeholder for a left-out service's
 // URL, and renders the same files every time.
 func TestPlanSelectedHasNoSideEffects(t *testing.T) {
