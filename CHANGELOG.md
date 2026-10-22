@@ -5,7 +5,16 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-10-22
+
+### Changed
+
+- **Breaking:** `status --json` and the MCP `status` tool report a service's address in the new
+  `url` field instead of in `detail`. In 0.6.0 `detail` held the run.app URL on gcp, the `on.aws`
+  URL on aws, and ended with `, load balancer <address>` (or `, load balancer address pending`) on
+  kubernetes; now it is `revision <name>` on gcp, empty on aws unless a rollout reports a reason,
+  and `<n>/<m> available` on kubernetes. A script that read the address from `detail` reads `url`
+  instead (#127).
 
 ### Added
 
@@ -14,15 +23,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   secret access, invoker bindings and cron jobs; URLs of the services left out are read from Cloud
   Run, and the plan warns when a secret it writes is one a left-out service reads too. Other
   targets refuse it, and `targets` lists `services` for gcp (#139).
-
 - `status` answers the questions that follow "is it running": per service, where it answers from
   outside (`url`: a published port, the Cloud Run or `on.aws` URL, a load balancer or Ingress
   address, or `pending`), when its instances last changed (`since`), how often they restarted
   (`restarts`, on kubernetes and vps), what image runs (`image`, by digest where the platform
   reports it) and the platform's latest warnings about it (`events`: crash loops, failed probes,
   a failed rollout). The table gains `RESTARTS`, `SINCE` and `URL` columns and lists the warnings
-  under it; `--json` and the MCP `status` tool carry the new fields, and the address leaves
-  `detail` (#127).
+  under it; `--json` and the MCP `status` tool carry the new fields, and the address moves from
+  `detail` to `url` (#127).
 - The cloudflare target runs preflight checks before it builds or deploys: Node.js and npx are
   installed (`CF_PREFLIGHT_NODE`), wrangler runs (`CF_PREFLIGHT_WRANGLER`) and is logged in
   (`CF_PREFLIGHT_AUTH`, read from `wrangler whoami --json`, since plain `whoami` exits 0 when
@@ -41,8 +49,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   docker buildx 0.6.0 (`--metadata-file`), gcloud 515.0.0 (`run deploy --startup-probe`), aws CLI
   2.32.2 (the ECS Express Mode commands) and wrangler 3.91.0 (`wrangler.jsonc` without a flag). An
   older tool is a warning, `<TARGET>_PREFLIGHT_VERSION` (`K8S_`, `AWS_`, `GCP_` for buildx, `CF_`),
-  in `apply`'s checks and in `doctor`, whose tools carry the floor as `min`; it never blocks a
-  deploy. Node.js has no floor of its own: wrangler checks the Node.js it runs on (#130).
+  in `apply`'s checks and in `doctor`, whose `--json` gives the floor as `min` on each of the
+  `dependencies`; it never blocks a deploy. Node.js has no floor of its own: wrangler checks the
+  Node.js it runs on (#130).
 
 ### Fixed
 
@@ -364,7 +373,8 @@ The first tagged release. It covers everything built up to that point.
   deploy it.
 - Release binaries built with GoReleaser, and `install.sh`, which verifies checksums.
 
-[Unreleased]: https://github.com/j75689/anyship/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/j75689/anyship/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/j75689/anyship/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/j75689/anyship/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/j75689/anyship/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/j75689/anyship/compare/v0.4.0...v0.4.1
