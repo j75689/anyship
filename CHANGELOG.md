@@ -61,6 +61,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "Project … is ready" (`GCP_PREFLIGHT_OK`) next to the error; and the `<service>.gcloud.txt` files
   that `apply` writes, with `--dry-run` too, show the URL read from Cloud Run for a left-out service
   and the project number once the checks have read them, instead of the plan's placeholders (#145).
+- gcp: an `apply --service` that fails because it can't list the Cloud Run services (to read the
+  ones left out) no longer prints "Project … is ready" (`GCP_PREFLIGHT_OK`) next to the error,
+  like the `GCP_SERVICE_NOT_DEPLOYED` failure in #145 (#151).
 - A missing `gcloud` or `aws` CLI is reported as not installed, with the install link
   (`GCP_PREFLIGHT_GCLOUD`, `AWS_PREFLIGHT_CLI`), instead of as a missing login; a missing `kubectl`
   says it isn't installed instead of quoting the exec error (#130).

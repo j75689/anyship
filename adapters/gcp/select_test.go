@@ -328,6 +328,26 @@ func TestApplySelectedFailsWhenReferenceNotDeployed(t *testing.T) {
 	}
 }
 
+// A run that can't read the left-out services fails before any change, and
+// doesn't say the checks passed either.
+func TestApplySelectedFailsWhenLiveServicesUnreadable(t *testing.T) {
+	s := selectSpec(t, "")
+	env, fc := selectEnv(t)
+	fc.fail = []string{"gcloud run services list"}
+	res := applySelected(t, s, env)
+	if res.OK || len(res.Messages) != 1 || !strings.Contains(res.Messages[0], "listing Cloud Run services in my-project/us-central1 failed") {
+		t.Fatalf("apply: %+v", res)
+	}
+	if slices.Contains(codesOf(res.Findings, adapter.Info), "GCP_PREFLIGHT_OK") {
+		t.Errorf("findings = %+v, want no GCP_PREFLIGHT_OK", res.Findings)
+	}
+	for _, prefix := range []string{"gcloud secrets", "gcloud run deploy", "gcloud scheduler", "gcloud run services add-iam-policy-binding"} {
+		if c := fc.find(prefix); c != nil {
+			t.Errorf("changed something before failing: %s", c.line())
+		}
+	}
+}
+
 // A left-out service whose URL label is too long is refused like in a full
 // apply, not called on the URL Cloud Run reports, when a selected service
 // refers to it.
