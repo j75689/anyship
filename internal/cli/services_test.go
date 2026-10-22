@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/j75689/anyship/adapters/gcp"
 	"github.com/j75689/anyship/adapters/vps"
 	"github.com/j75689/anyship/spec"
@@ -27,6 +29,16 @@ func TestServiceFlagSelectsServices(t *testing.T) {
 	// any target.
 	if got, err := selectServices(s, vps.New(), nil, map[string]string{"web": digest}); err != nil || got != nil {
 		t.Errorf("no --service: %q, %v", got, err)
+	}
+}
+
+// The help names the flag's value, not its type.
+func TestServiceFlagHelpNamesTheValue(t *testing.T) {
+	a := &app{}
+	for _, cmd := range []*cobra.Command{a.planCommand(), a.applyCommand()} {
+		if help := cmd.Flags().FlagUsages(); !strings.Contains(help, "--service name ") {
+			t.Errorf("%s --help:\n%s", cmd.Name(), help)
+		}
 	}
 }
 

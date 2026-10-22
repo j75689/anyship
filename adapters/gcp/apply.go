@@ -118,7 +118,18 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		}
 		checks = append(checks, live...)
 		if adapter.HasErrors(live) {
+			// The project is ready, but the checks as a whole failed, so
+			// like preflight they don't say it is.
+			checks = slices.DeleteFunc(checks, func(f adapter.Finding) bool { return f.Code == "GCP_PREFLIGHT_OK" })
 			return result(false, "Preflight checks failed; nothing was changed."), nil
+		}
+	}
+	// The checks have read the project number and the URLs of the left-out
+	// services, so the deploy commands can show them.
+	for _, sv := range data.services {
+		f := gcloudFile(data, env.OutDir, sv)
+		if err := os.WriteFile(f.Path, f.Contents, 0o644); err != nil {
+			return nil, err
 		}
 	}
 	if env.DryRun {

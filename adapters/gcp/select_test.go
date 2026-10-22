@@ -233,6 +233,10 @@ func TestApplySelectedResolvesURLFromCloudRun(t *testing.T) {
 	if got := codesOf(res.Findings, adapter.Warning); !slices.Equal(got, []string{"GCP_SERVICE_URL_LEGACY"}) {
 		t.Errorf("warnings = %q, want GCP_SERVICE_URL_LEGACY", got)
 	}
+	// A warning doesn't fail the checks, so they still say they passed.
+	if !slices.Contains(codesOf(res.Findings, adapter.Info), "GCP_PREFLIGHT_OK") {
+		t.Errorf("findings = %+v, want GCP_PREFLIGHT_OK", res.Findings)
+	}
 }
 
 // Cloud Run may leave out the account a service runs as, and its URL: the
@@ -289,6 +293,15 @@ func TestPlanSelectedWarnsSharedSecret(t *testing.T) {
 	if got := codes(plan(t, s, env), adapter.Warning); slices.Contains(got, "GCP_SECRET_SHARED_LEFT_OUT") {
 		t.Errorf("warned with search selected: %q", got)
 	}
+
+	// Two left-out services list it: the hint adds both.
+	s = selectSpec(t, `, "secrets": ["DB_URL"]`)
+	env.Services = []string{"web"}
+	p = plan(t, s, env)
+	i := slices.IndexFunc(p.Findings, func(f adapter.Finding) bool { return f.Code == "GCP_SECRET_SHARED_LEFT_OUT" })
+	if want := "Run `anyship apply` without --service, or add --service reels --service search."; i < 0 || p.Findings[i].Hint != want {
+		t.Errorf("findings = %+v, want the hint %q", p.Findings, want)
+	}
 }
 
 // Criterion 4: a run fails before any change when a service it deploys
@@ -303,6 +316,10 @@ func TestApplySelectedFailsWhenReferenceNotDeployed(t *testing.T) {
 	}
 	if f := res.Findings[slices.IndexFunc(res.Findings, func(f adapter.Finding) bool { return f.Code == "GCP_SERVICE_NOT_DEPLOYED" })]; !strings.Contains(f.Message, "shop-search isn't deployed in my-project/us-central1") || !strings.Contains(f.Hint, "--service search") {
 		t.Errorf("finding = %+v", f)
+	}
+	// Nothing says the checks passed next to the one that failed.
+	if slices.Contains(codesOf(res.Findings, adapter.Info), "GCP_PREFLIGHT_OK") {
+		t.Errorf("findings = %+v, want no GCP_PREFLIGHT_OK", res.Findings)
 	}
 	for _, prefix := range []string{"gcloud secrets", "gcloud run deploy", "gcloud scheduler", "gcloud run services add-iam-policy-binding"} {
 		if c := fc.find(prefix); c != nil {
@@ -392,6 +409,31 @@ func TestPlanSelectedHasNoSideEffects(t *testing.T) {
 	}
 	if _, err := os.Stat(env.OutDir); !os.IsNotExist(err) {
 		t.Errorf("plan wrote %s: %v", env.OutDir, err)
+	}
+}
+
+// Once the checks have read it, a dry run writes the URL a left-out service
+// answers on into the deploy command, as the real apply passes it.
+func TestDryRunSelectedWritesResolvedURL(t *testing.T) {
+	s := selectSpec(t, "")
+	env, _ := selectEnv(t)
+	env.DryRun = true
+	if res := applySelected(t, s, env); !res.OK {
+		t.Fatalf("dry run: %+v", res)
+	}
+	got, err := os.ReadFile(filepath.Join(env.OutDir, "web.gcloud.txt"))
+	if err != nil || !strings.Contains(string(got), "SEARCH="+searchURL+" ") || strings.Contains(string(got), "<URL of") {
+		t.Errorf("web.gcloud.txt = %s, %v; want SEARCH=%s", got, err, searchURL)
+	}
+
+	// The project number is read by then too, in a full run as well.
+	env.Services = nil
+	if res := applySelected(t, s, env); !res.OK {
+		t.Fatalf("full dry run: %+v", res)
+	}
+	got, err = os.ReadFile(filepath.Join(env.OutDir, "reels.gcloud.txt"))
+	if err != nil || !strings.Contains(string(got), "--service-account 123456789-compute@developer.gserviceaccount.com ") || strings.Contains(string(got), numberPlaceholder) {
+		t.Errorf("reels.gcloud.txt = %s, %v; want the default account with the project number", got, err)
 	}
 }
 

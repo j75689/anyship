@@ -56,6 +56,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   services=[api]") instead of the `--service` and `--image` flags; the CLI and `--json` output are
   unchanged. Plan action details get the same rewording as findings, so the kubernetes volume
   detail reads "kept until destroy with volumes=true" (#143).
+- gcp `--service` polish: `plan --help` and `apply --help` show `--service name` instead of
+  `--service stringArray`; an `apply` that fails with `GCP_SERVICE_NOT_DEPLOYED` no longer prints
+  "Project … is ready" (`GCP_PREFLIGHT_OK`) next to the error; and the `<service>.gcloud.txt` files
+  that `apply` writes, with `--dry-run` too, show the URL read from Cloud Run for a left-out service
+  and the project number once the checks have read them, instead of the plan's placeholders (#145).
 - A missing `gcloud` or `aws` CLI is reported as not installed, with the install link
   (`GCP_PREFLIGHT_GCLOUD`, `AWS_PREFLIGHT_CLI`), instead of as a missing login; a missing `kubectl`
   says it isn't installed instead of quoting the exec error (#130).
