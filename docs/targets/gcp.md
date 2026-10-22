@@ -115,6 +115,19 @@ spec:
   loses its job on the next `apply`, and `destroy` removes them all. Needs the `cloudscheduler` API.
   An entry with a `command`, or with neither, is refused (`GCP_CRON`): nothing on this target runs
   a command on a schedule.
+- `plan` and `apply` take `--service <name>` (repeatable) to deploy only those services; the plan
+  lists each one it leaves untouched, and drops the findings of those. Only the selected services
+  are deployed, only their cron jobs are created, updated or pruned, and only the secrets they list
+  are made or checked. The others keep what they have: no secret access is taken from an account
+  a left-out service runs as, in the spec or on Cloud Run, a selected internal service keeps
+  letting the left-out callers in, and their Scheduler jobs stay. `dependsOn` isn't followed. A
+  `${services.<name>.url}` for a left-out service is read from Cloud Run before anything changes
+  (the plan shows a placeholder): the URL a full `apply` passes when the service answers on it,
+  otherwise the one it answers on (`GCP_SERVICE_URL_LEGACY`), and the run fails if it isn't
+  deployed (`GCP_SERVICE_NOT_DEPLOYED`). A selected service that calls a left-out internal one
+  gets a warning (`GCP_SERVICE_LEFT_OUT_INTERNAL`): that service's invoker binding isn't changed,
+  so a caller that now runs as another account waits for a full `apply`. So does a stale grant to
+  an account a left-out service runs as.
 - Refused with a reason: static sites, workers, volumes, TCP/UDP ports, `domains`
   (`GCP_DOMAIN_UNSUPPORTED`; map them with `gcloud beta run domain-mappings` or a load balancer) and
   resources anyship would have to provision. `logs -f` points to `gcloud beta run services logs tail`.

@@ -9,6 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `plan` and `apply` take `--service <name>` (repeatable), and the MCP `plan` and `apply` tools a
+  `services` argument, to deploy only those services on gcp, leaving the others running with their
+  secret access, invoker bindings and cron jobs; URLs of the services left out are read from Cloud
+  Run. Other targets refuse it, and `targets` lists `services` for gcp (#139).
+
 - `status` answers the questions that follow "is it running": per service, where it answers from
   outside (`url`: a published port, the Cloud Run or `on.aws` URL, a load balancer or Ingress
   address, or `pending`), when its instances last changed (`since`), how often they restarted

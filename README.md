@@ -286,6 +286,16 @@ for that run only. A pipeline passes the digest it just built, and `anyship.yaml
 $ anyship apply -t gcp --image web=us-docker.pkg.dev/acme/apps/shop@sha256:9b2c…
 ```
 
+On `gcp`, `plan` and `apply` also take `--service <name>` (repeatable) to deploy only those services
+and leave the others as they run: their secret access, invoker bindings and cron jobs are kept, and
+the URLs the deployed services refer to are read from Cloud Run. `--image` can then only name a
+selected service. The other targets refuse `--service`; `targets` lists `services` among a
+target's capabilities when it takes it.
+
+```console
+$ anyship apply -t gcp --service web --image web=us-docker.pkg.dev/acme/apps/shop@sha256:9b2c… --yes
+```
+
 ## Diagnose a failed deploy with your agent
 
 anyship calls no model. It hands your agent what it knows and lets the agent reason:
