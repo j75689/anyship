@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -43,6 +45,10 @@ func helperMain(program string, args []string) int {
 		for _, a := range args {
 			fmt.Println(a)
 		}
+	case "ssh":
+		// A host that answers the vps preflight checks with an empty report,
+		// which reads as one without Docker.
+		_, _ = io.Copy(io.Discard, os.Stdin)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown test helper %q\n", program)
 		return 2
@@ -54,6 +60,25 @@ func helperMain(program string, args []string) int {
 // named helper program.
 func helper(program string, args ...string) (adapter.ExecOptions, string, []string) {
 	return adapter.ExecOptions{Env: []string{helperEnv + "=" + program}}, os.Args[0], args
+}
+
+// installHelper puts a copy of the test binary in dir under the name of the
+// tool it stands in for, and has it run that helper program, for code that
+// looks the tool up on PATH.
+func installHelper(t *testing.T, dir, program string) {
+	t.Helper()
+	bin, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := program
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(helperEnv, program)
 }
 
 // runCLI runs the command line against the cloudflare and vps targets and a

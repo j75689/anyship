@@ -222,9 +222,11 @@ func TestApplyOutputPutsPlanFindingsFirst(t *testing.T) {
 }
 
 // apply --json carries the plan's findings on every target, ahead of the
-// checks; vps has none of its own when ssh is missing.
+// checks. The checks fail without the target's tools; vps gets an ssh that
+// answers, since it has no check of its own when ssh is missing.
 func TestApplyJSONIncludesPlanFindingsOnEveryTarget(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
+	path := t.TempDir()
+	t.Setenv("PATH", path)
 	adapters := []adapter.Adapter{gcp.New(), aws.New(), kubernetes.New(), cloudflare.New(), vps.New()}
 	for _, tc := range []struct{ target, services, code string }{
 		{"gcp", `    db: {kind: server, image: "db:1"}
@@ -250,15 +252,17 @@ func TestApplyJSONIncludesPlanFindingsOnEveryTarget(t *testing.T) {
 			if err := os.WriteFile(config, []byte(src), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			// The checks fail without the target's tools; the output says so.
+			if tc.target == "vps" {
+				installHelper(t, path, "ssh")
+			}
 			out, _ := runCLIOn(t, adapters, "apply", "-t", tc.target, "-c", config, "--dry-run", "--yes", "--json")
 			got := decode[resultOutput](t, out).Findings
 			i := codeIndex(got, tc.code)
 			if i < 0 {
 				t.Fatalf("findings = %+v, want %s", got, tc.code)
 			}
-			if j := slices.IndexFunc(got, func(f adapter.Finding) bool { return strings.Contains(f.Code, "_PREFLIGHT_") }); j >= 0 && j < i {
-				t.Errorf("findings = %+v, want %s before the checks", got, tc.code)
+			if j := slices.IndexFunc(got, func(f adapter.Finding) bool { return f.Level == adapter.Error }); j < i {
+				t.Errorf("findings = %+v, want %s before the failed check", got, tc.code)
 			}
 		})
 	}
