@@ -104,9 +104,21 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 	if adapter.HasErrors(checks) {
 		return result(false, "Preflight checks failed; nothing was changed."), nil
 	}
-	for i := range data.services {
-		if data.services[i].account == "" {
-			data.services[i].account = defaultAccount
+	for _, svs := range [][]service{data.services, data.others} {
+		for i := range svs {
+			if svs[i].account == "" {
+				svs[i].account = defaultAccount
+			}
+		}
+	}
+	if len(data.others) > 0 {
+		live, err := data.readLive(ctx, g, defaultAccount)
+		if err != nil {
+			return result(false, err.Error()), nil
+		}
+		checks = append(checks, live...)
+		if adapter.HasErrors(live) {
+			return result(false, "Preflight checks failed; nothing was changed."), nil
 		}
 	}
 	if env.DryRun {
@@ -391,12 +403,61 @@ func ensureSecret(ctx context.Context, g gcloud, project string, sc secret) erro
 	return nil
 }
 
+// readLive asks Cloud Run about the services a run leaves out: the accounts
+// they run as, which keep their access, and the URLs of those a deployed
+// service refers to. A referred service that isn't deployed is an error.
+func (d *planData) readLive(ctx context.Context, g gcloud, defaultAccount string) ([]adapter.Finding, error) {
+	found, err := deployed(ctx, g, d.opts, d.project)
+	if err != nil {
+		return nil, err
+	}
+	for _, other := range d.others {
+		crs, ok := found[other.cloudRun]
+		if !ok {
+			continue
+		}
+		account := crs.Spec.Template.Spec.ServiceAccountName
+		if account == "" {
+			account = defaultAccount
+		}
+		if !slices.Contains(d.liveAccounts, account) {
+			d.liveAccounts = append(d.liveAccounts, account)
+		}
+	}
+	var findings []adapter.Finding
+	d.live = map[string]string{}
+	for _, sv := range d.services {
+		for _, ref := range sv.svc.RefersTo() {
+			if !d.leftOut(ref) {
+				continue
+			}
+			name := cloudRunName(d.project, ref)
+			crs, ok := found[name]
+			switch {
+			case !ok:
+				findings = append(findings, adapter.Finding{Level: adapter.Error, Code: "GCP_SERVICE_NOT_DEPLOYED", Service: sv.name,
+					Message: fmt.Sprintf("%s refers to ${services.%s.url}, but %s isn't deployed in %s/%s.", sv.name, ref, name, d.opts.Project, d.opts.Region),
+					Hint:    fmt.Sprintf("Deploy it first with `anyship apply -t gcp --service %s`, or drop --service.", ref)})
+			case crs.Status.URL == "" || crs.answersOn(d.formulaURL(ref)):
+				// The URL a full apply passes, so the env doesn't change
+				// with the services a run selects.
+				d.live[ref] = d.formulaURL(ref)
+			default:
+				d.live[ref] = crs.Status.URL
+				findings = append(findings, adapter.Finding{Level: adapter.Warning, Code: "GCP_SERVICE_URL_LEGACY", Service: sv.name,
+					Message: fmt.Sprintf("%s answers on %s, not on the URL a full apply passes; %s gets %s.", ref, crs.Status.URL, sv.name, crs.Status.URL)})
+			}
+		}
+	}
+	return findings, nil
+}
+
 // allowCallers lets the accounts the spec's other services run as call an
-// internal service. The binding is idempotent, so every apply can make sure
-// it exists.
+// internal service, those a run leaves out too. The binding is idempotent, so
+// every apply can make sure it exists.
 func allowCallers(ctx context.Context, g gcloud, d *planData, sv service) error {
 	var accounts []string
-	for _, other := range d.services {
+	for _, other := range slices.Concat(d.services, d.others) {
 		if other.name != sv.name && !slices.Contains(accounts, other.account) {
 			accounts = append(accounts, other.account)
 		}
@@ -457,9 +518,14 @@ func staleReaders(ctx context.Context, g gcloud, d *planData) ([]reader, error) 
 	return stale, nil
 }
 
-// mayRead reports whether the spec lets an account read a secret.
+// mayRead reports whether the spec lets an account read a secret. A run that
+// leaves services out never takes access from the accounts they run as, in
+// the spec or on Cloud Run: what their running revisions read isn't its call.
 func (d *planData) mayRead(secret, account string) bool {
-	if slices.Contains(d.opts.SecretReaders, account) {
+	if slices.Contains(d.opts.SecretReaders, account) || slices.Contains(d.liveAccounts, account) {
+		return true
+	}
+	if slices.ContainsFunc(d.others, func(sv service) bool { return sv.account == account }) {
 		return true
 	}
 	return slices.ContainsFunc(d.services, func(sv service) bool {

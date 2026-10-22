@@ -36,13 +36,13 @@ spec:
 
 func TestImageFlagReplacesTheImageForThisRun(t *testing.T) {
 	s := imageSpec(t)
-	if err := useImages(s, []string{"web=" + digest}); err != nil {
+	if _, err := useImages(s, []string{"web=" + digest}); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.Services["web"].Image; got != digest {
 		t.Errorf("image = %q, want %q", got, digest)
 	}
-	if err := useImages(s, nil); err != nil || s.Services["web"].Image != digest {
+	if _, err := useImages(s, nil); err != nil || s.Services["web"].Image != digest {
 		t.Errorf("no flags must change nothing: %v", err)
 	}
 }
@@ -57,7 +57,7 @@ func TestImageFlagRefusesWhatItCannotApply(t *testing.T) {
 		"web=ghcr.io/acme/shop :1": "is not an image reference",
 	} {
 		s := imageSpec(t)
-		err := useImages(s, []string{flag})
+		_, err := useImages(s, []string{flag})
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("--image %q: %v, want an error containing %q", flag, err, want)
 		}
@@ -65,7 +65,7 @@ func TestImageFlagRefusesWhatItCannotApply(t *testing.T) {
 			t.Errorf("--image %q: a refused override changed the image to %q", flag, got)
 		}
 	}
-	if err := useImages(imageSpec(t), []string{"web=a:1", "web=a:2"}); err == nil || !strings.Contains(err.Error(), "twice") {
+	if _, err := useImages(imageSpec(t), []string{"web=a:1", "web=a:2"}); err == nil || !strings.Contains(err.Error(), "twice") {
 		t.Errorf("the same service twice: %v", err)
 	}
 }

@@ -115,6 +115,26 @@ spec:
   loses its job on the next `apply`, and `destroy` removes them all. Needs the `cloudscheduler` API.
   An entry with a `command`, or with neither, is refused (`GCP_CRON`): nothing on this target runs
   a command on a schedule.
+- `plan` and `apply` take `--service <name>` (repeatable), and the MCP `plan` and `apply` tools a
+  `services` argument, to deploy only those services; the plan lists each one it leaves untouched,
+  and drops the findings of those. Only the selected services are deployed, only their cron jobs
+  are created or updated, and only the secrets they list are made or checked. The others keep what
+  they have: no secret access is taken from an account a left-out service runs as, in the spec or
+  on Cloud Run, a selected internal service keeps letting the left-out callers in, and their
+  Scheduler jobs stay. Jobs are still pruned as on a full `apply` otherwise: a selected service
+  loses the jobs of entries taken out of its `cron`, and the jobs of a service taken out of the
+  spec are deleted, whichever services the run selects. `dependsOn` isn't followed. A
+  `${services.<name>.url}` for a left-out service is read from Cloud Run before anything changes
+  (the plan shows a placeholder): the URL a full `apply` passes when the service answers on it,
+  otherwise the one it answers on (`GCP_SERVICE_URL_LEGACY`), and the run fails if it isn't
+  deployed (`GCP_SERVICE_NOT_DEPLOYED`). A selected service that calls a left-out internal one
+  gets a warning (`GCP_SERVICE_LEFT_OUT_INTERNAL`): that service's invoker binding isn't changed,
+  so a caller whose service account changed or is new waits for a full `apply`. So does a stale
+  grant to an account a left-out service runs as. A secret whose `$NAME` is set gets a new version
+  even when a left-out service lists it too; that service isn't redeployed and reads `:latest` as
+  its instances start, so new instances get the new value while running ones keep the old. The
+  plan warns about it (`GCP_SECRET_SHARED_LEFT_OUT`); apply without `--service`, or select that
+  service too, to roll it out everywhere at once.
 - Refused with a reason: static sites, workers, volumes, TCP/UDP ports, `domains`
   (`GCP_DOMAIN_UNSUPPORTED`; map them with `gcloud beta run domain-mappings` or a load balancer) and
   resources anyship would have to provision. `logs -f` points to `gcloud beta run services logs tail`.

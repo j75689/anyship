@@ -426,6 +426,16 @@ func TestApplyRemovesStaleCronJobs(t *testing.T) {
 	}
 }
 
+// A service a run leaves out keeps its jobs: they aren't orphans, only the
+// jobs of a service the spec doesn't have are.
+func TestOrphanJobsKeepsLeftOutServices(t *testing.T) {
+	d := &planData{project: "shop", services: []service{{name: "web"}}, others: []service{{name: "search"}, {name: "reels"}}}
+	ids := []string{"anyship_shop_web_0", "anyship_shop_search_0", "anyship_shop_reels_0", "anyship_shop_gone_0"}
+	if got, want := orphanJobs(ids, d), []string{"anyship_shop_gone_0"}; !slices.Equal(got, want) {
+		t.Errorf("orphans = %q, want %q", got, want)
+	}
+}
+
 func TestApplyCronNeedsTheSchedulerAPI(t *testing.T) {
 	s := parse(t, cronSpec(`{"schedule": "* * * * *", "path": "/tick"}`, ""))
 	env, fc := newEnv(t, t.TempDir(), nil)

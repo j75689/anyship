@@ -104,6 +104,9 @@ func capabilities(ad adapter.Adapter) []string {
 	if _, ok := ad.(adapter.Destroyer); ok {
 		caps = append(caps, "destroy")
 	}
+	if _, ok := ad.(adapter.ServiceSelector); ok {
+		caps = append(caps, "services")
+	}
 	return caps
 }
 

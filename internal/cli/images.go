@@ -58,11 +58,12 @@ func overrideImages(s *spec.Spec, images map[string]string) error {
 	return nil
 }
 
-// useImages applies the --image flags of a command to its spec.
-func useImages(s *spec.Spec, flags []string) error {
+// useImages applies the --image flags of a command to its spec, and returns
+// the images by service.
+func useImages(s *spec.Spec, flags []string) (map[string]string, error) {
 	images, err := parseImages(flags)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return overrideImages(s, images)
+	return images, overrideImages(s, images)
 }

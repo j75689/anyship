@@ -249,7 +249,7 @@ func (a *app) validateCommand() *cobra.Command {
 
 func (a *app) planCommand() *cobra.Command {
 	var config, target string
-	var images []string
+	var images, services []string
 	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "plan",
@@ -260,7 +260,11 @@ func (a *app) planCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := useImages(d.spec, images); err != nil {
+			overrides, err := useImages(d.spec, images)
+			if err != nil {
+				return err
+			}
+			if d.env.Services, err = selectServices(d.spec, d.adapter, services, overrides); err != nil {
 				return err
 			}
 			p, err := d.adapter.Plan(cmd.Context(), d.spec, d.env)
@@ -281,13 +285,14 @@ func (a *app) planCommand() *cobra.Command {
 	addConfigFlag(cmd, &config)
 	addTargetFlag(cmd, &target)
 	addImageFlag(cmd, &images)
+	addServiceFlag(cmd, &services)
 	addJSONFlag(cmd, &asJSON)
 	return cmd
 }
 
 func (a *app) applyCommand() *cobra.Command {
 	var config, target string
-	var images []string
+	var images, services []string
 	var yes, dryRun, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "apply",
@@ -301,7 +306,11 @@ func (a *app) applyCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := useImages(d.spec, images); err != nil {
+			overrides, err := useImages(d.spec, images)
+			if err != nil {
+				return err
+			}
+			if d.env.Services, err = selectServices(d.spec, d.adapter, services, overrides); err != nil {
 				return err
 			}
 			var output *tailBuffer
@@ -326,7 +335,11 @@ func (a *app) applyCommand() *cobra.Command {
 				}
 			}
 			if !yes && !dryRun {
-				ok, err := confirm(a.promptWriter(asJSON), fmt.Sprintf("\nDeploy %s to %s?", d.spec.Name, d.adapter.Name()))
+				what := d.spec.Name
+				if len(d.env.Services) > 0 {
+					what = strings.Join(d.env.Services, ", ") + " of " + what
+				}
+				ok, err := confirm(a.promptWriter(asJSON), fmt.Sprintf("\nDeploy %s to %s?", what, d.adapter.Name()))
 				if err != nil {
 					return err
 				}
@@ -360,6 +373,7 @@ func (a *app) applyCommand() *cobra.Command {
 	addConfigFlag(cmd, &config)
 	addTargetFlag(cmd, &target)
 	addImageFlag(cmd, &images)
+	addServiceFlag(cmd, &services)
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation prompt")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "generate config and run the platform's dry run without deploying")
 	addJSONFlag(cmd, &asJSON)
