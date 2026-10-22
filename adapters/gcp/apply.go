@@ -113,14 +113,14 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 	}
 	if len(data.others) > 0 {
 		live, err := data.readLive(ctx, g, defaultAccount)
-		if err != nil {
-			return result(false, err.Error()), nil
-		}
 		checks = append(checks, live...)
-		if adapter.HasErrors(live) {
+		if err != nil || adapter.HasErrors(live) {
 			// The project is ready, but the checks as a whole failed, so
 			// like preflight they don't say it is.
 			checks = slices.DeleteFunc(checks, func(f adapter.Finding) bool { return f.Code == "GCP_PREFLIGHT_OK" })
+			if err != nil {
+				return result(false, err.Error()), nil
+			}
 			return result(false, "Preflight checks failed; nothing was changed."), nil
 		}
 	}
