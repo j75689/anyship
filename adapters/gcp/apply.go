@@ -422,10 +422,10 @@ func longURLs(d *planData) []adapter.Finding {
 		}
 		findings = append(findings, adapter.Finding{
 			Level: adapter.Error, Code: "GCP_NAME_URL", Service: name,
-			Message: fmt.Sprintf("%s's URL would start with %q, %d characters, and Cloud Run makes that URL only when this part is 63 or less: the service would answer only on a random one, so ${services.%s.url} and its cron jobs would point at an address that doesn't exist.",
+			Message: fmt.Sprintf("%s's URL would start with %q, %d characters, and Cloud Run makes that URL only when this part is 63 or less: the service would answer only on a random URL, not on the one anyship passes to ${services.%s.url} and to its cron jobs.",
 				cloudRunName(d.project, name), label, len(label), name),
-			Hint: fmt.Sprintf("Shorten the spec or service name by %d character(s): project %s's number, %s, takes %d of the 63 (https://docs.cloud.google.com/run/docs/triggering/https-request).",
-				len(label)-maxURLLabel, d.opts.Project, d.number, len(d.number)+1),
+			Hint: fmt.Sprintf("Shorten the spec or service name by %d character(s): project %s's number, %s, takes %d of the 63 (https://docs.cloud.google.com/run/docs/triggering/https-request). A new name makes a new Cloud Run service, and `anyship destroy` won't find one deployed under the old name: delete it with `gcloud run services delete %s --region %s --project %s`.",
+				len(label)-maxURLLabel, d.opts.Project, d.number, len(d.number)+1, cloudRunName(d.project, name), d.opts.Region, d.opts.Project),
 		})
 	}
 	for _, sv := range d.services {

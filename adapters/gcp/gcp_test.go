@@ -1162,7 +1162,7 @@ func TestApplyRefusesLongURLLabel(t *testing.T) {
 				t.Fatalf("apply: %+v", res)
 			}
 			f := res.Findings[slices.IndexFunc(res.Findings, func(f adapter.Finding) bool { return f.Code == "GCP_NAME_URL" })]
-			if f.Service != name || !strings.Contains(f.Message, "64 characters") || !strings.Contains(f.Hint, "by 1 character(s)") || !strings.Contains(f.Hint, longNumber) {
+			if f.Service != name || !strings.Contains(f.Message, "64 characters") || !strings.Contains(f.Hint, "by 1 character(s)") || !strings.Contains(f.Hint, longNumber) || !strings.Contains(f.Hint, "`gcloud run services delete shop-"+name+" --region us-central1 --project my-project`") {
 				t.Errorf("finding = %+v", f)
 			}
 			if fc.find("gcloud run deploy") != nil {

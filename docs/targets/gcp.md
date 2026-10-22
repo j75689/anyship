@@ -89,8 +89,9 @@ spec:
   while its first part, `<spec name>-<name>-<project number>`, is 63 characters or less; past that
   a service answers only on a random URL. So `apply` (and `apply --dry-run`) refuses such a service
   before anything changes (`GCP_NAME_URL`), and the hint says how much to shorten the spec or
-  service name. `plan` can't tell yet, as it doesn't read the project number. With today's
-  12-digit project numbers, a name that passes `GCP_NAME` (49 characters) always fits.
+  service name and how to delete a service already deployed under the old name, which `destroy` no
+  longer finds once it's renamed. `plan` can't tell yet, as it doesn't read the project number. With
+  today's 12-digit project numbers, a name that passes `GCP_NAME` (49 characters) always fits.
 - `healthCheck.path` becomes the service's startup probe: a new revision gets traffic only once that
   path answers with a 2xx or 3xx status, and a deploy whose revision doesn't answer within 4 minutes
   fails and leaves the previous revision serving. The probe sends no credentials, so the path must
