@@ -211,13 +211,24 @@ type planData struct {
 	opts     Options
 	project  string
 	services []service
-	secrets  []secret
+	// others are the spec's services this run leaves out (--service). They
+	// aren't deployed, but what they own is kept: the access their accounts
+	// have, their cron jobs, and the URLs the deployed services refer to.
+	others  []service
+	secrets []secret
 	// scheduler is whether the Cloud Scheduler API is enabled; preflight
 	// finds out.
 	scheduler bool
 	// number is the project number, which preflight reads; the URLs of the
 	// services are made from it.
 	number string
+}
+
+// known reports whether the spec has the named service, deployed by this run
+// or left out of it.
+func (d *planData) known(name string) bool {
+	has := func(sv service) bool { return sv.name == name }
+	return slices.ContainsFunc(d.services, has) || slices.ContainsFunc(d.others, has)
 }
 
 // numberPlaceholder stands for the project number in a plan, before

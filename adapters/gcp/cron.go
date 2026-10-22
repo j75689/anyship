@@ -128,12 +128,12 @@ func jobsOf(ids []string, project, service string) []string {
 	return out
 }
 
-// orphanJobs picks the jobs of services the spec no longer has.
+// orphanJobs picks the jobs of services the spec no longer has. The jobs of
+// a service this run leaves out are its own, and stay.
 func orphanJobs(ids []string, d *planData) []string {
 	var out []string
 	for _, id := range ids {
-		name := jobService(id, d.project)
-		if !slices.ContainsFunc(d.services, func(sv service) bool { return sv.name == name }) {
+		if !d.known(jobService(id, d.project)) {
 			out = append(out, id)
 		}
 	}
