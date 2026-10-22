@@ -233,6 +233,10 @@ func TestApplySelectedResolvesURLFromCloudRun(t *testing.T) {
 	if got := codesOf(res.Findings, adapter.Warning); !slices.Equal(got, []string{"GCP_SERVICE_URL_LEGACY"}) {
 		t.Errorf("warnings = %q, want GCP_SERVICE_URL_LEGACY", got)
 	}
+	// A warning doesn't fail the checks, so they still say they passed.
+	if !slices.Contains(codesOf(res.Findings, adapter.Info), "GCP_PREFLIGHT_OK") {
+		t.Errorf("findings = %+v, want GCP_PREFLIGHT_OK", res.Findings)
+	}
 }
 
 // Cloud Run may leave out the account a service runs as, and its URL: the
@@ -303,6 +307,10 @@ func TestApplySelectedFailsWhenReferenceNotDeployed(t *testing.T) {
 	}
 	if f := res.Findings[slices.IndexFunc(res.Findings, func(f adapter.Finding) bool { return f.Code == "GCP_SERVICE_NOT_DEPLOYED" })]; !strings.Contains(f.Message, "shop-search isn't deployed in my-project/us-central1") || !strings.Contains(f.Hint, "--service search") {
 		t.Errorf("finding = %+v", f)
+	}
+	// Nothing says the checks passed next to the one that failed.
+	if slices.Contains(codesOf(res.Findings, adapter.Info), "GCP_PREFLIGHT_OK") {
+		t.Errorf("findings = %+v, want no GCP_PREFLIGHT_OK", res.Findings)
 	}
 	for _, prefix := range []string{"gcloud secrets", "gcloud run deploy", "gcloud scheduler", "gcloud run services add-iam-policy-binding"} {
 		if c := fc.find(prefix); c != nil {

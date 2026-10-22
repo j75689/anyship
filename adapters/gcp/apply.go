@@ -118,6 +118,9 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 		}
 		checks = append(checks, live...)
 		if adapter.HasErrors(live) {
+			// The project is ready, but the checks as a whole failed, so
+			// like preflight they don't say it is.
+			checks = slices.DeleteFunc(checks, func(f adapter.Finding) bool { return f.Code == "GCP_PREFLIGHT_OK" })
 			return result(false, "Preflight checks failed; nothing was changed."), nil
 		}
 	}
