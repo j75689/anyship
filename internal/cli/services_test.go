@@ -108,6 +108,10 @@ func TestMCPServicesArgument(t *testing.T) {
 		if msg := h.call(t, tool, args, nil); !strings.Contains(msg, "the fake target can't deploy some services only; drop the services argument") {
 			t.Errorf("%s on a target that can't select: %q", tool, msg)
 		}
+		args["services"] = []string{"web", "web"}
+		if msg := h.call(t, tool, args, nil); !strings.Contains(msg, "the services argument names web twice") {
+			t.Errorf("%s with a service named twice: %q", tool, msg)
+		}
 		args["services"] = []string{"api"}
 		if msg := h.call(t, tool, args, nil); !strings.Contains(msg, `unknown service "api"; services: web`) {
 			t.Errorf("%s with an unknown service: %q", tool, msg)

@@ -595,6 +595,7 @@ func TestAgentTextNamesToolsNotCommands(t *testing.T) {
 		"--image search is for a service this run leaves out; add --service search or drop the image": "the images argument sets an image for search, which this run leaves out; add search to the services argument or drop the image",
 		"Apply both with `anyship apply -t gcp --service web --service search`.":                      "Apply both with the apply tool with target=gcp and services=[web, search].",
 		"Ask Claude with `anyship diagnose -t vps`.":                                                  "Ask Claude with the diagnose_context tool with target=vps.",
+		"a PersistentVolumeClaim, kept until destroy --volumes":                                       "a PersistentVolumeClaim, kept until destroy with volumes=true",
 		// Longer flags that start like --service or --image are not theirs.
 		"drop --service-account to use the default":                   "drop --service-account to use the default",
 		"without --service-account, or selected with --service-name":  "without --service-account, or selected with --service-name",
@@ -639,6 +640,11 @@ func TestMCPWordsMessagesForAnAgent(t *testing.T) {
 	plan := newPlanOutput(&adapter.Plan{Actions: []adapter.Action{{Op: adapter.OpNote, Detail: "left untouched (not selected with --service)"}}}, agent)
 	if got := plan.Actions[0].Detail; got != "left untouched (not selected with the services argument)" {
 		t.Errorf("plan action over MCP: %q", got)
+	}
+	// Every target's details go through it, such as a kubernetes volume's.
+	plan = newPlanOutput(&adapter.Plan{Actions: []adapter.Action{{Op: adapter.OpCreate, Detail: "10Gi at /data, kept until destroy --volumes"}}}, agent)
+	if got := plan.Actions[0].Detail; got != "10Gi at /data, kept until destroy with volumes=true" {
+		t.Errorf("kubernetes volume over MCP: %q", got)
 	}
 	if forAgent(nil) != nil {
 		t.Error("no error must stay no error")
