@@ -3,6 +3,7 @@ package gcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -1116,6 +1117,94 @@ func TestPreflightNamesTheAccount(t *testing.T) {
 	res, _ := New().Apply(context.Background(), plan(t, s, env), s, env)
 	if res.OK || res.Findings[0].Code != "GCP_PREFLIGHT_PROJECT" || !strings.Contains(res.Findings[0].Message, "dev@example.com can't read project my-project") {
 		t.Errorf("findings = %+v", res.Findings)
+	}
+}
+
+// longNumber is a project number long enough that a name GCP_NAME allows
+// can make a run.app label over 63 characters: the label is the Cloud Run
+// name plus 15.
+const longNumber = "12345678901234"
+
+// longNamed is a spec with one service whose name is n characters long.
+func longNamed(t *testing.T, n int) (*spec.Spec, string) {
+	t.Helper()
+	name := "s" + strings.Repeat("a", n-1)
+	return parse(t, `{"name": "shop", "services": {"`+name+`": {"kind": "server", "image": "nginx"}}, `+target+`}`), name
+}
+
+func TestApplyRefusesLongURLLabel(t *testing.T) {
+	for _, tc := range []struct {
+		n, label int
+		refused  bool
+	}{
+		{42, 62, false},
+		{43, 63, false},
+		{44, 64, true},
+	} {
+		t.Run(fmt.Sprintf("label %d", tc.label), func(t *testing.T) {
+			s, name := longNamed(t, tc.n)
+			env, fc := newEnv(t, t.TempDir(), nil)
+			fc.out["gcloud projects describe my-project"] = longNumber
+			res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := len(cloudRunName("shop", name) + "-" + longNumber); got != tc.label {
+				t.Fatalf("label is %d characters, want %d", got, tc.label)
+			}
+			if !tc.refused {
+				if !res.OK || slices.Contains(codesOf(res.Findings, adapter.Error), "GCP_NAME_URL") || fc.find("gcloud run deploy shop-"+name) == nil {
+					t.Errorf("not deployed: %+v", res)
+				}
+				return
+			}
+			if res.OK || !slices.Equal(codesOf(res.Findings, adapter.Error), []string{"GCP_NAME_URL"}) {
+				t.Fatalf("apply: %+v", res)
+			}
+			f := res.Findings[slices.IndexFunc(res.Findings, func(f adapter.Finding) bool { return f.Code == "GCP_NAME_URL" })]
+			if f.Service != name || !strings.Contains(f.Message, "64 characters") || !strings.Contains(f.Hint, "by 1 character(s)") || !strings.Contains(f.Hint, longNumber) {
+				t.Errorf("finding = %+v", f)
+			}
+			if fc.find("gcloud run deploy") != nil {
+				t.Error("deployed despite the long label")
+			}
+		})
+	}
+
+	t.Run("dry run", func(t *testing.T) {
+		s, _ := longNamed(t, 44)
+		env, fc := newEnv(t, t.TempDir(), nil)
+		env.DryRun = true
+		fc.out["gcloud projects describe my-project"] = longNumber
+		res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+		if err != nil || res.OK || !slices.Equal(codesOf(res.Findings, adapter.Error), []string{"GCP_NAME_URL"}) {
+			t.Errorf("dry run: %v %+v", err, res)
+		}
+	})
+
+	// The same name fits with a shorter project number.
+	t.Run("short number", func(t *testing.T) {
+		s, _ := longNamed(t, 44)
+		env, fc := newEnv(t, t.TempDir(), nil)
+		res, err := New().Apply(context.Background(), plan(t, s, env), s, env)
+		if err != nil || !res.OK || fc.find("gcloud run deploy") == nil {
+			t.Errorf("apply: %v %+v", err, res)
+		}
+	})
+}
+
+// A plan doesn't read the project number, so it can't tell.
+func TestPlanLongURLLabelIsNotKnownYet(t *testing.T) {
+	s, name := longNamed(t, 44)
+	env, fc := newEnv(t, t.TempDir(), nil)
+	fc.out["gcloud projects describe my-project"] = longNumber
+	p := plan(t, s, env)
+	if got := codes(p, adapter.Error); len(got) > 0 {
+		t.Errorf("errors = %q", got)
+	}
+	i := slices.IndexFunc(p.Files, func(f adapter.File) bool { return strings.HasSuffix(f.Path, name+".gcloud.txt") })
+	if i < 0 || !strings.Contains(string(p.Files[i].Contents), numberPlaceholder) {
+		t.Errorf("files = %+v", p.Files)
 	}
 }
 

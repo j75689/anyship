@@ -288,6 +288,7 @@ func preflight(ctx context.Context, g gcloud, d *planData) (string, []adapter.Fi
 		return "", findings
 	}
 	d.number = number
+	findings = append(findings, longURLs(d)...)
 	runAs := number + defaultAccountSuffix
 
 	enabled, err := g.probe(ctx, "services", "list", "--enabled", "--format", "value(config.name)")
@@ -401,6 +402,41 @@ func ensureSecret(ctx context.Context, g gcloud, project string, sc secret) erro
 		return fmt.Errorf("creating secret %s failed: %w", sc.id, err)
 	}
 	return nil
+}
+
+// longURLs refuses the services whose URL formulaURL can't make, because
+// their name and the project number are too long for it: those the run
+// deploys, and those it leaves out that a deployed one refers to. A full
+// and a --service run refuse the same service.
+func longURLs(d *planData) []adapter.Finding {
+	var findings []adapter.Finding
+	seen := map[string]bool{}
+	check := func(name string) {
+		if seen[name] {
+			return
+		}
+		seen[name] = true
+		label := d.urlLabel(name)
+		if len(label) <= maxURLLabel {
+			return
+		}
+		findings = append(findings, adapter.Finding{
+			Level: adapter.Error, Code: "GCP_NAME_URL", Service: name,
+			Message: fmt.Sprintf("%s's URL would start with %q, %d characters, and Cloud Run makes that URL only when this part is 63 or less: the service would answer only on a random one, so ${services.%s.url} and its cron jobs would point at an address that doesn't exist.",
+				cloudRunName(d.project, name), label, len(label), name),
+			Hint: fmt.Sprintf("Shorten the spec or service name by %d character(s): project %s's number, %s, takes %d of the 63 (https://docs.cloud.google.com/run/docs/triggering/https-request).",
+				len(label)-maxURLLabel, d.opts.Project, d.number, len(d.number)+1),
+		})
+	}
+	for _, sv := range d.services {
+		check(sv.name)
+		for _, ref := range sv.svc.RefersTo() {
+			if d.leftOut(ref) {
+				check(ref)
+			}
+		}
+	}
+	return findings
 }
 
 // readLive asks Cloud Run about the services a run leaves out: the accounts
