@@ -303,6 +303,116 @@ func TestApplyTextShowsPlanWarningsOnce(t *testing.T) {
 	}
 }
 
+// answerPrompt makes stdin a terminal that answers the confirmation prompt
+// with answer, if interactive, and returns what was written to stderr so far.
+func answerPrompt(t *testing.T, interactive bool, answer string) func() string {
+	t.Helper()
+	dir := t.TempDir()
+	in := filepath.Join(dir, "stdin")
+	if err := os.WriteFile(in, []byte(answer+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := os.Open(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr, err := os.Create(filepath.Join(dir, "stderr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldTerminal, oldIn, oldErr := stdinIsTerminal, os.Stdin, os.Stderr
+	stdinIsTerminal = func() bool { return interactive }
+	os.Stdin, os.Stderr = stdin, stderr
+	t.Cleanup(func() {
+		stdinIsTerminal, os.Stdin, os.Stderr = oldTerminal, oldIn, oldErr
+		_ = stdin.Close()
+		_ = stderr.Close()
+	})
+	return func() string {
+		b, err := os.ReadFile(stderr.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+}
+
+// --json leaves out the plan, so before it asks it shows the plan's findings
+// on stderr, and stdout still carries the JSON alone.
+func TestApplyJSONShowsPlanFindingsBeforeThePrompt(t *testing.T) {
+	stderr := answerPrompt(t, true, "y")
+	out, err := runCLI(t, "apply", "-t", "fake", "-c", warnSpec(t), "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := decode[resultOutput](t, out); !got.OK || codeIndex(got.Findings, fakePlanWarning.Code) != 0 {
+		t.Errorf("apply --json = %+v", got)
+	}
+	errOut := stderr()
+	findings := strings.Index(errOut, "\nFindings:\n  ! "+fakePlanWarning.Message+"\n      → "+fakePlanWarning.Hint+"\n")
+	prompt := strings.Index(errOut, "Deploy demo to fake? [y/N]")
+	if findings < 0 || prompt < findings {
+		t.Errorf("stderr should show the findings before the prompt:\n%s", errOut)
+	}
+}
+
+// Answering no deploys nothing and prints no JSON.
+func TestApplyJSONPromptAborts(t *testing.T) {
+	stderr := answerPrompt(t, true, "n")
+	out, err := runCLI(t, "apply", "-t", "fake", "-c", warnSpec(t), "--json")
+	if err != nil || out != "" {
+		t.Fatalf("apply --json = %q, %v; want no output", out, err)
+	}
+	errOut := stderr()
+	findings := strings.Index(errOut, "\nFindings:\n  ! "+fakePlanWarning.Message+"\n")
+	prompt := strings.Index(errOut, "Deploy demo to fake? [y/N]")
+	aborted := strings.Index(errOut, "Aborted.\n")
+	if findings < 0 || prompt < findings || aborted < prompt || strings.Contains(errOut, "deploying") {
+		t.Errorf("stderr should show the findings, the prompt and then Aborted.:\n%s", errOut)
+	}
+}
+
+func TestApplyPromptShowsNoExtraFindings(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		interactive bool
+		warn        bool
+		args        []string
+	}{
+		{"no findings", true, false, []string{"--json"}},
+		{"--yes", true, true, []string{"--json", "--yes"}},
+		{"--dry-run", true, true, []string{"--json", "--dry-run"}},
+		{"text", true, true, nil},
+		{"not a terminal", false, true, []string{"--json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stderr := answerPrompt(t, tc.interactive, "y")
+			config := fakeSpec(t)
+			if tc.warn {
+				config = warnSpec(t)
+			}
+			out, err := runCLI(t, append([]string{"apply", "-t", "fake", "-c", config}, tc.args...)...)
+			if !tc.interactive {
+				if err == nil || !strings.Contains(err.Error(), "pass --yes") || out != "" {
+					t.Errorf("apply = %q, %v; want the refusal", out, err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if errOut := stderr(); strings.Contains(errOut, "Findings:") {
+				t.Errorf("stderr shows findings:\n%s", errOut)
+			}
+			if tc.args == nil {
+				if n := strings.Count(out, fakePlanWarning.Message); n != 1 {
+					t.Errorf("the warning shows %d times:\n%s", n, out)
+				}
+			} else if tc.interactive {
+				decode[resultOutput](t, out)
+			}
+		})
+	}
+}
+
 func TestDestroyJSON(t *testing.T) {
 	config := fakeSpec(t)
 	out, err := runCLI(t, "destroy", "-t", "fake", "-c", config, "--dry-run", "--json")
