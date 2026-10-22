@@ -30,15 +30,18 @@ func selectServices(s *spec.Spec, ad adapter.Adapter, names []string, images map
 		if _, ok := s.Services[name]; !ok {
 			return nil, fmt.Errorf("unknown service %q; services: %s", name, strings.Join(s.ServiceNames(), ", "))
 		}
+		// This refusal is reworded for MCP agents by agentText in internal/cli/mcp.go; keep in sync.
 		if seen[name] {
 			return nil, fmt.Errorf("--service names %s twice", name)
 		}
 		seen[name] = true
 	}
+	// This refusal is reworded for MCP agents by agentText in internal/cli/mcp.go; keep in sync.
 	if _, ok := ad.(adapter.ServiceSelector); !ok {
 		return nil, fmt.Errorf("the %s target can't deploy some services only; drop --service to deploy all of them", ad.Name())
 	}
 	for _, name := range slices.Sorted(maps.Keys(images)) {
+		// This refusal is reworded for MCP agents by agentText in internal/cli/mcp.go; keep in sync.
 		if !seen[name] {
 			return nil, fmt.Errorf("--image %s is for a service this run leaves out; add --service %s or drop the image", name, name)
 		}
