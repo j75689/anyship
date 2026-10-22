@@ -6,9 +6,16 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/j75689/anyship/adapter"
+	"github.com/j75689/anyship/adapters/aws"
+	"github.com/j75689/anyship/adapters/cloudflare"
+	"github.com/j75689/anyship/adapters/gcp"
+	"github.com/j75689/anyship/adapters/kubernetes"
+	"github.com/j75689/anyship/adapters/vps"
 	"github.com/j75689/anyship/spec"
 )
 
@@ -172,6 +179,127 @@ func TestApplyJSONKeepsStdoutForTheResult(t *testing.T) {
 	}
 	if len(got.Files) != 1 || filepath.Base(got.Files[0]) != "generated.yaml" {
 		t.Errorf("files = %v", got.Files)
+	}
+}
+
+// warnSpec is fakeSpec with options that make the fake plan warn.
+func warnSpec(t *testing.T) string {
+	t.Helper()
+	path := fakeSpec(t)
+	src, _ := os.ReadFile(path)
+	if err := os.WriteFile(path, append(src, "  targets:\n    fake: {warn: true}\n"...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// codeIndex is where the finding with code is in findings, or -1.
+func codeIndex(findings []adapter.Finding, code string) int {
+	return slices.IndexFunc(findings, func(f adapter.Finding) bool { return f.Code == code })
+}
+
+// The plan's findings come first, so they are there even when the target's
+// checks fail.
+func TestApplyOutputPutsPlanFindingsFirst(t *testing.T) {
+	note := adapter.Finding{Level: adapter.Info, Code: "FAKE_PLAN_NOTE", Message: "A note."}
+	preflight := adapter.Finding{Level: adapter.Error, Code: "FAKE_PREFLIGHT", Message: "fakectl is missing."}
+	p := &adapter.Plan{Findings: []adapter.Finding{fakePlanWarning, note}, Files: []adapter.File{{Path: "generated.yaml"}}}
+	r := &adapter.Result{Findings: []adapter.Finding{preflight}, Messages: []string{"failed"}}
+
+	out := newApplyOutput(p, r, &tailBuffer{max: maxToolOutput}, shell)
+	if want := []adapter.Finding{fakePlanWarning, note, preflight}; !reflect.DeepEqual(out.Findings, want) {
+		t.Errorf("findings = %+v, want %+v", out.Findings, want)
+	}
+	if out.OK || !reflect.DeepEqual(out.Files, []string{"generated.yaml"}) {
+		t.Errorf("apply output = %+v", out)
+	}
+	if hint := newApplyOutput(p, r, &tailBuffer{max: maxToolOutput}, agent).Findings[0].Hint; hint != "Run the apply tool with its services argument to deploy it alone." {
+		t.Errorf("agent hint = %q", hint)
+	}
+	if out := newApplyOutput(&adapter.Plan{}, &adapter.Result{OK: true}, &tailBuffer{max: maxToolOutput}, shell); out.Findings == nil {
+		t.Error("findings should be [] when there are none")
+	}
+}
+
+// apply --json carries the plan's findings on every target, ahead of the
+// checks. The checks fail without the target's tools; vps gets an ssh that
+// answers, since it has no check of its own when ssh is missing.
+func TestApplyJSONIncludesPlanFindingsOnEveryTarget(t *testing.T) {
+	path := t.TempDir()
+	t.Setenv("PATH", path)
+	adapters := []adapter.Adapter{gcp.New(), aws.New(), kubernetes.New(), cloudflare.New(), vps.New()}
+	for _, tc := range []struct{ target, services, code string }{
+		{"gcp", `    db: {kind: server, image: "db:1"}
+    web: {kind: server, image: "web:1", ports: [{port: 80}], dependsOn: [db]}
+  targets:
+    gcp: {project: my-project, region: us-central1}`, "GCP_DEPENDS_ON"},
+		{"aws", `    db: {kind: server, image: "db:1"}
+    web: {kind: server, image: "web:1", dependsOn: [db]}
+  targets:
+    aws: {region: us-east-1}`, "AWS_DEPENDS_ON"},
+		{"kubernetes", `    db: {kind: server, image: "db:1"}
+    web: {kind: server, image: "web:1", dependsOn: [db]}
+  targets:
+    kubernetes: {namespace: demo}`, "K8S_DEPENDS_ON"},
+		{"cloudflare", `    web: {kind: static, replicas: 2, build: {command: make, output: out}}`, "CF_REPLICAS_IGNORED"},
+		{"vps", `    web: {kind: server, image: "web:latest"}
+  targets:
+    vps: {host: example.com}`, "VPS_MUTABLE_TAG"},
+	} {
+		t.Run(tc.target, func(t *testing.T) {
+			config := filepath.Join(t.TempDir(), spec.Filename)
+			src := "apiVersion: anyship/v1alpha1\nkind: App\nmetadata:\n  name: demo\nspec:\n  services:\n" + tc.services + "\n"
+			if err := os.WriteFile(config, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if tc.target == "vps" {
+				installHelper(t, path, "ssh")
+			}
+			out, _ := runCLIOn(t, adapters, "apply", "-t", tc.target, "-c", config, "--dry-run", "--yes", "--json")
+			got := decode[resultOutput](t, out).Findings
+			i := codeIndex(got, tc.code)
+			if i < 0 {
+				t.Fatalf("findings = %+v, want %s", got, tc.code)
+			}
+			if j := slices.IndexFunc(got, func(f adapter.Finding) bool { return f.Level == adapter.Error }); j < i {
+				t.Errorf("findings = %+v, want %s before the failed check", got, tc.code)
+			}
+		})
+	}
+
+	// Over MCP too.
+	var viaTool resultOutput
+	if msg := connectMCP(t, false).call(t, "apply", map[string]any{"config": warnSpec(t), "target": "fake", "dry_run": true}, &viaTool); msg != "" {
+		t.Fatal(msg)
+	}
+	if i := codeIndex(viaTool.Findings, "FAKE_PLAN_WARNING"); i < 0 || !strings.Contains(viaTool.Findings[i].Hint, "the apply tool") {
+		t.Errorf("apply tool findings = %+v", viaTool.Findings)
+	}
+}
+
+// The terminal already shows the plan before it asks, so apply doesn't show
+// its warnings again; neither does --json.
+func TestApplyTextShowsPlanWarningsOnce(t *testing.T) {
+	config := warnSpec(t)
+	out, err := runCLI(t, "apply", "-t", "fake", "-c", config, "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(out, fakePlanWarning.Message); n != 1 {
+		t.Errorf("the warning shows %d times:\n%s", n, out)
+	}
+	out, err = runCLI(t, "apply", "-t", "fake", "-c", config, "--yes", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	for _, f := range decode[resultOutput](t, out).Findings {
+		if f.Code == fakePlanWarning.Code {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("apply --json has %d %s findings:\n%s", n, fakePlanWarning.Code, out)
 	}
 }
 

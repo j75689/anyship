@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/j75689/anyship/adapter"
 	"github.com/j75689/anyship/adapters/gcp"
 	"github.com/j75689/anyship/adapters/vps"
 	"github.com/j75689/anyship/spec"
@@ -128,5 +129,44 @@ func TestMCPServicesArgument(t *testing.T) {
 		if msg := h.call(t, tool, args, nil); !strings.Contains(msg, `unknown service "api"; services: web`) {
 			t.Errorf("%s with an unknown service: %q", tool, msg)
 		}
+	}
+}
+
+// An agent that applies some services without planning first still hears
+// about a secret a left-out service reads, ahead of the checks.
+func TestMCPApplyServicesWarnsSharedSecretWithoutPlan(t *testing.T) {
+	h := connectMCP(t, false, gcp.New())
+	config := filepath.Join(t.TempDir(), spec.Filename)
+	src := `apiVersion: anyship/v1alpha1
+kind: App
+metadata:
+  name: shop
+spec:
+  services:
+    web: {kind: server, image: "web:1", ports: [{port: 80}], secrets: [DB_URL]}
+    search: {kind: server, image: "search:1", ports: [{port: 8080}], secrets: [DB_URL]}
+  secrets:
+    DB_URL: {}
+  targets:
+    gcp: {project: my-project, region: us-central1}
+`
+	if err := os.WriteFile(config, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DB_URL", "postgres://new")
+	t.Setenv("PATH", t.TempDir()) // no gcloud: the checks fail
+
+	var out resultOutput
+	if msg := h.call(t, "apply", map[string]any{"config": config, "target": "gcp", "services": []string{"web"}, "dry_run": true}, &out); msg != "" {
+		t.Fatal(msg)
+	}
+	i, j := codeIndex(out.Findings, "GCP_SECRET_SHARED_LEFT_OUT"), codeIndex(out.Findings, "GCP_PREFLIGHT_GCLOUD")
+	if i < 0 || j < 0 || i > j || out.OK {
+		t.Fatalf("apply = %+v, want GCP_SECRET_SHARED_LEFT_OUT before GCP_PREFLIGHT_GCLOUD", out)
+	}
+	f := out.Findings[i]
+	if f.Level != adapter.Warning || !strings.Contains(f.Message, "search list(s) it too") || strings.Contains(f.Hint, "--service") ||
+		!strings.Contains(f.Hint, "services argument") {
+		t.Errorf("finding = %+v", f)
 	}
 }

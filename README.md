@@ -276,8 +276,8 @@ under `existing` when the directory already has an `anyship.yaml`; it writes not
 --stdout` prints the draft alone. `validate --json` lists the problems. `plan --json` includes the
 contents of the files a deploy would generate, since `plan` writes none. `status --json` adds `healthy`,
 the verdict the exit code gives. `apply --json` and `destroy --json` return the outcome with the tail
-of what the tools printed. `targets --json` says how to read each target's page, and
-`anyship targets <name>` prints it.
+of what the tools printed; `apply`'s findings start with the plan's warnings and notes. `targets
+--json` says how to read each target's page, and `anyship targets <name>` prints it.
 
 `plan` and `apply` take `--image <service>=<image>` to deploy a different image than the spec names,
 for that run only. A pipeline passes the digest it just built, and `anyship.yaml` stays as it is:
@@ -360,7 +360,7 @@ that look like projects, so the agent can pass one as `dir`.
 | `status`, `logs` | what runs on the target (with a `healthy` verdict), and its recent logs (`timestamps` to date them) | no |
 | `diagnose_context` | everything above plus dry-run checks, redacted, for diagnosing a failure | no |
 | `doctor` | which CLIs a target needs are installed on this machine, their versions and logins | no |
-| `apply` | deploy; `dry_run` runs the target's checks and generates the deployment files; the result names the files written | `.anyship/<target>/`; deploys only with `--allow-deploy` |
+| `apply` | deploy; `dry_run` runs the target's checks and generates the deployment files; the result names the files written, and its findings start with the plan's warnings and notes | `.anyship/<target>/`; deploys only with `--allow-deploy` |
 | `destroy` | remove a deployment; `volumes` also deletes data | no; removes only with `--allow-deploy` |
 
 The server also serves two kinds of resources, for an agent writing `anyship.yaml`: `anyship://schema`,
