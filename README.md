@@ -278,8 +278,7 @@ contents of the files a deploy would generate, since `plan` writes none. `status
 the verdict the exit code gives. `apply --json` and `destroy --json` return the outcome with the tail
 of what the tools printed; `apply`'s findings start with the plan's warnings and notes. When `apply
 --json` asks on a terminal, without `--yes` or `--dry-run`, it shows the plan's findings on stderr
-first. `targets
---json` says how to read each target's page, and `anyship targets <name>` prints it.
+first. `targets --json` says how to read each target's page, and `anyship targets <name>` prints it.
 
 `plan` and `apply` take `--image <service>=<image>` to deploy a different image than the spec names,
 for that run only. A pipeline passes the digest it just built, and `anyship.yaml` stays as it is:
