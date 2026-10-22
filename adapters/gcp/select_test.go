@@ -293,6 +293,15 @@ func TestPlanSelectedWarnsSharedSecret(t *testing.T) {
 	if got := codes(plan(t, s, env), adapter.Warning); slices.Contains(got, "GCP_SECRET_SHARED_LEFT_OUT") {
 		t.Errorf("warned with search selected: %q", got)
 	}
+
+	// Two left-out services list it: the hint adds both.
+	s = selectSpec(t, `, "secrets": ["DB_URL"]`)
+	env.Services = []string{"web"}
+	p = plan(t, s, env)
+	i := slices.IndexFunc(p.Findings, func(f adapter.Finding) bool { return f.Code == "GCP_SECRET_SHARED_LEFT_OUT" })
+	if want := "Run `anyship apply` without --service, or add --service reels --service search."; i < 0 || p.Findings[i].Hint != want {
+		t.Errorf("findings = %+v, want the hint %q", p.Findings, want)
+	}
 }
 
 // Criterion 4: a run fails before any change when a service it deploys
