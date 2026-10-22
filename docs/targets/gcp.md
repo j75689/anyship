@@ -131,10 +131,11 @@ spec:
   loses the jobs of entries taken out of its `cron`, and the jobs of a service taken out of the
   spec are deleted, whichever services the run selects. `dependsOn` isn't followed. A
   `${services.<name>.url}` for a left-out service is read from Cloud Run before anything changes
-  (the plan shows a placeholder): the URL a full `apply` passes when the service answers on it,
-  otherwise the one it answers on (`GCP_SERVICE_URL_LEGACY`), and the run fails if it isn't
-  deployed (`GCP_SERVICE_NOT_DEPLOYED`); a left-out service whose URL is too long to follow from its
-  name is refused as in a full `apply` (`GCP_NAME_URL`). A selected service that calls a left-out
+  (the plan shows a placeholder, and the `.gcloud.txt` that `apply` writes, with `--dry-run` too,
+  the URL): the URL a full `apply` passes when the service answers on it, otherwise the one it
+  answers on (`GCP_SERVICE_URL_LEGACY`), and the run fails if it isn't deployed
+  (`GCP_SERVICE_NOT_DEPLOYED`); a left-out service whose URL is too long to follow from its name is
+  refused as in a full `apply` (`GCP_NAME_URL`). A selected service that calls a left-out
   internal one gets a warning (`GCP_SERVICE_LEFT_OUT_INTERNAL`): that service's invoker binding
   isn't changed, so a caller whose service account changed or is new waits for a full `apply`. So
   does a stale grant to an account a left-out service runs as. A secret whose `$NAME` is set gets a

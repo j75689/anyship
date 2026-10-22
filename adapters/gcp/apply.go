@@ -124,6 +124,14 @@ func (a *Adapter) Apply(ctx context.Context, plan *adapter.Plan, _ *spec.Spec, e
 			return result(false, "Preflight checks failed; nothing was changed."), nil
 		}
 	}
+	// The checks have read the project number and the URLs of the left-out
+	// services, so the deploy commands can show them.
+	for _, sv := range data.services {
+		f := gcloudFile(data, env.OutDir, sv)
+		if err := os.WriteFile(f.Path, f.Contents, 0o644); err != nil {
+			return nil, err
+		}
+	}
 	if env.DryRun {
 		// Say which secret access the apply would take away, since that
 		// is the one thing it does that isn't in the plan.

@@ -412,6 +412,31 @@ func TestPlanSelectedHasNoSideEffects(t *testing.T) {
 	}
 }
 
+// Once the checks have read it, a dry run writes the URL a left-out service
+// answers on into the deploy command, as the real apply passes it.
+func TestDryRunSelectedWritesResolvedURL(t *testing.T) {
+	s := selectSpec(t, "")
+	env, _ := selectEnv(t)
+	env.DryRun = true
+	if res := applySelected(t, s, env); !res.OK {
+		t.Fatalf("dry run: %+v", res)
+	}
+	got, err := os.ReadFile(filepath.Join(env.OutDir, "web.gcloud.txt"))
+	if err != nil || !strings.Contains(string(got), "SEARCH="+searchURL+" ") || strings.Contains(string(got), "<URL of") {
+		t.Errorf("web.gcloud.txt = %s, %v; want SEARCH=%s", got, err, searchURL)
+	}
+
+	// The project number is read by then too, in a full run as well.
+	env.Services = nil
+	if res := applySelected(t, s, env); !res.OK {
+		t.Fatalf("full dry run: %+v", res)
+	}
+	got, err = os.ReadFile(filepath.Join(env.OutDir, "reels.gcloud.txt"))
+	if err != nil || !strings.Contains(string(got), "--service-account 123456789-compute@developer.gserviceaccount.com ") || strings.Contains(string(got), numberPlaceholder) {
+		t.Errorf("reels.gcloud.txt = %s, %v; want the default account with the project number", got, err)
+	}
+}
+
 // Criterion 6: the plan says what it leaves untouched, and what the left-out
 // services keep. Their own findings don't block the run.
 func TestPlanSelectedSaysWhatIsUntouched(t *testing.T) {
