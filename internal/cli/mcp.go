@@ -105,6 +105,8 @@ func agentText(text string) string {
 			return tool(m[1]) + " with dry_run=true"
 		case strings.Contains(m[2], "--image"):
 			return tool(m[1]) + " with its images argument"
+		case strings.Contains(m[2], "--service"):
+			return tool(m[1]) + " with its services argument"
 		}
 		return tool(m[1])
 	})
@@ -161,9 +163,10 @@ type targetInput struct {
 }
 
 type planInput struct {
-	Config string            `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
-	Target string            `json:"target" jsonschema:"deploy target such as vps or cloudflare; the targets tool lists them"`
-	Images map[string]string `json:"images,omitempty" jsonschema:"image to deploy per service instead of the one in the spec, for this call only"`
+	Config   string            `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
+	Target   string            `json:"target" jsonschema:"deploy target such as vps or cloudflare; the targets tool lists them"`
+	Images   map[string]string `json:"images,omitempty" jsonschema:"image to deploy per service instead of the one in the spec, for this call only"`
+	Services []string          `json:"services,omitempty" jsonschema:"deploy only these services and leave the others as they run"`
 }
 
 type detectInput struct {
@@ -198,10 +201,11 @@ type diagnoseContextOutput struct {
 }
 
 type applyInput struct {
-	Config string            `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
-	Target string            `json:"target" jsonschema:"deploy target such as vps or cloudflare"`
-	DryRun bool              `json:"dry_run,omitempty" jsonschema:"only run the target's checks and write the generated files under .anyship/; deploy nothing"`
-	Images map[string]string `json:"images,omitempty" jsonschema:"image to deploy per service instead of the one in the spec, for this call only"`
+	Config   string            `json:"config,omitempty" jsonschema:"path to anyship.yaml; defaults to anyship.yaml in the server's working directory"`
+	Target   string            `json:"target" jsonschema:"deploy target such as vps or cloudflare"`
+	DryRun   bool              `json:"dry_run,omitempty" jsonschema:"only run the target's checks and write the generated files under .anyship/; deploy nothing"`
+	Images   map[string]string `json:"images,omitempty" jsonschema:"image to deploy per service instead of the one in the spec, for this call only"`
+	Services []string          `json:"services,omitempty" jsonschema:"deploy only these services and leave the others as they run"`
 }
 
 type destroyInput struct {
@@ -263,6 +267,9 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			return nil, planOutput{}, err
 		}
 		if err := overrideImages(d.spec, in.Images); err != nil {
+			return nil, planOutput{}, err
+		}
+		if d.env.Services, err = selectServices(d.spec, d.adapter, in.Services, in.Images); err != nil {
 			return nil, planOutput{}, err
 		}
 		p, err := d.adapter.Plan(ctx, d.spec, d.env)
@@ -361,6 +368,9 @@ func newMCPServer(a *app, version string, allowDeploy bool) *mcp.Server {
 			return nil, resultOutput{}, err
 		}
 		if err := overrideImages(d.spec, in.Images); err != nil {
+			return nil, resultOutput{}, err
+		}
+		if d.env.Services, err = selectServices(d.spec, d.adapter, in.Services, in.Images); err != nil {
 			return nil, resultOutput{}, err
 		}
 		p, err := d.adapter.Plan(ctx, d.spec, d.env)

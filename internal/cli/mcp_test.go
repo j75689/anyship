@@ -585,6 +585,7 @@ func TestAgentTextNamesToolsNotCommands(t *testing.T) {
 		"Removed nothing; `anyship destroy -t vps --volumes` also deletes data.":                                  "Removed nothing; the destroy tool with volumes=true also deletes data.",
 		"Check the host first with `anyship apply -t vps --dry-run`.":                                             "Check the host first with the apply tool with dry_run=true.",
 		"Pin it by digest, or override it for one deploy: `anyship apply --image web=<ref>`.":                     "Pin it by digest, or override it for one deploy: the apply tool with its images argument.",
+		"Deploy it first with `anyship apply -t gcp --service search`, or drop --service.":                        "Deploy it first with the apply tool with its services argument, or drop --service.",
 		"Ask Claude with `anyship diagnose -t vps`.":                                                              "Ask Claude with the diagnose_context tool with target=vps.",
 		// Advice about other programs, and about this server, is the user's to act on.
 		"Check that `ssh -p 2222 deploy@h` works without a password prompt.":                                   "Check that `ssh -p 2222 deploy@h` works without a password prompt.",
