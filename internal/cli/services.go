@@ -15,7 +15,7 @@ import (
 // addServiceFlag adds --service, which deploys some services only.
 func addServiceFlag(cmd *cobra.Command, services *[]string) {
 	cmd.Flags().StringArrayVar(services, "service", nil,
-		"deploy only this service and leave the others as they run (repeatable)")
+		"deploy only the service of this `name` and leave the others as they run (repeatable)")
 }
 
 // selectServices checks --service against the spec, the target and the
