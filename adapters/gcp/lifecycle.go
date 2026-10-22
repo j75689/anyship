@@ -20,8 +20,10 @@ const defaultLogLimit = 100
 type cloudRunService struct {
 	Metadata struct {
 		Name string `json:"name"`
-		// Annotations hold run.googleapis.com/urls, every URL the service
-		// answers on, as a JSON array.
+		// Annotations may hold run.googleapis.com/urls, every URL the
+		// service answers on, as a JSON array. It is output-only and not in
+		// Google's public docs, so it is only a second signal: status.url
+		// normally already is the URL made from the project number.
 		Annotations map[string]string `json:"annotations"`
 	} `json:"metadata"`
 	Spec struct {
@@ -31,7 +33,8 @@ type cloudRunService struct {
 					Image string `json:"image"`
 				} `json:"containers"`
 				// ServiceAccountName is the account the service runs as;
-				// empty for the project's default one.
+				// empty for the project's default one (Cloud Run v1
+				// RevisionSpec).
 				ServiceAccountName string `json:"serviceAccountName"`
 			} `json:"spec"`
 		} `json:"template"`

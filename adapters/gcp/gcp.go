@@ -410,8 +410,8 @@ func (a *Adapter) Plan(_ context.Context, s *spec.Spec, env *adapter.Env) (*adap
 // untouchedDetail says what a run that leaves a service out keeps of it.
 func untouchedDetail(sv service, used map[string]bool, project string) string {
 	detail := "left untouched (not selected with --service)"
-	if len(sv.jobs) > 0 {
-		detail += fmt.Sprintf("; its %d Cloud Scheduler job(s) are kept", len(sv.jobs))
+	if len(sv.svc.Cron) > 0 {
+		detail += "; its Cloud Scheduler jobs are kept"
 	}
 	var kept []string
 	for _, name := range sv.svc.Secrets {
@@ -438,7 +438,7 @@ func leftOutCallees(d *planData) []adapter.Finding {
 			}
 			findings = append(findings, adapter.Finding{
 				Level: adapter.Warning, Code: "GCP_SERVICE_LEFT_OUT_INTERNAL", Service: sv.name,
-				Message: fmt.Sprintf("%s calls %s, which this run leaves out: %s's run.invoker binding isn't changed, so if %s now runs as another account it can't call %s until a full apply.", sv.name, ref, ref, sv.name, ref),
+				Message: fmt.Sprintf("%s calls %s, which this run leaves out, so %s's run.invoker binding isn't changed. That only matters if %s's service account changed or is new: then it can't call %s until a full apply.", sv.name, ref, ref, sv.name, ref),
 				Hint:    fmt.Sprintf("Run `anyship apply` without --service, or add --service %s.", ref),
 			})
 		}

@@ -126,8 +126,8 @@ spec:
   otherwise the one it answers on (`GCP_SERVICE_URL_LEGACY`), and the run fails if it isn't
   deployed (`GCP_SERVICE_NOT_DEPLOYED`). A selected service that calls a left-out internal one
   gets a warning (`GCP_SERVICE_LEFT_OUT_INTERNAL`): that service's invoker binding isn't changed,
-  so a caller that now runs as another account waits for a full `apply`. So does a stale grant to
-  an account a left-out service runs as.
+  so a caller whose service account changed or is new waits for a full `apply`. So does a stale
+  grant to an account a left-out service runs as.
 - Refused with a reason: static sites, workers, volumes, TCP/UDP ports, `domains`
   (`GCP_DOMAIN_UNSUPPORTED`; map them with `gcloud beta run domain-mappings` or a load balancer) and
   resources anyship would have to provision. `logs -f` points to `gcloud beta run services logs tail`.

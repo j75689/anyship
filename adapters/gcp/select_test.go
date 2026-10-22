@@ -292,8 +292,8 @@ func TestPlanSelectedSaysWhatIsUntouched(t *testing.T) {
 		}
 	}
 	want := map[string]string{
-		"shop-search": "left untouched (not selected with --service); its 1 Cloud Scheduler job(s) are kept; secret(s) no selected service lists are kept: shop-SEARCH_KEY",
-		"shop-reels":  "left untouched (not selected with --service); its 1 Cloud Scheduler job(s) are kept",
+		"shop-search": "left untouched (not selected with --service); its Cloud Scheduler jobs are kept; secret(s) no selected service lists are kept: shop-SEARCH_KEY",
+		"shop-reels":  "left untouched (not selected with --service); its Cloud Scheduler jobs are kept",
 	}
 	if len(untouched) != len(want) || untouched["shop-search"] != want["shop-search"] || untouched["shop-reels"] != want["shop-reels"] {
 		t.Errorf("untouched = %q, want %q", untouched, want)
