@@ -286,8 +286,9 @@ for that run only. A pipeline passes the digest it just built, and `anyship.yaml
 $ anyship apply -t gcp --image web=us-docker.pkg.dev/acme/apps/shop@sha256:9b2c…
 ```
 
-On `gcp`, `plan` and `apply` also take `--service <name>` (repeatable) to deploy only those services
-and leave the others as they run: their secret access, invoker bindings and cron jobs are kept, and
+On `gcp`, `plan` and `apply` also take `--service <name>` (repeatable), and the MCP `plan` and
+`apply` tools a `services` argument, to deploy only those services and leave the others as they
+run: their secret access, invoker bindings and cron jobs are kept, and
 the URLs the deployed services refer to are read from Cloud Run. `--image` can then only name a
 selected service. The other targets refuse `--service`; `targets` lists `services` among a
 target's capabilities when it takes it.
