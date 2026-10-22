@@ -339,6 +339,11 @@ func (a *app) applyCommand() *cobra.Command {
 				if len(d.env.Services) > 0 {
 					what = strings.Join(d.env.Services, ", ") + " of " + what
 				}
+				// --json skipped printPlan, so show its findings before asking.
+				if asJSON && len(p.Findings) > 0 && stdinIsTerminal() {
+					fmt.Fprintln(os.Stderr, "\nFindings:")
+					printFindings(os.Stderr, newStyler(os.Stderr), p.Findings)
+				}
 				ok, err := confirm(a.promptWriter(asJSON), fmt.Sprintf("\nDeploy %s to %s?", what, d.adapter.Name()))
 				if err != nil {
 					return err
@@ -619,8 +624,11 @@ func causeForUser(err error) error {
 	return err
 }
 
+// stdinIsTerminal is a variable so tests can answer a prompt.
+var stdinIsTerminal = func() bool { return isTerminal(os.Stdin) }
+
 func confirm(w io.Writer, question string) (bool, error) {
-	if !isTerminal(os.Stdin) {
+	if !stdinIsTerminal() {
 		return false, errors.New("refusing to continue without confirmation in a non-interactive shell; pass --yes")
 	}
 	fmt.Fprintf(w, "%s [y/N] ", question)
